@@ -21,6 +21,7 @@ from jumpy.expressions import (
 from jumpy.iterators import Iterator
 from jumpy.serialize import serialize_constraint, serialize_expr
 from jumpy.backend import Backend, get_backend
+from jumpy.mof_export import write_mof
 
 
 def minimize(expr: Expr) -> Objective:
@@ -41,7 +42,6 @@ def sum_over(iterator: Iterator, expr: Expr) -> Expr:
         jp.sum_over(i, costs[i] * x[i])
     """
     return SumExpr(iterator, expr)
-
 
 @dataclass
 class ConstraintGroup:
@@ -74,6 +74,8 @@ class VariableBlock:
     lower: float | None
     upper: float | None
     vector: VariableVector
+    binary: bool = False
+    integer: bool = False
 
 
 class SumExpr(Expr):
@@ -127,6 +129,8 @@ class Model:
         lower: float | None = None,
         upper: float | None = None,
         name: str | None = None,
+        binary: bool = False,
+        integer: bool = False,
     ) -> VariableVector:
         """
         Add a block of decision variables.
@@ -141,7 +145,9 @@ class Model:
             vars.append(Variable(start + k, var_name))
         self._num_vars += count
         vec = VariableVector(vars, name)
-        self._var_blocks.append(VariableBlock(start, count, lower, upper, vec))
+        self._var_blocks.append(
+            VariableBlock(start, count, lower, upper, vec, binary, integer)
+        )
         return vec
 
     def variable(
@@ -150,9 +156,13 @@ class Model:
         lower: float | None = None,
         upper: float | None = None,
         name: str | None = None,
+        binary: bool = False,
+        integer: bool = False,
     ) -> Variable:
         """Add a single decision variable."""
-        vec = self.variables(1, lower=lower, upper=upper, name=name)
+        vec = self.variables(
+            1, lower=lower, upper=upper, name=name, binary=binary, integer=integer,
+        )
         return vec[0]
 
     # -- Constraints -----------------------------------------------------------
@@ -195,6 +205,12 @@ class Model:
     @objective.setter
     def objective(self, obj: Objective) -> None:
         self._objective = obj
+
+    # -- MOF -------------------------------------------------------------------
+
+    def write_mof(self, filename):
+        """ Output the MOF of the current model """
+        write_mof(self, filename)
 
     # -- Solve -----------------------------------------------------------------
 
@@ -265,5 +281,3 @@ class Model:
         if self._solution is None:
             raise RuntimeError("Model has not been solved yet. Call optimize() first.")
         return self._solution[var.index]
-
-
