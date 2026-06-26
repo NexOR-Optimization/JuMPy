@@ -130,11 +130,14 @@ _BACKENDS = {
     "juliacall": JuliaCallBackend,
 }
 
-
-def get_backend(name: str) -> Backend:
+def get_backend(name: str) -> "Backend":  # forward ref avoids circular import
+    # lazy import of VroomBackend to avoid loading juliacall at module import
+    if name == "vroom":
+        from jumpy.backend_vroom import VroomBackend
+        return VroomBackend()
     cls = _BACKENDS.get(name)
     if cls is None:
         raise ValueError(
-            f"Unknown backend '{name}'. Choose from: {list(_BACKENDS.keys())}"
+            f"Unknown backend '{name}'. Choose from: {list(_BACKENDS.keys()) + ['vroom']}"
         )
     return cls()

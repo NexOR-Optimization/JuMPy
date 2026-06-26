@@ -22,14 +22,22 @@ from jumpy.iterators import Iterator
 from jumpy.serialize import serialize_constraint, serialize_expr
 from jumpy.backend import Backend, get_backend
 from jumpy.mof_export import write_mof
+from jumpy.vrp_export import write_vrp_json
+from jumpy.vrp import VRPConstraint, VRPObjective, _SumOfDistances, OpSumDistances
 
 
-def minimize(expr: Expr) -> Objective:
+def minimize(expr) -> "Objective | VRPObjective":
+    from jumpy.vrp import OpSumDistances, _SumOfDistances, VRPObjective
+    if isinstance(expr, (OpSumDistances, _SumOfDistances)):
+        return VRPObjective("min", expr)
     return Objective("min", expr)
 
-
-def maximize(expr: Expr) -> Objective:
+def maximize(expr) -> "Objective | VRPObjective":
+    from jumpy.vrp import OpSumDistances, _SumOfDistances, VRPObjective
+    if isinstance(expr, (OpSumDistances, _SumOfDistances)):
+        return VRPObjective("max", expr)
     return Objective("max", expr)
+
 
 
 def sum_over(iterator: Iterator, expr: Expr) -> Expr:
@@ -119,6 +127,8 @@ class Model:
         self._objective: Objective | None = None
         self._num_vars: int = 0
         self._solution: list[float] | None = None
+        self._vrp_constraints: list[VRPConstraint] = []
+        self._routes: list[list[int]] | None = None
 
     # -- Variables -------------------------------------------------------------
 
@@ -195,6 +205,11 @@ class Model:
         """Add a single (non-grouped) constraint."""
         self._individual_constraints.append(con)
         return con
+    
+    def constraint_in_set(self, variables, set_) -> VRPConstraint:
+        con = VRPConstraint(variables, set_)
+        self._vrp_constraints.append(con)
+        return variables
 
     # -- Objective -------------------------------------------------------------
 
@@ -203,14 +218,36 @@ class Model:
         return self._objective
 
     @objective.setter
-    def objective(self, obj: Objective) -> None:
+    def objective(self, obj) -> None:
+        # accept both standard Objective and VRPObjective
         self._objective = obj
+
+    @property
+    def routes(self) -> list[list[int]] | None:
+        """
+        VRP solution: list of routes, one per truck.
+        Each route is a list of 0-based customer indices.
+        Only populated after optimize() with the Vroom backend.
+        None means not yet optimized.
+        """
+        return self._routes
+
 
     # -- MOF -------------------------------------------------------------------
 
     def write_mof(self, filename):
         """ Output the MOF of the current model """
         write_mof(self, filename)
+
+    def write_vrp_json(self, filename, locations=None):
+        """
+        Write the model to a MathOptVRP JSON file
+        
+        filename  : output path for the .json file
+        locations : list of [lon, lat] pairs, optional — index 0 is depot,
+                    index i (i > 0) is client i.  Length must be n_clients + 1.
+        """
+        write_vrp_json(self, filename, locations)
 
     # -- Solve -----------------------------------------------------------------
 
