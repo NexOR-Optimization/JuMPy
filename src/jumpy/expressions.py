@@ -266,6 +266,79 @@ class Objective:
         return f"{self.sense}({self.expr})"
 
 
+# -- extension points ----------------------------------------------------------
+#
+# Solver-specific modeling objects (e.g. the MathOptVRP support in jumpy.vrp)
+# plug into the core through these two base classes. The core (model.py,
+# bridge_juliacall.py) only ever dispatches on them, never on concrete
+# subclasses, so new solver extensions require no changes outside their own
+# module.
+
+
+class SolverFunction(Expr):
+    """
+    Base class for solver-specific scalar functions.
+
+    A SolverFunction is an opaque expression leaf that maps to an
+    MOI.ScalarNonlinearFunction with a custom head (e.g. MathOptVRP's
+    `op_sum_distances`). Because it is an Expr, it composes with ordinary
+    arithmetic: `sum(op_sum_distances(...) for t in trucks)` builds a plain
+    BinaryOp tree that flows through minimize() and the bridges unchanged.
+
+    Subclasses implement the juliacall protocol:
+
+        head        : str — the MOI nonlinear operator name
+        setup_julia : one-time Julia-side setup for the class (install extra
+                      packages, register MathOptFormat writer methods)
+        to_moi      : build the Julia MOI function via a bridge MOIContext
+
+    The pure-Python paths (serialize.py, mof_export.py) treat these nodes as
+    unsupported and raise a clear error.
+    """
+
+    head: str
+
+    @classmethod
+    def setup_julia(cls, jl) -> None:
+        """One-time Julia-side setup for this function type. Optional."""
+
+    def to_moi(self, ctx):
+        """Convert to a Julia MOI function. ctx is a bridge_juliacall.MOIContext."""
+        raise NotImplementedError(f"{type(self).__name__} does not implement to_moi()")
+
+
+class VectorSet:
+    """
+    Base class for vector sets used with Model.constraint_in_set().
+
+    Mirrors MOI.AbstractVectorSet: a `variables in set` constraint (e.g.
+    MathOptVRP's Partition). Subclasses define `dimension` and the same
+    juliacall protocol as SolverFunction.
+    """
+
+    @property
+    def dimension(self) -> int:
+        """Number of variables the set constrains."""
+        raise NotImplementedError
+
+    @classmethod
+    def setup_julia(cls, jl) -> None:
+        """One-time Julia-side setup for this set type. Optional."""
+
+    def to_moi(self, jl):
+        """Return the Julia MOI set instance for this set."""
+        raise NotImplementedError(f"{type(self).__name__} does not implement to_moi()")
+
+    def variable_names(self, variables) -> "list[str] | None":
+        """
+        Optional export names for the constrained variables (must match
+        len(variables)), or None to keep the default names. Lets a set impose
+        the Julia-side naming convention of its variable layout (e.g.
+        Partition's 2-D 1-based `nodes[i,t]`).
+        """
+        return None
+
+
 # -- convenience functions that return Func nodes -----------------------------
 
 def sin(x: Expr | Numeric) -> Func:

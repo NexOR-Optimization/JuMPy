@@ -13,6 +13,7 @@ from jumpy.expressions import (
     Func,
     IndexedParameter,
     IndexedVariable,
+    SolverFunction,
     UnaryOp,
     Variable,
 )
@@ -219,6 +220,11 @@ def _walk(e, sign, terms, const_box, subs):
         raise NotImplementedError(f"Binary op '{e.op}' is nonlinear or unsupported")
     if isinstance(e, Func):
         raise NotImplementedError(f"Nonlinear function '{e.name}' cannot be emitted as affine")
+    if isinstance(e, SolverFunction):
+        raise NotImplementedError(
+            f"Solver-specific function '{type(e).__name__}' cannot be exported "
+            "by the pure-Python MOF writer; use Model.write_mof (juliacall)"
+        )
     raise NotImplementedError(f"Unknown expression type: {type(e).__name__}")
 
 
@@ -369,6 +375,11 @@ def _build_node(e, subs, node_list):
         if op is None:
             raise NotImplementedError(f"Function '{e.name}' has no MOF mapping")
         return {"type": op, "args": [_arg_ref(e.arg, subs, node_list)]}
+    if isinstance(e, SolverFunction):
+        raise NotImplementedError(
+            f"Solver-specific function '{type(e).__name__}' cannot be exported "
+            "by the pure-Python MOF writer; use Model.write_mof (juliacall)"
+        )
     raise NotImplementedError(f"Cannot emit nonlinear node for {type(e).__name__}")
 
 

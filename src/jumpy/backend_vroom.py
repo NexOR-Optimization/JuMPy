@@ -4,13 +4,13 @@ backend_vroom.py
 JuMPy backend that builds a live JuMP + MathOptVRP model in Julia and solves
 it with Vroom.jl.
 
-This backend handles models that contain:
-  - VRPConstraint(variables, Partition(n, k))  — from m.constraint_in_set()
-  - VRPObjective with OpSumDistances terms     — from jp.minimize(sum(...))
+This backend handles the VRP shape of a (generic) JuMPy Model:
+  - one constraint_in_set(variables, Partition(n, k)) constraint
+  - an objective that is a sum of op_sum_distances terms, one per truck
 
-It does NOT handle standard JuMPy constraints or objectives — those go through
-the juliacall backend (HiGHS).  A model with both VRP and standard constraints
-is not supported.
+The shape is read and validated by the query helpers in jumpy.vrp
+(find_partition / objective_terms). Standard JuMPy constraints and objectives
+are not supported by Vroom — use the juliacall backend for those.
 """
 
 from __future__ import annotations
@@ -21,13 +21,7 @@ if TYPE_CHECKING:
     from jumpy.model import Model
 
 from jumpy.backend import Backend
-from jumpy.vrp import (
-    OpSumDistances,
-    Partition,
-    VRPObjective,
-    _SumOfDistances,
-)
-from jumpy.expressions import Variable
+from jumpy.vrp import MATHOPTVRP_URL, find_partition, objective_terms
 
 
 class VroomBackend(Backend):
@@ -35,7 +29,7 @@ class VroomBackend(Backend):
     Calls Julia's Vroom.jl solver through juliacall.
 
     On first use, installs and loads:
-        MathOptVRP, Vroom, JuMP
+        JuMP, MathOptVRP, Vroom
     """
 
     def __init__(self):
@@ -54,74 +48,39 @@ class VroomBackend(Backend):
                 "Install with: pip install jumpy[juliacall]"
             ) from None
 
-        jl.seval("using Pkg")
-        for pkg in ["JuMP", "MathOptVRP", "Vroom"]:
-            jl.seval(f"""
-                if !haskey(Pkg.project().dependencies, "{pkg}")
-                    Pkg.add("{pkg}")
-                end
-            """)
-        jl.seval("import JuMP")
-        jl.seval("import MathOptVRP")
-        jl.seval("import Vroom")
+        from jumpy.bridge_juliacall import ensure_package
+        ensure_package(jl, "JuMP")
+        ensure_package(jl, "MathOptVRP", url=MATHOPTVRP_URL)
+        ensure_package(jl, "Vroom")
         self._jl = jl
 
     # ── Main entry point ──────────────────────────────────────────────────────
 
     def optimize(self, model: Model) -> list[float]:
+        # --- read the VRP shape off the model (validates it too) ---
+        partition_con = find_partition(model)
+        terms = objective_terms(model, partition_con)
+
+        part = partition_con.set_
+        n, k = part.n_clients, part.n_trucks
+        depot = _single_depot(terms)
+        matrix = terms[0].matrix
+
+        if model._objective.sense != "min":
+            raise ValueError("Vroom only supports minimization objectives")
+        N = len(matrix)
+        if N != n + 1:
+            raise ValueError(
+                f"Vroom expects an (n_clients+1) x (n_clients+1) matrix, got {N}x{N}"
+            )
+        if model._constraint_groups or model._individual_constraints:
+            raise ValueError(
+                "VroomBackend only handles VRP models; standard constraints "
+                "are not supported (use backend='juliacall')"
+            )
+
         self._init_julia()
         jl = self._jl
-
-        # --- validate model shape ---
-        if not model._vrp_constraints:
-            raise ValueError(
-                "VroomBackend requires at least one constraint_in_set(variables, Partition(...))"
-            )
-        if not isinstance(model._objective, VRPObjective):
-            raise ValueError(
-                "VroomBackend requires a VRP objective built from op_sum_distances. "
-                "Use jp.minimize(sum(op_sum_distances(...) for ...))"
-            )
-
-        # --- find the Partition constraint ---
-        partition_con = None
-        for con in model._vrp_constraints:
-            if isinstance(con.set, Partition):
-                partition_con = con
-                break
-        if partition_con is None:
-            raise ValueError("No Partition constraint found in model")
-
-        part = partition_con.set
-        n = part.n_clients
-        k = part.n_trucks
-
-        # --- extract the distance matrix and depot from the objective ---
-        obj_expr = model._objective.expr
-        terms = (
-            obj_expr.terms
-            if isinstance(obj_expr, _SumOfDistances)
-            else [obj_expr]
-        )
-        if len(terms) != k:
-            raise ValueError(
-                f"Objective has {len(terms)} op_sum_distances terms "
-                f"but Partition has {k} trucks"
-            )
-
-        # all terms must share the same matrix and depot
-        M     = terms[0].matrix
-        depot = _extract_depot(terms[0])
-        for t in terms[1:]:
-            if t.matrix != M:
-                raise ValueError("All op_sum_distances terms must use the same matrix")
-            if _extract_depot(t) != depot:
-                raise ValueError("All op_sum_distances terms must use the same depot")
-
-        # matrix dimension check
-        N = len(M)
-        assert all(len(row) == N for row in M), "Distance matrix must be square"
-        assert N == n + 1, f"Matrix must be (n_clients+1) x (n_clients+1), got {N}x{N}"
 
         # --- build the JuMP model in Julia ---
         jl_model = jl.JuMP.Model(jl.Vroom.Optimizer)
@@ -139,25 +98,16 @@ class VroomBackend(Backend):
 
         # build the distance matrix as a Julia matrix
         jl_M = jl.seval("(rows...) -> hcat(rows...)'")(
-            *[jl.seval("collect")([int(M[i][j]) for j in range(N)])
+            *[jl.seval("collect")([int(matrix[i][j]) for j in range(N)])
               for i in range(N)]
         )
-
-        # figure out which Python variable indices correspond to which truck column
-        # The VariableVector is flat: variables[t * n + i] = truck t, position i
-        # (column-major, matching JuMP's Partition layout)
-        var_block = partition_con.variables  # VariableVector
-
-        # map each op_sum_distances sequence to the Julia column index
-        # The sequence is [depot_int, Var, Var, ..., Var, depot_int]
-        # We identify which truck column each term corresponds to by the
-        # variable indices in the sequence
-        col_assignments = _assign_columns(terms, var_block, n, k)
 
         # @objective(jl_model, Min, sum(
         #     MathOptVRP.op_sum_distances(M, vcat(depot, nodes[:,i], depot))
         #     for i in 1:k
         # ))
+        # objective_terms() guarantees term t visits partition column t, so the
+        # Julia columns line up with the Python objective terms.
         jl.seval("""
             function _vroom_set_objective(model, M, nodes, depot, n_trucks)
                 JuMP.@objective(model, Min,
@@ -171,6 +121,7 @@ class VroomBackend(Backend):
                 )
             end
         """)
+        # depot is already a 1-based location id (Julia matrix convention)
         jl._vroom_set_objective(jl_model, jl_M, jl_nodes, depot, k)
 
         # --- solve ---
@@ -193,6 +144,7 @@ class VroomBackend(Backend):
         # return a flat solution vector so m.value(x) works
         # variables in the partition block get their assigned customer value
         # (0 if the slot is not used — Vroom may leave some slots empty)
+        var_block = partition_con.variables
         sol = [0.0] * model._num_vars
         for t, route in enumerate(routes):
             for pos, cust in enumerate(route):
@@ -206,40 +158,17 @@ class VroomBackend(Backend):
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def _extract_depot(term: OpSumDistances) -> int:
-    """Get the depot index from an OpSumDistances sequence."""
-    seq = term.sequence
-    if not seq:
-        raise ValueError("op_sum_distances sequence is empty")
-    first = seq[0]
-    if not isinstance(first, (int, float)):
+def _single_depot(terms) -> int:
+    """
+    The one depot shared by every term's start and end.
+
+    The Vroom wrapper builds each truck's route as vcat(depot, column, depot),
+    so per-truck or asymmetric start/end depots are not supported here.
+    """
+    depots = {d for term in terms for d in (term.start, term.end)}
+    if len(depots) != 1:
         raise ValueError(
-            f"First element of op_sum_distances sequence must be the depot "
-            f"(an integer), got {type(first).__name__}"
+            "VroomBackend requires all op_sum_distances terms to start and "
+            f"end at the same depot, found depots {sorted(depots)}"
         )
-    return int(first)
-
-
-def _assign_columns(terms, var_block, n, k):
-    """
-    For each op_sum_distances term, determine which Julia column (1-based)
-    it corresponds to by inspecting which variable indices appear in the
-    sequence and matching them to the column-major layout of the partition.
-    """
-    assignments = []
-    for term in terms:
-        seq = term.sequence
-        # find the first Variable in the sequence
-        for item in seq:
-            if isinstance(item, Variable):
-                # flat index in var_block: col = flat_idx // n  (0-based)
-                local_idx = item.index - var_block[0].index
-                col_0based = local_idx // n
-                assignments.append(col_0based + 1)  # Julia is 1-based
-                break
-        else:
-            raise ValueError(
-                "op_sum_distances sequence contains no variables — "
-                "cannot determine truck column"
-            )
-    return assignments
+    return depots.pop()

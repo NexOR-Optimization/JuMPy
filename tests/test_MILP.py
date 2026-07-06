@@ -41,7 +41,6 @@ def test_binary_exports_zeroone_to_mof(tmp_path):
     zeroone = [c for c in doc["constraints"]
                if c["set"]["type"] == "ZeroOne"]
     assert len(zeroone) == 3
-    # remove the created file
 
 def test_integer_exports_integer_to_mof(tmp_path):
     m = jp.Model()

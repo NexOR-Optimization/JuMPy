@@ -15,6 +15,7 @@ import tempfile
 
 import jumpy as jp
 from jumpy.expressions import sin, cos, exp, log, sqrt
+from jumpy.vrp import op_sum_distances
 
 _TMP = tempfile.mkdtemp(prefix="mof_test_")
 
@@ -58,7 +59,7 @@ def con_terms(c):
 # Document structure
 
 def test_document_has_required_top_level_keys():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(2, name="x")
     m.objective = jp.minimize(x[0])
     doc = export(m, "doc_keys")
@@ -67,14 +68,14 @@ def test_document_has_required_top_level_keys():
 
 
 def test_version_is_mof_1_7():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     m.variables(1, name="x")
     doc = export(m, "version")
     assert doc["version"] == {"major": 1, "minor": 7}, doc["version"]
 
 
 def test_variable_count_matches():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     m.variables(5, name="x")
     m.variables(3, name="y")
     doc = export(m, "varcount")
@@ -84,7 +85,7 @@ def test_variable_count_matches():
 # Variables and bounds
 
 def test_lower_bound_emits_greaterthan():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     m.variables(2, lower=0, name="x")
     doc = export(m, "lower")
     gts = bound_constraints(doc, "GreaterThan")
@@ -93,7 +94,7 @@ def test_lower_bound_emits_greaterthan():
 
 
 def test_upper_bound_emits_lessthan():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     m.variables(2, upper=10, name="x")
     doc = export(m, "upper")
     lts = bound_constraints(doc, "LessThan")
@@ -102,7 +103,7 @@ def test_upper_bound_emits_lessthan():
 
 
 def test_both_bounds_emit_two_constraints_each():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     m.variables(2, lower=1, upper=5, name="x")
     doc = export(m, "both")
     assert len(bound_constraints(doc, "GreaterThan")) == 2
@@ -110,7 +111,7 @@ def test_both_bounds_emit_two_constraints_each():
 
 
 def test_no_bounds_emits_no_bound_constraints():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     m.variables(3, name="x")
     m.objective = jp.minimize(jp.Constant(0))
     doc = export(m, "nobounds")
@@ -118,7 +119,7 @@ def test_no_bounds_emits_no_bound_constraints():
 
 
 def test_unnamed_variables_get_fallback_name():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     m.variables(2)  # no name
     doc = export(m, "unnamed")
     names = {v["name"] for v in doc["variables"]}
@@ -127,7 +128,7 @@ def test_unnamed_variables_get_fallback_name():
 
 
 def test_named_variables_use_given_name():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     m.variables(3, name="route")
     doc = export(m, "named")
     names = [v["name"] for v in doc["variables"]]
@@ -137,21 +138,21 @@ def test_named_variables_use_given_name():
 # Integrality
 
 def test_binary_emits_zeroone():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     m.variables(4, binary=True, name="x")
     doc = export(m, "binary")
     assert len(bound_constraints(doc, "ZeroOne")) == 4
 
 
 def test_integer_emits_integer():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     m.variables(3, integer=True, name="x")
     doc = export(m, "integer")
     assert len(bound_constraints(doc, "Integer")) == 3
 
 
 def test_binary_with_bounds_coexist():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     m.variables(2, lower=0, upper=1, binary=True, name="x")
     doc = export(m, "binbound")
     assert len(bound_constraints(doc, "ZeroOne")) == 2
@@ -160,7 +161,7 @@ def test_binary_with_bounds_coexist():
 
 
 def test_zeroone_references_correct_variables():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     m.variables(2, binary=True, name="b")
     doc = export(m, "binnames")
     names = {c["function"]["name"] for c in bound_constraints(doc, "ZeroOne")}
@@ -168,7 +169,7 @@ def test_zeroone_references_correct_variables():
 
 
 def test_continuous_block_not_affected_by_neighbour_binary_block():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     m.variables(2, binary=True, name="b")
     m.variables(2, lower=0, name="c")  # continuous
     doc = export(m, "mixedblocks")
@@ -179,7 +180,7 @@ def test_continuous_block_not_affected_by_neighbour_binary_block():
 # Affine objectives
 
 def test_no_objective_is_feasibility():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     m.variables(2, name="x")
     doc = export(m, "feasibility")
     assert doc["objective"]["sense"] == "feasibility"
@@ -187,7 +188,7 @@ def test_no_objective_is_feasibility():
 
 
 def test_minimize_sense():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(2, name="x")
     m.objective = jp.minimize(x[0] + x[1])
     doc = export(m, "min")
@@ -195,7 +196,7 @@ def test_minimize_sense():
 
 
 def test_maximize_sense():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(2, name="x")
     m.objective = jp.maximize(x[0] + x[1])
     doc = export(m, "max")
@@ -203,7 +204,7 @@ def test_maximize_sense():
 
 
 def test_affine_objective_coefficients():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(3, name="x")
     m.objective = jp.minimize(2*x[0] + 3*x[1] - x[2])
     doc = export(m, "affcoef")
@@ -215,7 +216,7 @@ def test_affine_objective_coefficients():
 
 
 def test_objective_constant_term_preserved():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(1, name="x")
     m.objective = jp.minimize(x[0] + 7)
     doc = export(m, "objconst")
@@ -223,7 +224,7 @@ def test_objective_constant_term_preserved():
 
 
 def test_objective_coefficients_aggregate():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(1, name="x")
     m.objective = jp.minimize(x[0] + x[0] + x[0])
     doc = export(m, "objaggregate")
@@ -231,7 +232,7 @@ def test_objective_coefficients_aggregate():
 
 
 def test_objective_zero_coefficient_filtered():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(2, name="x")
     m.objective = jp.minimize(x[0] - x[0] + x[1])
     doc = export(m, "objzero")
@@ -241,7 +242,7 @@ def test_objective_zero_coefficient_filtered():
 
 
 def test_objective_sum_over_stays_affine():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(4, name="x")
     costs = jp.Parameter([1.0, 2.0, 3.0, 4.0])
     i = jp.Iterator(range(4))
@@ -255,7 +256,7 @@ def test_objective_sum_over_stays_affine():
 # Nonlinear objectives
 
 def test_exp_objective_is_nonlinear():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(1, name="x")
     m.objective = jp.minimize(exp(x[0]))
     doc = export(m, "objexp")
@@ -263,7 +264,7 @@ def test_exp_objective_is_nonlinear():
 
 
 def test_quadratic_objective_is_nonlinear():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(2, name="x")
     m.objective = jp.minimize(x[0] * x[1])  # bilinear → nonlinear
     doc = export(m, "objbilinear")
@@ -271,7 +272,7 @@ def test_quadratic_objective_is_nonlinear():
 
 
 def test_power_objective_is_nonlinear():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(1, name="x")
     m.objective = jp.minimize(x[0]**2)
     doc = export(m, "objpow")
@@ -282,7 +283,7 @@ def test_each_named_function_maps_to_operator():
     """sin/cos/exp/log/sqrt all appear as operator nodes."""
     fns = {"sin": sin, "cos": cos, "exp": exp, "log": log, "sqrt": sqrt}
     for opname, fn in fns.items():
-        m = jp.Model()
+        m = jp.Model(backend="juliacall")
         x = m.variables(1, name="x")
         m.objective = jp.minimize(fn(x[0]))
         doc = export(m, f"obj_{opname}")
@@ -295,7 +296,7 @@ def test_each_named_function_maps_to_operator():
 
 def test_affine_leq_constant_folded():
     # 2x + 5 <= 11  ->  2x <= 6  (constant folded into bound)
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(1, name="x")
     m.objective = jp.minimize(x[0])
     m.constraint(2*x[0] + 5 <= 11)
@@ -309,7 +310,7 @@ def test_affine_leq_constant_folded():
 
 def test_affine_geq():
     # x + y >= 3
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(2, name="x")
     m.objective = jp.minimize(x[0])
     m.constraint(x[0] + x[1] >= 3)
@@ -321,7 +322,7 @@ def test_affine_geq():
 
 def test_affine_equality():
     # 2x + y == 6
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(2, name="x")
     m.objective = jp.minimize(x[0])
     m.constraint(2*x[0] + x[1] == 6)
@@ -334,7 +335,7 @@ def test_affine_equality():
 
 def test_constraint_with_variables_on_both_sides():
     # x <= y  ->  x - y <= 0
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(2, name="x")
     m.objective = jp.minimize(x[0])
     m.constraint(x[0] <= x[1])
@@ -350,7 +351,7 @@ def test_constraint_with_variables_on_both_sides():
 
 def test_nonlinear_constraint_against_zero():
     # sin(x) + 1 <= 2  ->  nonlinear, set LessThan(0)
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(1, name="x")
     m.objective = jp.minimize(x[0])
     m.constraint(sin(x[0]) + 1 <= 2)
@@ -363,7 +364,7 @@ def test_nonlinear_constraint_against_zero():
 
 def test_bilinear_constraint_is_nonlinear():
     # x*y <= 4
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(2, name="x")
     m.objective = jp.minimize(x[0])
     m.constraint(x[0] * x[1] <= 4)
@@ -374,7 +375,7 @@ def test_bilinear_constraint_is_nonlinear():
 
 def test_nonlinear_equality_constraint():
     # exp(x) == e^2
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(1, name="x")
     m.objective = jp.minimize(x[0])
     m.constraint(exp(x[0]) == math.e**2)
@@ -389,7 +390,7 @@ def test_nonlinear_equality_constraint():
 
 def test_single_iterator_group_expands():
     # x[i] <= 5 for i in 0..3  -> 4 constraints
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(4, name="x")
     m.objective = jp.minimize(x[0])
     i = jp.Iterator(range(4))
@@ -403,7 +404,7 @@ def test_single_iterator_group_expands():
 
 def test_two_iterator_group_expands_product():
     # x[3i+j] >= 0 for i in 0..1, j in 0..2  -> 6 constraints
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(6, name="x")
     m.objective = jp.minimize(x[0])
     i = jp.Iterator(range(2))
@@ -415,7 +416,7 @@ def test_two_iterator_group_expands_product():
 
 def test_group_with_parameter():
     # lb[i] <= x[i]  for i in 0..3
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(4, name="x")
     m.objective = jp.minimize(x[0])
     lb = jp.Parameter([1.0, 2.0, 3.0, 4.0])
@@ -429,7 +430,7 @@ def test_group_with_parameter():
 
 def test_nonlinear_group_expands_to_nonlinear():
     # exp(x[i]) <= e^3 for i in 0..2
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(3, name="x")
     m.objective = jp.minimize(x[0])
     i = jp.Iterator(range(3))
@@ -441,7 +442,7 @@ def test_nonlinear_group_expands_to_nonlinear():
 
 
 def test_group_constraints_have_names():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(3, name="x")
     m.objective = jp.minimize(x[0])
     i = jp.Iterator(range(3))
@@ -473,17 +474,21 @@ def _collect_op_types(func):
 
 
 def test_nonlinear_root_is_operator_object():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(2, name="x")
     m.objective = jp.minimize(sin(x[0]) + x[1]**2)
     doc = export(m, "nlroot")
-    root = doc["objective"]["function"]["root"]
+    func = doc["objective"]["function"]
+    root = func["root"]
+    if isinstance(root, dict) and root.get("type") == "node":
+        # MOI's MOF writer emits the root as a 1-based node_list reference
+        root = func["node_list"][root["index"] - 1]
     assert isinstance(root, dict)
     assert "type" in root and "args" in root
 
 
 def test_nonlinear_node_references_are_1_based_and_valid():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(1, name="x")
     m.objective = jp.minimize(exp(sin(x[0])))
     doc = export(m, "nlnested")
@@ -503,7 +508,7 @@ def test_nonlinear_node_references_are_1_based_and_valid():
 
 
 def test_nonlinear_variable_leaves_are_strings():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(1, name="x")
     m.objective = jp.minimize(sin(x[0]))
     doc = export(m, "nlleaf")
@@ -519,7 +524,7 @@ def test_nonlinear_variable_leaves_are_strings():
 
 
 def test_nonlinear_constant_leaves_are_numbers():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(1, name="x")
     m.objective = jp.minimize(x[0]**2)
     doc = export(m, "nlconstleaf")
@@ -530,7 +535,7 @@ def test_nonlinear_constant_leaves_are_numbers():
 # Mixed / integration shapes
 
 def test_mixed_affine_and_nonlinear_constraints_coexist():
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(2, lower=0, name="x")
     m.objective = jp.minimize(exp(x[0]) + x[1])    # nonlinear obj
     m.constraint(x[0] + x[1] >= 3)                 # affine con
@@ -542,9 +547,105 @@ def test_mixed_affine_and_nonlinear_constraints_coexist():
     assert doc["objective"]["function"]["type"] == "ScalarNonlinearFunction"
 
 
+# VRP models — the same generic write_mof handles Partition set constraints
+# and op_sum_distances objectives through the VectorSet / SolverFunction
+# extension protocols.
+
+def _vrp_model(n=3, k=2, depot=1):
+    # depot is a 1-based location id: location 1 is the depot, 2..N the clients
+    N = n + 1  # 1 depot + n clients
+    M = [[abs(i - j) * 100 for j in range(N)] for i in range(N)]
+    m = jp.Model(backend="vroom")
+    nodes = m.variables(n * k, name="nodes")
+    m.constraint_in_set(nodes, jp.Partition(n, k))
+    m.objective = jp.minimize(
+        sum(
+            op_sum_distances(M, [depot] + [nodes[t * n + i] for i in range(n)] + [depot])
+            for t in range(k)
+        )
+    )
+    return m
+
+
+def test_vrp_partition_constraint_exported():
+    doc = export(_vrp_model(n=3, k=2), "vrp_partition")
+    parts = [c for c in doc["constraints"] if c["set"]["type"] == "Partition"]
+    assert len(parts) == 1
+    c = parts[0]
+    assert c["function"]["type"] == "VectorOfVariables"
+    assert len(c["function"]["variables"]) == 6
+    assert c["set"]["num_clients"] == 3
+    assert c["set"]["num_trucks"] == 2
+
+
+def test_vrp_variable_names_are_2d_one_based():
+    # Partition variables use Julia's `nodes[i,t]` naming, column-major
+    doc = export(_vrp_model(n=3, k=2), "vrp_names")
+    names = [v["name"] for v in doc["variables"]]
+    expected = [f"nodes[{i},{t}]" for t in (1, 2) for i in (1, 2, 3)]
+    assert names == expected, names
+    parts = [c for c in doc["constraints"] if c["set"]["type"] == "Partition"]
+    assert parts[0]["function"]["variables"] == expected
+
+
+def test_vrp_sequence_depots_pass_through():
+    # depot ids are 1-based location indices and are exported unchanged
+    doc = export(_vrp_model(n=3, k=2, depot=1), "vrp_depots")
+    func = doc["objective"]["function"]
+    seqs = [nd for nd in func["node_list"]
+            if isinstance(nd, dict) and nd.get("type") == "sequence"]
+    assert len(seqs) == 2
+    for seq in seqs:
+        assert seq["args"][0] == 1.0, seq["args"]
+        assert seq["args"][-1] == 1.0, seq["args"]
+
+
+def test_vrp_has_scalar_nonlinear_flag():
+    doc = export(_vrp_model(n=3, k=2), "vrp_snl_flag")
+    assert doc.get("has_scalar_nonlinear") is True
+
+
+def test_vrp_objective_is_sum_of_sum_distances():
+    doc = export(_vrp_model(n=3, k=2), "vrp_obj")
+    func = doc["objective"]["function"]
+    assert func["type"] == "ScalarNonlinearFunction"
+    ops = _collect_op_types(func)
+    assert "sum_distances" in ops, ops
+    assert "sequence" in ops, ops
+    assert "matrix" in ops, ops
+
+
+def test_vrp_three_trucks_sum():
+    # regression: sum() over 3+ op_sum_distances terms used to TypeError
+    doc = export(_vrp_model(n=2, k=3), "vrp_three")
+    func = doc["objective"]["function"]
+    seqs = [nd for nd in func["node_list"]
+            if isinstance(nd, dict) and nd.get("type") == "sequence"]
+    assert len(seqs) == 3, f"expected 3 sequences, got {len(seqs)}"
+
+
+def test_vrp_mixes_with_standard_variables():
+    # a VRP block and an unrelated standard variable coexist in one model
+    m = _vrp_model(n=2, k=2)
+    m.variables(1, lower=0, name="y")
+    doc = export(m, "vrp_mixed")
+    assert len(doc["variables"]) == 5  # 4 route slots + y
+    assert any(c["set"]["type"] == "Partition" for c in doc["constraints"])
+
+
+def test_constraint_in_set_dimension_mismatch_raises():
+    m = jp.Model(backend="vroom")
+    nodes = m.variables(5, name="nodes")
+    try:
+        m.constraint_in_set(nodes, jp.Partition(2, 2))  # dimension 4 != 5
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
 def test_full_milp_shape():
     # binary objective + affine equality + affine inequality
-    m = jp.Model()
+    m = jp.Model(backend="juliacall")
     x = m.variables(3, binary=True, name="x")
     m.objective = jp.minimize(2*x[0] + 3*x[1] + 4*x[2])
     m.constraint(x[0] + x[1] + x[2] == 2)

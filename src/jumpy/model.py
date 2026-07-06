@@ -7,7 +7,7 @@ everything off to the compiled Julia library for expansion and solving.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from typing import Callable
 
 from jumpy.expressions import (
@@ -17,25 +17,18 @@ from jumpy.expressions import (
     Parameter,
     Variable,
     VariableVector,
+    VectorSet,
 )
 from jumpy.iterators import Iterator
 from jumpy.serialize import serialize_constraint, serialize_expr
 from jumpy.backend import Backend, get_backend
-from jumpy.mof_export import write_mof
-from jumpy.vrp_export import write_vrp_json
-from jumpy.vrp import VRPConstraint, VRPObjective, _SumOfDistances, OpSumDistances
+from jumpy.bridge_juliacall import write_mof
 
 
-def minimize(expr) -> "Objective | VRPObjective":
-    from jumpy.vrp import OpSumDistances, _SumOfDistances, VRPObjective
-    if isinstance(expr, (OpSumDistances, _SumOfDistances)):
-        return VRPObjective("min", expr)
+def minimize(expr) -> Objective:
     return Objective("min", expr)
 
-def maximize(expr) -> "Objective | VRPObjective":
-    from jumpy.vrp import OpSumDistances, _SumOfDistances, VRPObjective
-    if isinstance(expr, (OpSumDistances, _SumOfDistances)):
-        return VRPObjective("max", expr)
+def maximize(expr) -> Objective:
     return Objective("max", expr)
 
 
@@ -72,6 +65,12 @@ class ConstraintGroup:
             n *= it.length
         return f"ConstraintGroup({n} constraints from {len(self.iterators)} iterator(s))"
 
+@dataclass
+class SetConstraint:
+    """A `variables in set` constraint (MOI.VectorOfVariables-in-VectorSet)."""
+
+    variables: VariableVector
+    set_: VectorSet
 
 @dataclass
 class VariableBlock:
@@ -124,10 +123,10 @@ class Model:
         self._var_blocks: list[VariableBlock] = []
         self._constraint_groups: list[ConstraintGroup] = []
         self._individual_constraints: list[Constraint] = []
+        self._set_constraints: list[SetConstraint] = []
         self._objective: Objective | None = None
         self._num_vars: int = 0
         self._solution: list[float] | None = None
-        self._vrp_constraints: list[VRPConstraint] = []
         self._routes: list[list[int]] | None = None
 
     # -- Variables -------------------------------------------------------------
@@ -206,10 +205,22 @@ class Model:
         self._individual_constraints.append(con)
         return con
     
-    def constraint_in_set(self, variables, set_) -> VRPConstraint:
-        con = VRPConstraint(variables, set_)
-        self._vrp_constraints.append(con)
-        return variables
+    def constraint_in_set(self, variables: VariableVector, set_: VectorSet) -> SetConstraint:
+        """
+        Constrain a vector of variables to belong to a VectorSet.
+
+        Example:
+            nodes = m.variables(n * k, name="nodes")
+            m.constraint_in_set(nodes, Partition(n, k))
+        """
+        if set_.dimension != len(variables):
+            raise ValueError(
+                f"{type(set_).__name__} has dimension {set_.dimension}, "
+                f"but {len(variables)} variables were given"
+            )
+        con = SetConstraint(variables, set_)
+        self._set_constraints.append(con)
+        return con
 
     # -- Objective -------------------------------------------------------------
 
@@ -219,7 +230,6 @@ class Model:
 
     @objective.setter
     def objective(self, obj) -> None:
-        # accept both standard Objective and VRPObjective
         self._objective = obj
 
     @property
@@ -236,18 +246,15 @@ class Model:
     # -- MOF -------------------------------------------------------------------
 
     def write_mof(self, filename):
-        """ Output the MOF of the current model """
-        write_mof(self, filename)
+        """
+        Write the model to a MathOptFormat (.mof.json) file.
 
-    def write_vrp_json(self, filename, locations=None):
+        Handles every kind of model the same way — standard and solver-specific
+        pieces (e.g. VRP Partition constraints / op_sum_distances objectives)
+        are all serialized through the juliacall MOI bridge, regardless of the
+        backend the model was created with.
         """
-        Write the model to a MathOptVRP JSON file
-        
-        filename  : output path for the .json file
-        locations : list of [lon, lat] pairs, optional — index 0 is depot,
-                    index i (i > 0) is client i.  Length must be n_clients + 1.
-        """
-        write_vrp_json(self, filename, locations)
+        write_mof(self, filename)
 
     # -- Solve -----------------------------------------------------------------
 
@@ -268,6 +275,7 @@ class Model:
             "var_blocks": [],
             "constraint_groups": [],
             "individual_constraints": [],
+            "set_constraints": [],
             "objective": None,
             "parameters": [],  # filled at the end from param_registry
         }
@@ -298,6 +306,16 @@ class Model:
             data["individual_constraints"].append(
                 serialize_constraint(con, param_registry)
             )
+
+        # Set constraints have no lhs/rhs expression; serialize them as the
+        # variable indices plus a set descriptor (dataclass sets contribute
+        # their fields, e.g. Partition's n_clients / n_trucks).
+        for con in self._set_constraints:
+            set_fields = asdict(con.set_) if is_dataclass(con.set_) else {}
+            data["set_constraints"].append({
+                "variables": [v.index for v in con.variables],
+                "set": {"type": type(con.set_).__name__, **set_fields},
+            })
 
         if self._objective:
             data["objective"] = {

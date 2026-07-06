@@ -30,6 +30,7 @@ from jumpy.expressions import (
     Func,
     IndexedParameter,
     IndexedVariable,
+    SolverFunction,
     UnaryOp,
     Variable,
 )
@@ -96,6 +97,12 @@ def _serialize(node: Expr, buf: list[float], param_registry: dict) -> None:
                 }
             buf.extend([TAG_INDEXED_PARAM, float(param_registry[param_id]["id"])])
             _serialize(ip.index_expr, buf, param_registry)
+        case SolverFunction():
+            raise NotImplementedError(
+                f"Solver-specific function '{type(node).__name__}' has no flat "
+                "C-ABI encoding; the juliac backend does not support it "
+                "(use backend='juliacall' or 'vroom')"
+            )
         case _:
             raise TypeError(f"Cannot serialize {type(node).__name__}")
 

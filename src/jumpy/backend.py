@@ -101,18 +101,13 @@ class JuliaCallBackend(Backend):
                 "Install it with: pip install jumpy[juliacall]\n"
                 "This will also install Julia automatically if needed."
             ) from None
-        # Install and load Julia packages on first use
-        jl.seval("using Pkg")
-        for pkg in ["MathOptInterface", "HiGHS", "GenOpt"]:
-            jl.seval(f"""
-                if !haskey(Pkg.project().dependencies, "{pkg}")
-                    Pkg.add("{pkg}")
-                end
-            """)
+        # Install and load Julia packages on first use. Extension packages
+        # (e.g. MathOptVRP) are installed lazily by the extension's own
+        # setup_julia hook, not here.
+        from jumpy.bridge_juliacall import ensure_package
+        for pkg in ("MathOptInterface", "HiGHS", "GenOpt"):
+            ensure_package(jl, pkg)
         jl.seval("import MathOptInterface as MOI")
-        jl.seval("import GenOpt")
-        jl.seval("import HiGHS")
-        # TODO: load GenOpt once it's registered / available
         self._jl = jl
 
     def optimize(self, model: Model) -> list[float]:
@@ -125,19 +120,21 @@ class JuliaCallBackend(Backend):
         return build_moi_model(jl, model)
 
 
+def _vroom_backend() -> "Backend":
+    # lazy import so backend_vroom (and juliacall) isn't loaded at module import,
+    # avoid circular import
+    from jumpy.backend_vroom import VroomBackend
+    return VroomBackend()
+
+
 _BACKENDS = {
     "juliac": JuliacBackend,
     "juliacall": JuliaCallBackend,
+    "vroom": _vroom_backend,
 }
 
-def get_backend(name: str) -> "Backend":  # forward ref avoids circular import
-    # lazy import of VroomBackend to avoid loading juliacall at module import
-    if name == "vroom":
-        from jumpy.backend_vroom import VroomBackend
-        return VroomBackend()
-    cls = _BACKENDS.get(name)
-    if cls is None:
-        raise ValueError(
-            f"Unknown backend '{name}'. Choose from: {list(_BACKENDS.keys()) + ['vroom']}"
-        )
-    return cls()
+def get_backend(name: str) -> "Backend":
+    factory = _BACKENDS.get(name)
+    if factory is None:
+        raise ValueError(f"Unknown backend '{name}'. Choose from: {list(_BACKENDS)}")
+    return factory()

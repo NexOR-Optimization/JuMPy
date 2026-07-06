@@ -14,10 +14,13 @@ from jumpy.expressions import (
     Func,
     Constraint,
     Objective,
+    SolverFunction,
+    VectorSet,
 )
 from jumpy.expressions import sin, cos, exp, log, sqrt, abs as jp_abs
 from jumpy.iterators import Iterator
 from jumpy.model import Model, minimize, maximize, sum_over
+from jumpy.vrp import Partition, op_sum_distances
 
 __all__ = [
     "Model",
@@ -29,10 +32,14 @@ __all__ = [
     "Func",
     "Constraint",
     "Objective",
+    "SolverFunction",
+    "VectorSet",
     "Iterator",
     "minimize",
     "maximize",
     "sum_over",
+    "Partition",
+    "op_sum_distances",
     "sin",
     "cos",
     "exp",
