@@ -40,21 +40,6 @@ def _define_helpers(jl):
     # jl.Any[...] is broken in PythonCall with Julia 1.12+
     _any_vec = jl.seval("(args...) -> Any[args...]")
     jl.seval("""
-        function _jumpy_scalar_affine(terms, constant)
-            return MOI.ScalarAffineFunction(terms, constant)
-        end
-
-        function _jumpy_affine_term(coef, var)
-            return MOI.ScalarAffineTerm(coef, var)
-        end
-
-        function _jumpy_set_objective!(optimizer, sense, func)
-            MOI.set(optimizer, MOI.ObjectiveSense(), sense)
-            F = typeof(func)
-            MOI.set(optimizer, MOI.ObjectiveFunction{F}(), func)
-        end
-    """)
-    jl.seval("""
         function _jumpy_add_variables!(optimizer, count, lower, upper)
             vars = MOI.add_variables(optimizer, count)
             if !isnothing(lower)
@@ -141,7 +126,9 @@ def build_moi_model(jl, model: Model) -> list[float]:
             else jl.MOI.MAX_SENSE
         )
         obj_func = _expr_to_moi(jl, all_jl_vars, model._objective.expr)
-        jl._jumpy_set_objective_b(optimizer, sense, obj_func)
+
+        jl.MOI.set(optimizer, jl.MOI.ObjectiveSense(), sense)
+        jl.MOI.set(optimizer, jl.MOI.ObjectiveFunction[jl.typeof(obj_func)](), obj_func)
 
     # Optimize and extract solution
     jl.MOI.optimize_b(optimizer)
@@ -340,9 +327,9 @@ def _expr_to_moi_linear(jl, all_jl_vars, expr):
     jl_terms = jl.seval("MOI.ScalarAffineTerm{Float64}[]")
     for coef, var_idx in terms:
         jl_var = _get_jl_var_by_index(jl, all_jl_vars, var_idx)
-        jl.push_b(jl_terms, jl._jumpy_affine_term(float(coef), jl_var))
+        jl.push_b(jl_terms, jl.MOI.ScalarAffineTerm(float(coef), jl_var))
 
-    return jl._jumpy_scalar_affine(jl_terms, float(constant))
+    return jl.MOI.ScalarAffineFunction(jl_terms, float(constant))
 
 
 def _expr_to_moi(jl, all_jl_vars, expr):
