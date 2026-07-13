@@ -1,390 +1,165 @@
 """
-Bridge between JuMPy's Python expression graph and MathOptInterface via juliacall.
+The juliacall implementation of the MOI ops.
 
-Translates Python Expr nodes into Julia MOI + GenOpt types.
-This module is only imported when backend="juliacall" is used.
-
-The Python side does NO iteration over constraints or variables.
-It builds one expression template per constraint group, hands it to GenOpt
-as a FunctionGenerator, and lets Julia handle all expansion.
+Each method is one MOI call through juliacall. The compiled (juliac)
+backend implements the same ops against the C entry points of the shared
+library (jumpy.backend.JuliacOps).
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from jumpy.model import Model
-
-from jumpy.expressions import (
-    BinaryOp,
-    Constant,
-    Func,
-    IndexedParameter,
-    IndexedVariable,
-    UnaryOp,
-    Variable,
-)
-from jumpy.iterators import Iterator
+_JL = None
 
 
-_HELPERS_DEFINED = False
-_any_vec = None
-
-
-def _define_helpers(jl):
-    """Define Julia helper functions once."""
-    global _HELPERS_DEFINED, _any_vec
-    if _HELPERS_DEFINED:
-        return
-    # jl.Any[...] is broken in PythonCall with Julia 1.12+
-    _any_vec = jl.seval("(args...) -> Any[args...]")
-    jl.seval("""
-        function _jumpy_add_variables!(optimizer, count, lower, upper, binary, integer)
-            vars = MOI.add_variables(optimizer, count)
-            if !isnothing(lower)
-                for v in vars
-                    MOI.add_constraint(optimizer, v, MOI.GreaterThan(lower))
-                end
+def _julia():
+    global _JL
+    if _JL is not None:
+        return _JL
+    try:
+        from juliacall import Main as jl
+    except ImportError:
+        raise ImportError(
+            "juliacall is not installed.\n"
+            "Install it with: pip install jumpy[juliacall]\n"
+            "This will also install Julia automatically if needed."
+        ) from None
+    # Install and load Julia packages on first use
+    jl.seval("using Pkg")
+    for pkg in ["MathOptInterface", "HiGHS", "GenOpt"]:
+        jl.seval(f"""
+            if !haskey(Pkg.project().dependencies, "{pkg}")
+                Pkg.add("{pkg}")
             end
-            if !isnothing(upper)
-                for v in vars
-                    MOI.add_constraint(optimizer, v, MOI.LessThan(upper))
-                end
+        """)
+    jl.seval("import MathOptInterface as MOI")
+    jl.seval("import GenOpt")
+    jl.seval("import HiGHS")
+    _JL = jl
+    return jl
+
+
+class JuliaCallOps:
+    def __init__(self):
+        jl = _julia()
+        self._jl = jl
+        # jl.Any[...] is broken in PythonCall with Julia 1.12+
+        self._any_vec = jl.seval("(args...) -> Any[args...]")
+        # {} type application is not expressible in Python syntax
+        self._objective_attr = jl.seval("f -> MOI.ObjectiveFunction{typeof(f)}()")
+        self._to_affine = jl.seval("f -> convert(MOI.ScalarAffineFunction{Float64}, f)")
+        self._optimizer = jl.seval("""
+            let optimizer = MOI.instantiate(
+                    MOI.OptimizerWithAttributes(HiGHS.Optimizer, "output_flag" => false),
+                    with_bridge_type = Float64,
+                )
+                MOI.Bridges.add_bridge(optimizer, GenOpt.FunctionGeneratorBridge{Float64})
+                optimizer
             end
-            if binary
-                for v in vars
-                    MOI.add_constraint(optimizer, v, MOI.ZeroOne())
-                end
-            elseif integer
-                for v in vars
-                    MOI.add_constraint(optimizer, v, MOI.Integer())
-                end
-            end
-            return vars
-        end
+        """)
+        self._variables = []
 
-        function _jumpy_add_constraint_group!(optimizer, func, sense)
-            n = prod(length.(func.iterators))
-            if sense == "<="
-                set = MOI.Nonpositives(n)
-            elseif sense == ">="
-                set = MOI.Nonnegatives(n)
-            elseif sense == "=="
-                set = MOI.Zeros(n)
-            else
-                error("Unknown sense: $sense")
-            end
-            MOI.add_constraint(optimizer, func, set)
-        end
+    def free(self):
+        pass  # the optimizer is garbage-collected with this object
 
-        function _jumpy_make_generator(func, iterators, target_type)
-            return GenOpt.FunctionGenerator{target_type}(func, iterators)
-        end
+    # -- MOI functions ---------------------------------------------------------
 
-        function _jumpy_create_optimizer()
-            optimizer = MOI.instantiate(
-                MOI.OptimizerWithAttributes(HiGHS.Optimizer, "output_flag" => false),
-                with_bridge_type = Float64,
-            )
-            MOI.Bridges.add_bridge(optimizer, GenOpt.FunctionGeneratorBridge{Float64})
-            return optimizer
-        end
+    def constant(self, value):
+        return value
 
-        function _jumpy_get_solution(optimizer, vars)
-            return [MOI.get(optimizer, MOI.VariablePrimal(), v) for v in vars]
-        end
-    """)
-    _HELPERS_DEFINED = True
+    def variable(self, index):
+        return self._variables[index]
 
+    def scalar_nonlinear(self, head, args):
+        jl = self._jl
+        return jl.MOI.ScalarNonlinearFunction(jl.Symbol(head), self._any_vec(*args))
 
-def build_moi_model(jl, model: Model) -> list[float]:
-    """
-    Build an MOI model in Julia from a JuMPy Model and solve it.
+    def iterator(self, values):
+        jl = self._jl
+        return jl.GenOpt.IteratorRef(jl.GenOpt.Iterator(jl.seval("collect")(values)))
 
-    Constraint groups are passed as GenOpt.FunctionGenerator objects
-    so that expansion happens entirely in Julia.
-    """
-
-    _define_helpers(jl)
-
-    optimizer = jl._jumpy_create_optimizer()
-
-    # Add variables — one bulk call per block
-    all_jl_vars = []
-    for block in model._var_blocks:
-        lower = float(block.lower) if block.lower is not None else jl.nothing
-        upper = float(block.upper) if block.upper is not None else jl.nothing
-        block_vars = jl._jumpy_add_variables_b(
-            optimizer, block.count, lower, upper,
-            block.binary,
-            block.integer,
+    def contiguous_variables(self, start, count):
+        return self._jl.seval(
+            f"GenOpt.ContiguousArrayOfVariables({start}, ({count},))"
         )
-        all_jl_vars.append(block_vars)
 
-    # Add constraint groups via GenOpt
-    for group in model._constraint_groups:
-        _add_constraint_group(jl, optimizer, all_jl_vars, model, group)
+    def float_array(self, values):
+        return self._jl.seval("collect")(values)
 
-    # Add individual constraints
-    for con in model._individual_constraints:
-        _add_individual_constraint(jl, optimizer, all_jl_vars, con)
+    def _simplify(self, func):
+        """
+        Narrow an affine ScalarNonlinearFunction to ScalarAffineFunction —
+        but never below: `x >= 0` as a constraint must stay a row, not
+        become a VariableIndex bound (same semantics as JuMP's @constraint).
+        Only a function that already is a VariableIndex — the bounds path —
+        is a bound.
+        """
+        jl = self._jl
+        if jl.isa(func, jl.MOI.ScalarNonlinearFunction):
+            func = jl.MOI.Nonlinear.SymbolicAD.simplify(func)
+            if jl.isa(func, jl.MOI.VariableIndex) or isinstance(func, float):
+                func = self._to_affine(func)
+        return func
 
-    # Set objective
-    if model._objective is not None:
-        sense = (
-            jl.MOI.MIN_SENSE
-            if model._objective.sense == "min"
-            else jl.MOI.MAX_SENSE
+    # -- Model building ----------------------------------------------------------
+
+    def add_variables(self, count):
+        start = len(self._variables)
+        self._variables.extend(self._jl.MOI.add_variables(self._optimizer, count))
+        return start
+
+    def _set(self, sense, rhs):
+        jl = self._jl
+        if sense == "<=":
+            return jl.MOI.LessThan(float(rhs))
+        if sense == ">=":
+            return jl.MOI.GreaterThan(float(rhs))
+        if sense == "==":
+            return jl.MOI.EqualTo(float(rhs))
+        if sense == "binary":
+            return jl.MOI.ZeroOne()
+        if sense == "integer":
+            return jl.MOI.Integer()
+        raise ValueError(f"Unknown constraint sense: {sense}")
+
+    def add_constraint(self, func, sense, rhs):
+        self._jl.MOI.Utilities.normalize_and_add_constraint(
+            self._optimizer, self._simplify(func), self._set(sense, rhs),
         )
-        obj_func = _expr_to_moi(jl, all_jl_vars, model._objective.expr)
 
-        jl.MOI.set(optimizer, jl.MOI.ObjectiveSense(), sense)
-        jl.MOI.set(optimizer, jl.MOI.ObjectiveFunction[jl.typeof(obj_func)](), obj_func)
+    def add_constraint_group(self, func, sense, linear):
+        jl = self._jl
+        if linear:
+            target = "MOI.ScalarAffineFunction{Float64}"
+        else:
+            target = "MOI.ScalarNonlinearFunction"
+        template, iterators = jl.GenOpt.collect_iterator_refs(func)
+        generator = jl.seval(f"GenOpt.FunctionGenerator{{{target}}}")(template, iterators)
+        n = jl.MOI.output_dimension(generator)
+        if sense == "<=":
+            set_ = jl.MOI.Nonpositives(n)
+        elif sense == ">=":
+            set_ = jl.MOI.Nonnegatives(n)
+        elif sense == "==":
+            set_ = jl.MOI.Zeros(n)
+        else:
+            raise ValueError(f"Unknown constraint sense: {sense}")
+        jl.MOI.add_constraint(self._optimizer, generator, set_)
 
-    # Optimize and extract solution
-    jl.MOI.optimize_b(optimizer)
+    def set_objective(self, sense, func):
+        jl = self._jl
+        moi_sense = jl.MOI.MIN_SENSE if sense == "min" else jl.MOI.MAX_SENSE
+        jl.MOI.set(self._optimizer, jl.MOI.ObjectiveSense(), moi_sense)
+        func = self._simplify(func)
+        jl.MOI.set(self._optimizer, self._objective_attr(func), func)
 
-    # Flatten all variable blocks into one solution vector
-    all_vars_flat = jl.seval("vcat")(*(v for v in all_jl_vars))
-    jl_solution = jl._jumpy_get_solution(optimizer, all_vars_flat)
-    return [float(jl_solution[i]) for i in range(len(jl_solution))]
+    def optimize(self):
+        jl = self._jl
+        jl.MOI.optimize_b(self._optimizer)
+        return int(jl.Integer(jl.MOI.get(self._optimizer, jl.MOI.TerminationStatus())))
 
-
-def _is_linear_template(expr) -> bool:
-    """Check if a template expression is linear (no nonlinear functions)."""
-    match expr:
-        case Constant() | Variable() | Iterator() | IndexedVariable() | IndexedParameter():
-            return True
-        case BinaryOp(op=op, left=left, right=right):
-            if op in ("+", "-", "*"):
-                return _is_linear_template(left) and _is_linear_template(right)
-            return False
-        case UnaryOp(op="-", arg=arg):
-            return _is_linear_template(arg)
-        case Func():
-            return False
-        case _:
-            return False
-
-
-def _add_constraint_group(jl, optimizer, all_jl_vars, model, group):
-    """
-    Add a constraint group as a single GenOpt.FunctionGenerator.
-
-    Python builds the template expression and iterator list, then hands
-    them to GenOpt. No Python-side iteration over constraint instances.
-    """
-    # Build GenOpt iterators
-    genopt_iterators = jl.seval("GenOpt.Iterator[]")
-    iter_id_map = {}
-    for idx, it in enumerate(group.iterators):
-        jl_values = jl.seval("collect")(it.values)
-        jl_it = jl.GenOpt.Iterator(jl_values)
-        jl.push_b(genopt_iterators, jl_it)
-        iter_id_map[it.id] = idx + 1  # 1-based
-
-    # Normalize: lhs - rhs in {Nonpositives, Nonnegatives, Zeros}
-    normalized = group.template.lhs - group.template.rhs
-
-    # Build MOI.ScalarNonlinearFunction template with GenOpt placeholders
-    template_func = _expr_to_moi_template(
-        jl, all_jl_vars, model, normalized, genopt_iterators, iter_id_map,
-    )
-
-    # Determine target function type: affine if template is linear, else nonlinear
-    if _is_linear_template(group.template.lhs) and _is_linear_template(group.template.rhs):
-        target_type = jl.seval("MOI.ScalarAffineFunction{Float64}")
-    else:
-        target_type = jl.seval("MOI.ScalarNonlinearFunction")
-
-    # Wrap in FunctionGenerator and add constraint — all in Julia
-    func_gen = jl._jumpy_make_generator(template_func, genopt_iterators, target_type)
-    jl._jumpy_add_constraint_group_b(optimizer, func_gen, group.template.sense)
-
-
-def _get_jl_var(jl, all_jl_vars, var_index, model):
-    """Get the Julia MOI.VariableIndex for a Python Variable by its index."""
-    offset = 0
-    for block_idx, block in enumerate(model._var_blocks):
-        if var_index < offset + block.count:
-            local_idx = var_index - offset
-            return all_jl_vars[block_idx][local_idx]  # PythonCall uses 0-based indexing
-        offset += block.count
-    raise IndexError(f"Variable index {var_index} out of range")
-
-
-def _get_contiguous(jl, all_jl_vars, variable_vector, model):
-    """Get a GenOpt.ContiguousArrayOfVariables for a VariableVector."""
-    start = variable_vector._variables[0].index
-    count = len(variable_vector)
-    return jl.seval(
-        f"GenOpt.ContiguousArrayOfVariables({start}, ({count},))"
-    )
-
-
-def _expr_to_moi_template(jl, all_jl_vars, model, expr, genopt_iterators, iter_id_map):
-    """
-    Convert a Python Expr into an MOI.ScalarNonlinearFunction template
-    with GenOpt.IteratorIndex and ContiguousArrayOfVariables placeholders.
-    """
-    match expr:
-        case Constant(value=v):
-            return v
-        case Variable(index=idx):
-            return _get_jl_var(jl, all_jl_vars, idx, model)
-        case BinaryOp(op=op, left=left, right=right):
-            l = _expr_to_moi_template(jl, all_jl_vars, model, left, genopt_iterators, iter_id_map)
-            r = _expr_to_moi_template(jl, all_jl_vars, model, right, genopt_iterators, iter_id_map)
-            return jl.MOI.ScalarNonlinearFunction(jl.Symbol(op), _any_vec(l, r))
-        case UnaryOp(op="-", arg=arg):
-            a = _expr_to_moi_template(jl, all_jl_vars, model, arg, genopt_iterators, iter_id_map)
-            return jl.MOI.ScalarNonlinearFunction(jl.Symbol("-"), _any_vec(a))
-        case Func(name=name, arg=arg):
-            a = _expr_to_moi_template(jl, all_jl_vars, model, arg, genopt_iterators, iter_id_map)
-            return jl.MOI.ScalarNonlinearFunction(jl.Symbol(name), _any_vec(a))
-        case Iterator() as it:
-            jl_idx = iter_id_map[it.id]
-            return jl.GenOpt.IteratorIndex(jl_idx)
-        case IndexedVariable() as iv:
-            contiguous = _get_contiguous(jl, all_jl_vars, iv.variable_vector, model)
-            index_expr = _expr_to_moi_template(
-                jl, all_jl_vars, model, iv.index_expr, genopt_iterators, iter_id_map,
-            )
-            # 0-based Python → 1-based Julia
-            index_1based = jl.MOI.ScalarNonlinearFunction(
-                jl.Symbol("+"), _any_vec(index_expr, 1),
-            )
-            return jl.MOI.ScalarNonlinearFunction(
-                jl.Symbol("getindex"), _any_vec(contiguous, index_1based),
-            )
-        case IndexedParameter() as ip:
-            jl_values = jl.seval("collect")(ip.parameter.values)
-            index_expr = _expr_to_moi_template(
-                jl, all_jl_vars, model, ip.index_expr, genopt_iterators, iter_id_map,
-            )
-            index_1based = jl.MOI.ScalarNonlinearFunction(
-                jl.Symbol("+"), _any_vec(index_expr, 1),
-            )
-            return jl.MOI.ScalarNonlinearFunction(
-                jl.Symbol("getindex"), _any_vec(jl_values, index_1based),
-            )
-        case _:
-            raise TypeError(f"Cannot convert {type(expr).__name__} to MOI template")
-
-
-def _get_jl_var_by_index(jl, all_jl_vars, idx):
-    """Get Julia MOI.VariableIndex for a Python variable by global index."""
-    offset = 0
-    for block_idx, block_vars in enumerate(all_jl_vars):
-        block_size = int(jl.length(block_vars))
-        if idx < offset + block_size:
-            return block_vars[idx - offset]  # PythonCall uses 0-based indexing
-        offset += block_size
-    raise IndexError(f"Variable index {idx} out of range")
-
-
-def _collect_linear_terms(expr, terms, sign=1.0):
-    """
-    Try to decompose expr into linear terms: list of (coef, var_index) + constant.
-    Returns (success, constant).
-    """
-    match expr:
-        case Constant(value=v):
-            return True, v * sign
-        case Variable(index=idx):
-            terms.append((sign, idx))
-            return True, 0.0
-        case BinaryOp(op="+", left=left, right=right):
-            terms_before = len(terms)
-            ok_l, const_l = _collect_linear_terms(left, terms, sign)
-            if not ok_l:
-                del terms[terms_before:]
-                return False, 0.0
-            ok_r, const_r = _collect_linear_terms(right, terms, sign)
-            if not ok_r:
-                del terms[terms_before:]
-                return False, 0.0
-            return True, const_l + const_r
-        case BinaryOp(op="-", left=left, right=right):
-            terms_before = len(terms)
-            ok_l, const_l = _collect_linear_terms(left, terms, sign)
-            if not ok_l:
-                del terms[terms_before:]
-                return False, 0.0
-            ok_r, const_r = _collect_linear_terms(right, terms, -sign)
-            if not ok_r:
-                del terms[terms_before:]
-                return False, 0.0
-            return True, const_l + const_r
-        case BinaryOp(op="*", left=Constant(value=v), right=right):
-            return _collect_linear_terms(right, terms, sign * v)
-        case BinaryOp(op="*", left=left, right=Constant(value=v)):
-            return _collect_linear_terms(left, terms, sign * v)
-        case UnaryOp(op="-", arg=arg):
-            return _collect_linear_terms(arg, terms, -sign)
-        case _:
-            return False, 0.0
-
-
-def _expr_to_moi_linear(jl, all_jl_vars, expr):
-    """
-    Try to convert expr to ScalarAffineFunction. Returns None if nonlinear.
-    """
-    terms = []
-    ok, constant = _collect_linear_terms(expr, terms)
-    if not ok:
-        return None
-
-    jl_terms = jl.seval("MOI.ScalarAffineTerm{Float64}[]")
-    for coef, var_idx in terms:
-        jl_var = _get_jl_var_by_index(jl, all_jl_vars, var_idx)
-        jl.push_b(jl_terms, jl.MOI.ScalarAffineTerm(float(coef), jl_var))
-
-    return jl.MOI.ScalarAffineFunction(jl_terms, float(constant))
-
-
-def _expr_to_moi(jl, all_jl_vars, expr):
-    """Convert a Python Expr to a concrete Julia MOI function (no iterators)."""
-    # Try linear first
-    linear = _expr_to_moi_linear(jl, all_jl_vars, expr)
-    if linear is not None:
-        return linear
-
-    match expr:
-        case Constant(value=v):
-            return v
-        case Variable(index=idx):
-            return _get_jl_var_by_index(jl, all_jl_vars, idx)
-        case BinaryOp(op=op, left=left, right=right):
-            l = _expr_to_moi(jl, all_jl_vars, left)
-            r = _expr_to_moi(jl, all_jl_vars, right)
-            return jl.MOI.ScalarNonlinearFunction(jl.Symbol(op), _any_vec(l, r))
-        case UnaryOp(op="-", arg=arg):
-            a = _expr_to_moi(jl, all_jl_vars, arg)
-            return jl.MOI.ScalarNonlinearFunction(jl.Symbol("-"), _any_vec(a))
-        case Func(name=name, arg=arg):
-            a = _expr_to_moi(jl, all_jl_vars, arg)
-            return jl.MOI.ScalarNonlinearFunction(jl.Symbol(name), _any_vec(a))
-        case _:
-            raise TypeError(f"Cannot convert {type(expr).__name__} to MOI")
-
-
-def _add_individual_constraint(jl, optimizer, all_jl_vars, con):
-    """Add a single non-grouped constraint."""
-    # Normalize: lhs - rhs in {set}
-    from jumpy.expressions import BinaryOp as _BinaryOp, Constant as _Constant
-    normalized = con.lhs - con.rhs
-
-    func = _expr_to_moi(jl, all_jl_vars, normalized)
-
-    if con.sense == "<=":
-        set_ = jl.MOI.LessThan(0.0)
-    elif con.sense == ">=":
-        set_ = jl.MOI.GreaterThan(0.0)
-    elif con.sense == "==":
-        set_ = jl.MOI.EqualTo(0.0)
-    else:
-        raise ValueError(f"Unknown constraint sense: {con.sense}")
-
-    jl.MOI.Utilities.normalize_and_add_constraint(optimizer, func, set_)
+    def get_values(self, count):
+        jl = self._jl
+        return [
+            float(jl.MOI.get(self._optimizer, jl.MOI.VariablePrimal(), v))
+            for v in self._variables[:count]
+        ]

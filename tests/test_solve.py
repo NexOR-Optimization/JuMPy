@@ -1,17 +1,24 @@
 """
-End-to-end tests that solve models with HiGHS via the juliacall backend.
+End-to-end tests that solve models with HiGHS.
 
-These require Julia + juliacall to be installed:
-    pip install juliacall
+Backend is selected with the JUMPY_BACKEND environment variable:
+    JUMPY_BACKEND=juliac python tests/test_solve.py   (default)
+        requires the compiled library (julia/README.md), no Julia needed
+    JUMPY_BACKEND=juliacall python tests/test_solve.py
+        requires Julia + juliacall: pip install juliacall
 """
 
+import os
 import sys
 sys.path.insert(0, "src")
 
-from jumpy import Model, Iterator, Parameter, minimize, maximize
+from jumpy import Model, minimize, maximize
+
+BACKEND = os.environ.get("JUMPY_BACKEND", "juliac")
+
 
 def _model():
-    return Model(backend="juliacall")
+    return Model(backend=BACKEND)
 
 
 def test_simple_lp():
@@ -35,8 +42,8 @@ def test_constraint_group_lp():
     m = _model()
     x = m.variables(10, lower=0, name="x")
 
-    i = Iterator(range(10))
-    m.constraint_group([i], x[i] >= 1)
+    i = m.iterator(range(10))
+    m.constraint_group(x[i] >= 1)
 
     m.objective = minimize(sum(x))
     m.optimize()
@@ -47,13 +54,13 @@ def test_constraint_group_lp():
 
 def test_constraint_group_consecutive():
     """
-    min x[0]  s.t.  x[i] + x[i+1] >= 2 for i in 0..8, x[i] >= 0
+    min x[0]+x[1]+x[2]  s.t.  x[i] + x[i+1] >= 2 for i in 0..8, x[i] >= 0
     """
     m = _model()
     x = m.variables(10, lower=0, name="x")
 
-    i = Iterator(range(9))
-    m.constraint_group([i], x[i] + x[i + 1] >= 2)
+    i = m.iterator(range(9))
+    m.constraint_group(x[i] + x[i + 1] >= 2)
 
     m.objective = minimize(x[0] + x[1] + x[2])
     m.optimize()
@@ -70,10 +77,10 @@ def test_parameter_in_constraint_group():
     """
     m = _model()
     x = m.variables(5, lower=0, name="x")
-    demand = Parameter([1.0, 2.0, 3.0, 4.0, 5.0], name="demand")
+    demand = m.parameter([1.0, 2.0, 3.0, 4.0, 5.0], name="demand")
 
-    i = Iterator(range(5))
-    m.constraint_group([i], x[i] >= demand[i])
+    i = m.iterator(range(5))
+    m.constraint_group(x[i] >= demand[i])
 
     m.objective = minimize(sum(x))
     m.optimize()
@@ -90,15 +97,32 @@ def test_multidim_constraint_group():
     m = _model()
     x = m.variables(9, lower=0, name="x")
 
-    i = Iterator(range(3))
-    j = Iterator(range(3))
-    m.constraint_group([i, j], x[3 * i + j] >= 1)
+    i = m.iterator(range(3))
+    j = m.iterator(range(3))
+    m.constraint_group(x[3 * i + j] >= 1)
 
     m.objective = minimize(sum(x))
     m.optimize()
 
     total = sum(m.value(v) for v in x)
     assert abs(total - 9.0) < 1e-6
+
+
+def test_constraint_group_over_bounded_variables():
+    """
+    x[i] >= 0 as a group on variables that already have lower=0: must be
+    rows (like JuMP's @constraint), not clashing variable bounds.
+    """
+    m = _model()
+    x = m.variables(4, lower=0, name="x")
+
+    i = m.iterator(range(4))
+    m.constraint_group(x[i] >= 0)
+
+    m.objective = minimize(sum(x))
+    m.optimize()
+
+    assert abs(sum(m.value(v) for v in x)) < 1e-6
 
 
 def test_maximize():

@@ -49,8 +49,8 @@ m = jp.Model()
 x = m.variables(100, lower=0, name="x")
 
 # A constraint group: 99 constraints from one template
-i = jp.Iterator(range(99))
-m.constraint_group([i], x[i] + x[i + 1] <= 10)
+i = m.iterator(range(99))
+m.constraint_group(x[i] + x[i + 1] <= 10)
 
 m.objective = jp.minimize(x[0] + x[1])
 m.optimize()
@@ -65,35 +65,35 @@ Constraint groups are the core feature. Instead of building constraints one by o
 ### Basic group
 
 ```python
-i = jp.Iterator(range(1000000))
-m.constraint_group([i], x[i] <= 10)
+i = m.iterator(range(1000000))
+m.constraint_group(x[i] <= 10)
 # One template in Python → 1,000,000 constraints in Julia
 ```
 
 ### Multi-dimensional
 
 ```python
-i = jp.Iterator(range(100))
-j = jp.Iterator(range(100))
-m.constraint_group([i, j], x[100 * i + j] >= 0)
+i = m.iterator(range(100))
+j = m.iterator(range(100))
+m.constraint_group(x[100 * i + j] >= 0)
 # 10,000 constraints from one template
 ```
 
 ### With data
 
 ```python
-costs = jp.Parameter([...], name="costs")
-demand = jp.Parameter([...], name="demand")
+costs = m.parameter([...], name="costs")
+demand = m.parameter([...], name="demand")
 
-i = jp.Iterator(range(n))
-m.constraint_group([i], costs[i] * x[i] >= demand[i])
+i = m.iterator(range(n))
+m.constraint_group(costs[i] * x[i] >= demand[i])
 ```
 
 ### Nonlinear
 
 ```python
-i = jp.Iterator(range(n))
-m.constraint_group([i], jp.sin(x[i]) + jp.exp(x[i]) <= 1.0)
+i = m.iterator(range(n))
+m.constraint_group(jp.sin(x[i]) + jp.exp(x[i]) <= 1.0)
 ```
 
 ### Individual constraints
@@ -111,12 +111,14 @@ m.constraint(x[0] + x[1] == 5)
 | Method | Description |
 |---|---|
 | `m = jp.Model()` | Create a new model |
-| `m.variables(n, lower=, upper=, name=)` | Add `n` variables, returns a `VariableVector` |
-| `m.variable(lower=, upper=, name=)` | Add a single variable |
-| `m.constraint_group(iterators, template)` | Add a constraint group |
+| `m.variables(n, lower=, upper=, name=, binary=, integer=)` | Add `n` variables, returns a `VariableVector` |
+| `m.variable(lower=, upper=, name=, binary=, integer=)` | Add a single variable |
+| `m.constraint_group(template)` | Add a constraint group (iterators are discovered from the template) |
 | `m.constraint(con)` | Add an individual constraint |
 | `m.objective = jp.minimize(expr)` | Set a minimization objective |
 | `m.objective = jp.maximize(expr)` | Set a maximization objective |
+| `m.iterator(range(n))` | An index set for constraint groups |
+| `m.parameter(values, name=)` | A data vector, symbolically indexable |
 | `m.optimize()` | Solve the model |
 | `m.value(var)` | Get the solved value of a variable |
 
@@ -134,39 +136,39 @@ jp.log(x)   jp.sqrt(x)  jp.jp_abs(x)
 `VariableVector` and `Parameter` support both concrete and symbolic indexing:
 
 ```python
-x[0]          # concrete: returns Variable
-x[i]          # symbolic: returns IndexedVariable (template node)
+x[0]          # concrete: returns a Variable
+x[i]          # symbolic: a getindex template node over the block
 x[10*i + j]   # symbolic arithmetic on the index
 
-costs[0]      # concrete: returns Constant
-costs[i]      # symbolic: returns IndexedParameter (template node)
+costs[0]      # concrete: returns a float
+costs[i]      # symbolic: a getindex template node over the data
 ```
 
 ## Architecture
 
 JuMPy has two layers:
 
-1. **Python package** (`jumpy`): Builds expression graphs using operator overloading. The graph maps directly to `MOI.ScalarNonlinearFunction`. Serializes models to a flat array format for FFI.
+1. **Python package** (`jumpy`): Operator overloading builds MOI functions *eagerly* — every operation is one MOI call through the backend's `ops` object. There is no Python-side expression tree and no conversion step.
 
-2. **Compiled Julia library** (built with juliac): Bundles MathOptInterface + GenOpt + Bridges + HiGHS into a shared library with a C ABI. Reconstructs expression trees, expands constraint groups, and solves.
+2. **Compiled Julia library** (built with juliac): exposes the MOI API as C entry points, one per MOI call — `jumpy_scalar_nonlinear` is the compiled `MOI.ScalarNonlinearFunction` constructor, and so on. GenOpt is compiled in: templates reference iterators by identity (`GenOpt.IteratorRef`) and groups are expanded in Julia.
 
 ```
 src/jumpy/
-├── expressions.py   # Expression tree nodes with operator overloading
-├── iterators.py     # Iterator — an Expr node usable in index arithmetic
-├── serialize.py     # Flatten expression trees for the C ABI
-└── model.py         # Model class, constraint groups, solver interface
+├── expressions.py        # Node handles with operator overloading (eager MOI calls)
+├── bridge_juliacall.py   # MOI ops via juliacall
+├── backend.py            # Backend selection; MOI ops via ctypes (juliac)
+└── model.py              # Model class: variables, groups, objective, solve
 ```
 
 ## How it maps to Julia
 
 | Python | Julia |
 |---|---|
-| `Iterator(range(n))` | `GenOpt.Iterator(n, values)` |
-| `x[i]` (symbolic) | `MOI.VariableIndex` resolved during expansion |
+| `m.iterator(range(n))` | `GenOpt.IteratorRef(GenOpt.Iterator(values))` |
+| `x[i]` (symbolic) | `getindex` node over `GenOpt.ContiguousArrayOfVariables` |
 | `x[i] + x[i+1] <= 10` | `MOI.ScalarNonlinearFunction` template |
-| `m.constraint_group([i], ...)` | `GenOpt.IteratedFunction` |
-| `Parameter([...])` | Data vector passed alongside iterators |
+| `m.constraint_group(...)` | `GenOpt.FunctionGenerator` (iterators discovered by identity) |
+| `m.parameter([...])` | Data vector, `getindex` resolved during expansion |
 
 ## Development
 
@@ -176,7 +178,16 @@ python3 tests/test_expressions.py
 
 # Run example
 python3 examples/basic.py
+
+# Build the compiled backend (see julia/README.md), then:
+JUMPY_BACKEND=juliac python3 tests/test_solve.py
 ```
+
+The compiled backend lives in [`julia/`](julia/): a small Julia package
+(`JuMPyHiGHS`) exposing C entry points that mirror the MOI API around a raw
+`HiGHS.Optimizer`, compiled with
+[JuliaC](https://github.com/JuliaLang/JuliaC.jl). See
+[`julia/README.md`](julia/README.md) for the C ABI and build instructions.
 
 ## Related projects
 

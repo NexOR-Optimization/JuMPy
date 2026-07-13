@@ -1,271 +1,141 @@
-"""Tests for the JuMPy expression graph, symbolic indexing, and serialization."""
+"""
+Tests for eager expression building, using a mock ops object.
+
+The mock records every MOI call as a tuple, so these tests check exactly
+what a backend receives — pure Python, no Julia needed.
+"""
 
 import sys
 sys.path.insert(0, "src")
 
-from jumpy import (
-    Model, Iterator, Parameter, Variable, Constant,
-    sin, exp, minimize, maximize, sum_over,
-)
-from jumpy.expressions import BinaryOp, Constraint, IndexedVariable, IndexedParameter
-from jumpy.serialize import (
-    serialize_expr,
-    serialize_constraint,
-    TAG_CONST,
-    TAG_VAR,
-    TAG_BINARY,
-    TAG_FUNC,
-    TAG_ITERATOR,
-    TAG_INDEXED_VAR,
-    TAG_INDEXED_PARAM,
-)
+from jumpy.expressions import Node, Parameter, Variable, VariableVector, sin
 
 
-# -- Expression building -------------------------------------------------------
+class MockOps:
+    def __init__(self):
+        self.constraints = []
+        self.groups = []
+        self.num_vars = 0
 
-def test_basic_arithmetic():
-    x = Variable(0, "x")
-    y = Variable(1, "y")
+    def constant(self, v):
+        return v
+
+    def variable(self, index):
+        return ("var", index)
+
+    def scalar_nonlinear(self, head, args):
+        return (head, *args)
+
+    def iterator(self, values):
+        return ("iterator", tuple(values))
+
+    def contiguous_variables(self, start, count):
+        return ("block", start, count)
+
+    def float_array(self, values):
+        return ("data", tuple(values))
+
+    def add_variables(self, count):
+        start = self.num_vars
+        self.num_vars += count
+        return start
+
+    def add_constraint(self, func, sense, rhs):
+        self.constraints.append((func, sense, rhs))
+
+    def add_constraint_group(self, func, sense, linear):
+        self.groups.append((func, sense, linear))
+
+
+def test_arithmetic_builds_scalar_nonlinear():
+    ops = MockOps()
+    x = Variable(ops, 0)
+    y = Variable(ops, 1)
     expr = x + 2 * y
-    assert isinstance(expr, BinaryOp)
-    assert repr(expr) == "(x + (2.0 * y))"
+    assert expr.moi == ("+", ("var", 0), ("*", 2.0, ("var", 1)))
+    assert expr.linear
 
 
-def test_constraint():
-    x = Variable(0, "x")
-    y = Variable(1, "y")
-    con = x + y <= 10
-    assert isinstance(con, Constraint)
+def test_reflected_and_unary_operators():
+    ops = MockOps()
+    x = Variable(ops, 0)
+    assert (1 - x).moi == ("-", 1.0, ("var", 0))
+    assert (-x).moi == ("-", ("var", 0))
+    assert (2.0 / x).linear is False
+    assert (x**2).linear is False
+
+
+def test_nonlinear_functions():
+    ops = MockOps()
+    x = Variable(ops, 0)
+    expr = sin(x) + 1
+    assert expr.moi == ("+", ("sin", ("var", 0)), 1.0)
+    assert not expr.linear
+
+
+def test_comparison_normalizes():
+    ops = MockOps()
+    x = Variable(ops, 0)
+    con = x + 1 <= 10
     assert con.sense == "<="
+    assert con.func.moi == ("-", ("+", ("var", 0), 1.0), 10.0)
 
 
-def test_nonlinear():
-    x = Variable(0, "x")
-    expr = sin(x) + exp(x)
-    assert repr(expr) == "(sin(x) + exp(x))"
+def test_variable_vector_concrete_indexing():
+    ops = MockOps()
+    start = ops.add_variables(3)
+    x = VariableVector(ops, start, 3, "x")
+    assert x[2].index == 2
+    assert x[2].moi == ("var", 2)
+    assert len(x) == 3
+    assert [v.index for v in x] == [0, 1, 2]
 
 
-def test_negation():
-    x = Variable(0, "x")
-    expr = -x
-    assert repr(expr) == "(-x)"
+def test_variable_vector_symbolic_indexing():
+    ops = MockOps()
+    x = VariableVector(ops, 0, 10, "x")
+    i = Node(ops, ops.iterator([0.0, 1.0]))
+    # 0-based Python index -> 1-based Julia index
+    assert x[i].moi == (
+        "getindex",
+        ("block", 0, 10),
+        ("+", ("iterator", (0.0, 1.0)), 1.0),
+    )
+    assert x[i].linear
 
 
-# -- Iterator as Expr (the core idea) ------------------------------------------
-
-def test_iterator_in_arithmetic():
-    """Iterator objects participate in arithmetic to build index expressions."""
-    i = Iterator(range(10))
-    j = Iterator(range(10))
-
-    expr = 10 * i + j
-    assert isinstance(expr, BinaryOp)
-    assert expr.op == "+"
-    assert isinstance(expr.left, BinaryOp)
-    assert expr.left.op == "*"
+def test_parameter_indexing():
+    ops = MockOps()
+    p = Parameter(ops, [1.0, 2.0, 3.0], "costs")
+    assert p[1] == 2.0
+    i = Node(ops, ops.iterator([0.0, 1.0]))
+    assert p[i].moi == (
+        "getindex",
+        ("data", (1.0, 2.0, 3.0)),
+        ("+", ("iterator", (0.0, 1.0)), 1.0),
+    )
 
 
-def test_symbolic_variable_indexing():
-    """x[i] with an Iterator produces an IndexedVariable."""
-    m = Model()
-    x = m.variables(100, lower=0, name="x")
-    i = Iterator(range(99))
-
-    indexed = x[i]
-    assert isinstance(indexed, IndexedVariable)
-
-
-def test_symbolic_variable_index_arithmetic():
-    """x[i + 1] builds an index expression graph."""
-    m = Model()
-    x = m.variables(100, lower=0, name="x")
-    i = Iterator(range(99))
-
-    indexed = x[i + 1]
-    assert isinstance(indexed, IndexedVariable)
-    assert isinstance(indexed.index_expr, BinaryOp)
-
-
-def test_multidim_index():
-    """x[10*i + j] builds a compound index expression."""
-    m = Model()
-    x = m.variables(100, lower=0, name="x")
-    i = Iterator(range(10))
-    j = Iterator(range(10))
-
-    indexed = x[10 * i + j]
-    assert isinstance(indexed, IndexedVariable)
-
-
-def test_parameter_symbolic_indexing():
-    """costs[i] produces an IndexedParameter."""
-    costs = Parameter([3.0, 1.5, 2.0], name="costs")
-    i = Iterator(range(3))
-
-    indexed = costs[i]
-    assert isinstance(indexed, IndexedParameter)
-
-
-def test_parameter_concrete_indexing():
-    """costs[0] returns a Constant."""
-    costs = Parameter([3.0, 1.5, 2.0])
-    c = costs[0]
-    assert isinstance(c, Constant)
-    assert c.value == 3.0
-
-
-# -- Full constraint group expressions -----------------------------------------
-
-def test_constraint_group_expression():
-    """The full expression x[i] + x[i+1] <= 10 builds a valid tree."""
-    m = Model()
-    x = m.variables(100, lower=0, name="x")
-    i = Iterator(range(99))
-
-    con = x[i] + x[i + 1] <= 10
-    assert isinstance(con, Constraint)
-    assert con.sense == "<="
-    assert isinstance(con.lhs, BinaryOp)  # x[i] + x[i+1]
-    assert isinstance(con.lhs.left, IndexedVariable)
-    assert isinstance(con.lhs.right, IndexedVariable)
-
-
-def test_nonlinear_constraint_group():
-    """sin(x[i]) + exp(x[i]) <= 1.0 with symbolic indexing."""
-    m = Model()
-    x = m.variables(100, lower=0, name="x")
-    i = Iterator(range(100))
-
-    con = sin(x[i]) + exp(x[i]) <= 1.0
-    assert isinstance(con, Constraint)
-
-
-def test_parameter_in_constraint_group():
-    """costs[i] * x[i] <= 50 mixes data and variables."""
-    m = Model()
-    x = m.variables(100, lower=0, name="x")
-    costs = Parameter([float(k) for k in range(100)], name="costs")
-    i = Iterator(range(100))
-
-    con = costs[i] * x[i] <= 50
-    assert isinstance(con, Constraint)
-    assert isinstance(con.lhs, BinaryOp)
-    assert con.lhs.op == "*"
-    assert isinstance(con.lhs.left, IndexedParameter)
-    assert isinstance(con.lhs.right, IndexedVariable)
-
-
-# -- Model API -----------------------------------------------------------------
-
-def test_model_constraint_group():
-    m = Model()
-    x = m.variables(100, lower=0, name="x")
-    i = Iterator(range(99))
-
-    group = m.constraint_group([i], x[i] + x[i + 1] <= 10)
-    assert len(m._constraint_groups) == 1
-    assert "99 constraints" in repr(group)
-
-
-def test_model_multidim_constraint_group():
-    m = Model()
-    x = m.variables(100, lower=0, name="x")
-    i = Iterator(range(10))
-    j = Iterator(range(10))
-
-    group = m.constraint_group([i, j], x[10 * i + j] >= 0)
-    assert len(m._constraint_groups) == 1
-    assert "100 constraints" in repr(group)
-
-
-def test_model_objective():
-    m = Model()
-    x = m.variables(3, name="x")
-    m.objective = minimize(x[0] + x[1] + x[2])
-    assert m.objective.sense == "min"
-
-
-# -- Serialization -------------------------------------------------------------
-
-def test_serialize_constant():
-    assert serialize_expr(Constant(3.14)) == [TAG_CONST, 3.14]
-
-
-def test_serialize_variable():
-    assert serialize_expr(Variable(42)) == [TAG_VAR, 42.0]
-
-
-def test_serialize_binary():
-    x = Variable(0)
-    y = Variable(1)
-    buf = serialize_expr(x + y)
-    assert buf == [TAG_BINARY, 0.0, TAG_VAR, 0.0, TAG_VAR, 1.0]
-
-
-def test_serialize_iterator():
-    i = Iterator(range(10))
-    buf = serialize_expr(i)
-    assert buf == [TAG_ITERATOR, float(i.id)]
-
-
-def test_serialize_indexed_variable():
-    m = Model()
-    x = m.variables(100, lower=0)
-    i = Iterator(range(99))
-
-    buf = serialize_expr(x[i])
-    assert buf[0] == TAG_INDEXED_VAR
-    assert buf[1] == 0.0   # start index
-    assert buf[2] == 100.0  # count
-    assert TAG_ITERATOR in buf
-
-
-def test_serialize_indexed_parameter():
-    costs = Parameter([1.0, 2.0, 3.0])
-    i = Iterator(range(3))
-
-    reg = {}
-    buf = serialize_expr(costs[i], reg)
-    assert buf[0] == TAG_INDEXED_PARAM
-    assert len(reg) == 1
-
-
-def test_serialize_full_model():
-    """Serialize a complete model and verify the structure."""
-    m = Model()
-    x = m.variables(100, lower=0, name="x")
-
-    i = Iterator(range(99))
-    m.constraint_group([i], x[i] + x[i + 1] <= 10)
-
-    costs = Parameter([float(k) for k in range(100)], name="costs")
-    j = Iterator(range(100))
-    m.constraint_group([j], costs[j] * x[j] <= 50)
-
-    m.objective = minimize(x[0] + x[1])
-
-    data = m._serialize()
-    assert data["num_vars"] == 100
-    assert len(data["var_blocks"]) == 1
-    assert len(data["constraint_groups"]) == 2
-    assert data["constraint_groups"][0]["iterators"][0]["length"] == 99
-    assert data["constraint_groups"][1]["iterators"][0]["length"] == 100
-    assert len(data["parameters"]) == 1  # costs
-    assert data["objective"]["sense"] == "min"
+def test_template_linearity_flag():
+    ops = MockOps()
+    x = VariableVector(ops, 0, 10, "x")
+    i = Node(ops, ops.iterator([0.0, 1.0]))
+    assert (x[i] + x[i + 1] <= 10).func.linear
+    assert not (sin(x[i]) <= 1).func.linear
 
 
 if __name__ == "__main__":
     import traceback
-    tests = [v for k, v in globals().items() if k.startswith("test_")]
+    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     passed = failed = 0
     for test in tests:
         try:
             test()
             passed += 1
+            print(f"  PASS {test.__name__}")
         except Exception as e:
             failed += 1
-            print(f"FAIL {test.__name__}: {e}")
+            print(f"  FAIL {test.__name__}: {e}")
             traceback.print_exc()
     print(f"\n{passed} passed, {failed} failed")
-    import sys
     sys.exit(1 if failed else 0)

@@ -1,140 +1,202 @@
 """
-Solver backend abstraction.
+Backend selection and the compiled-library (juliac) MOI ops.
 
-Two backends:
-    - "juliac" (default): calls a precompiled shared library via ctypes.
-      No Julia installation required.
-    - "juliacall": calls MOI + GenOpt + HiGHS through juliacall.
-      Requires Julia (installed lazily by juliacall on first use).
+An "ops" object maps each MOI call either to the compiled shared library
+(JuliacOps below, via ctypes) or to Julia through juliacall
+(jumpy.bridge_juliacall.JuliaCallOps). Models call the ops directly; the
+two implementations expose the same methods.
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from jumpy.model import Model
+import ctypes
 
 
-class Backend(ABC):
-    """Abstract solver backend."""
+def get_ops(backend: str):
+    if backend == "juliac":
+        return JuliacOps(_load_lib())
+    if backend == "juliacall":
+        from jumpy.bridge_juliacall import JuliaCallOps
 
-    @abstractmethod
-    def optimize(self, model: Model) -> list[float]:
-        """Solve the model and return the solution vector."""
-        ...
+        return JuliaCallOps()
+    raise ValueError(f"Unknown backend '{backend}'. Choose from: juliac, juliacall")
 
 
-class JuliacBackend(Backend):
-    """
-    Default backend: calls a precompiled Julia shared library via ctypes.
+# The Julia runtime can only be initialized once per process.
+_LIB = None
 
-    The library is built with juliac from:
-        MOI + GenOpt + Bridges + HiGHS
 
-    No Julia installation required.
-    """
+def _load_lib():
+    global _LIB
+    if _LIB is not None:
+        return _LIB
+    import os
+    import platform
 
-    def __init__(self):
-        self._lib = None
+    soext = {"Linux": ".so", "Darwin": ".dylib", "Windows": ".dll"}[platform.system()]
+    lib_name = "libjumpy_highs" + soext
 
-    def _load_lib(self):
-        if self._lib is not None:
-            return
-        import ctypes
-        import importlib.resources
-        # TODO: resolve platform-specific library path
-        # For now, search standard locations
-        import os
-        lib_names = [
-            "libjumpy_backend.so",
-            "libjumpy_backend.dylib",
-            "jumpy_backend.dll",
-        ]
-        for name in lib_names:
-            for search_dir in [os.path.dirname(__file__), os.getcwd(), "/usr/local/lib"]:
-                path = os.path.join(search_dir, name)
-                if os.path.exists(path):
-                    self._lib = ctypes.CDLL(path)
-                    return
+    candidates = []
+    if "JUMPY_LIB" in os.environ:
+        candidates.append(os.environ["JUMPY_LIB"])
+    pkg_dir = os.path.dirname(__file__)
+    # Wheel layout: shipped inside the package.
+    candidates.append(os.path.join(pkg_dir, "lib", lib_name))
+    # Development layout: JuliaC bundle in <repo>/julia/build.
+    repo = os.path.dirname(os.path.dirname(pkg_dir))
+    candidates.append(os.path.join(repo, "julia", "build", "lib", lib_name))
+
+    path = next((p for p in candidates if os.path.exists(p)), None)
+    if path is None:
         raise FileNotFoundError(
-            "Could not find the compiled JuMPy backend library.\n"
-            "The juliac-compiled shared library (libjumpy_backend.so) is not installed.\n"
-            "Either:\n"
+            f"Could not find the compiled JuMPy backend library ({lib_name}). "
+            "Searched:\n  " + "\n  ".join(candidates) + "\nEither:\n"
             "  1. Install the pre-built wheel: pip install jumpy\n"
-            "  2. Use the juliacall backend: jp.Model(backend='juliacall')\n"
+            "  2. Build it locally: see julia/README.md\n"
+            "  3. Use the juliacall backend: jp.Model(backend='juliacall')\n"
         )
 
-    def optimize(self, model: Model) -> list[float]:
-        self._load_lib()
-        data = model._serialize()
-        # TODO: implement ctypes calls to the compiled library
-        raise NotImplementedError(
-            "juliac backend not yet compiled. "
-            "Use jp.Model(backend='juliacall') for now."
-        )
+    # RTLD_GLOBAL so that libjulia symbols are visible process-wide,
+    # which the Julia runtime requires.
+    lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+
+    # Initialize the Julia runtime from the image embedded in the library.
+    init = lib.jl_init_with_image_handle
+    init.argtypes = [ctypes.c_void_p]
+    init.restype = None
+    init(lib._handle)
+
+    c_longlong = ctypes.c_longlong
+    c_int = ctypes.c_int
+    c_double = ctypes.c_double
+    c_void_p = ctypes.c_void_p
+    p_double = ctypes.POINTER(c_double)
+    p_void = ctypes.POINTER(c_void_p)
+
+    # A model is an opaque pointer to a Julia object, valid until
+    # jumpy_free_model. MOI functions are opaque pointers built with the
+    # constructor entry points; they belong to the model and are freed
+    # with it.
+    lib.jumpy_new_model.argtypes = []
+    lib.jumpy_new_model.restype = c_void_p
+    lib.jumpy_free_model.argtypes = [c_void_p]
+    lib.jumpy_free_model.restype = c_int
+    lib.jumpy_add_variables.argtypes = [c_void_p, c_longlong]
+    lib.jumpy_add_variables.restype = c_longlong
+    lib.jumpy_constant.argtypes = [c_void_p, c_double]
+    lib.jumpy_constant.restype = c_void_p
+    lib.jumpy_variable.argtypes = [c_void_p, c_longlong]
+    lib.jumpy_variable.restype = c_void_p
+    lib.jumpy_scalar_nonlinear.argtypes = [c_void_p, ctypes.c_char_p, p_void, c_longlong]
+    lib.jumpy_scalar_nonlinear.restype = c_void_p
+    lib.jumpy_iterator.argtypes = [c_void_p, p_double, c_longlong]
+    lib.jumpy_iterator.restype = c_void_p
+    lib.jumpy_contiguous_variables.argtypes = [c_void_p, c_longlong, c_longlong]
+    lib.jumpy_contiguous_variables.restype = c_void_p
+    lib.jumpy_float_array.argtypes = [c_void_p, p_double, c_longlong]
+    lib.jumpy_float_array.restype = c_void_p
+    lib.jumpy_add_constraint.argtypes = [c_void_p, c_void_p, c_int, c_double]
+    lib.jumpy_add_constraint.restype = c_longlong
+    lib.jumpy_add_group_constraint.argtypes = [c_void_p, c_void_p, c_int]
+    lib.jumpy_add_group_constraint.restype = c_longlong
+    lib.jumpy_set_objective_sense.argtypes = [c_void_p, c_int]
+    lib.jumpy_set_objective_sense.restype = c_int
+    lib.jumpy_set_objective_function.argtypes = [c_void_p, c_void_p]
+    lib.jumpy_set_objective_function.restype = c_int
+    lib.jumpy_optimize.argtypes = [c_void_p]
+    lib.jumpy_optimize.restype = c_int
+    lib.jumpy_primal_status.argtypes = [c_void_p]
+    lib.jumpy_primal_status.restype = c_int
+    lib.jumpy_get_values.argtypes = [c_void_p, p_double, c_longlong]
+    lib.jumpy_get_values.restype = c_longlong
+    lib.jumpy_objective_value.argtypes = [c_void_p]
+    lib.jumpy_objective_value.restype = c_double
+
+    _LIB = lib
+    return lib
 
 
-class JuliaCallBackend(Backend):
+# Set codes of jumpy_add_constraint: {0: LessThan, 1: GreaterThan,
+# 2: EqualTo}(rhs), {3: ZeroOne, 4: Integer} (rhs ignored).
+_SENSE_CODES = {"<=": 0, ">=": 1, "==": 2, "binary": 3, "integer": 4}
+
+
+class JuliacOps:
     """
-    Optional backend: calls Julia directly through juliacall.
-
-    Requires `pip install jumpy[juliacall]`. Julia is installed lazily
-    by juliacall on first use if not already present.
-
-    This backend has full flexibility — it can use any solver or MOI
-    feature, not just what's compiled into the juliac library.
+    The compiled-library implementation of the MOI ops. Each method is one
+    C call into the entry point wrapping the same MOI function the
+    juliacall ops call.
     """
 
-    def __init__(self):
-        self._jl = None
+    def __init__(self, lib):
+        self._lib = lib
+        self._m = lib.jumpy_new_model()
+        if not self._m:  # NULL
+            raise RuntimeError("Failed to create model")
 
-    def _init_julia(self):
-        if self._jl is not None:
-            return
-        try:
-            from juliacall import Main as jl
-        except ImportError:
-            raise ImportError(
-                "juliacall is not installed.\n"
-                "Install it with: pip install jumpy[juliacall]\n"
-                "This will also install Julia automatically if needed."
-            ) from None
-        # Install and load Julia packages on first use
-        jl.seval("using Pkg")
-        for pkg in ["MathOptInterface", "HiGHS", "GenOpt"]:
-            jl.seval(f"""
-                if !haskey(Pkg.project().dependencies, "{pkg}")
-                    Pkg.add("{pkg}")
-                end
-            """)
-        jl.seval("import MathOptInterface as MOI")
-        jl.seval("import GenOpt")
-        jl.seval("import HiGHS")
-        # TODO: load GenOpt once it's registered / available
-        self._jl = jl
+    def free(self):
+        self._lib.jumpy_free_model(self._m)
 
-    def optimize(self, model: Model) -> list[float]:
-        self._init_julia()
-        jl = self._jl
-        return self._build_and_solve(jl, model)
+    def _node(self, node):
+        if not node:  # NULL
+            raise RuntimeError("Failed to build MOI function")
+        return node
 
-    def _build_and_solve(self, jl, model: Model) -> list[float]:
-        from jumpy.bridge_juliacall import build_moi_model
-        return build_moi_model(jl, model)
+    # -- MOI functions ---------------------------------------------------------
 
+    def constant(self, value):
+        return self._node(self._lib.jumpy_constant(self._m, value))
 
-_BACKENDS = {
-    "juliac": JuliacBackend,
-    "juliacall": JuliaCallBackend,
-}
+    def variable(self, index):
+        return self._node(self._lib.jumpy_variable(self._m, index))
 
-
-def get_backend(name: str) -> Backend:
-    cls = _BACKENDS.get(name)
-    if cls is None:
-        raise ValueError(
-            f"Unknown backend '{name}'. Choose from: {list(_BACKENDS.keys())}"
+    def scalar_nonlinear(self, head, args):
+        argv = (ctypes.c_void_p * len(args))(*args)
+        return self._node(
+            self._lib.jumpy_scalar_nonlinear(self._m, head.encode(), argv, len(args))
         )
-    return cls()
+
+    def iterator(self, values):
+        data = (ctypes.c_double * len(values))(*values)
+        return self._node(self._lib.jumpy_iterator(self._m, data, len(values)))
+
+    def contiguous_variables(self, start, count):
+        return self._node(self._lib.jumpy_contiguous_variables(self._m, start, count))
+
+    def float_array(self, values):
+        data = (ctypes.c_double * len(values))(*values)
+        return self._node(self._lib.jumpy_float_array(self._m, data, len(values)))
+
+    # -- Model building ----------------------------------------------------------
+
+    def add_variables(self, count):
+        start = self._lib.jumpy_add_variables(self._m, count)
+        if start < 0:
+            raise RuntimeError("Failed to add variables")
+        return start
+
+    def add_constraint(self, func, sense, rhs):
+        ci = self._lib.jumpy_add_constraint(self._m, func, _SENSE_CODES[sense], rhs)
+        if ci < 0:
+            raise RuntimeError("Failed to add constraint")
+
+    def add_constraint_group(self, func, sense, linear):
+        n = self._lib.jumpy_add_group_constraint(self._m, func, _SENSE_CODES[sense])
+        if n < 0:
+            raise RuntimeError("Failed to add constraint group")
+
+    def set_objective(self, sense, func):
+        if self._lib.jumpy_set_objective_sense(self._m, 0 if sense == "min" else 1) != 0:
+            raise RuntimeError("Failed to set objective sense")
+        if self._lib.jumpy_set_objective_function(self._m, func) != 0:
+            raise RuntimeError("Failed to set objective function")
+
+    def optimize(self):
+        return self._lib.jumpy_optimize(self._m)
+
+    def get_values(self, count):
+        out = (ctypes.c_double * count)()
+        written = self._lib.jumpy_get_values(self._m, out, count)
+        if written != count:
+            raise RuntimeError(f"Expected {count} solution values, got {written}")
+        return list(out)

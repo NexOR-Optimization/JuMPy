@@ -29,7 +29,6 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
-        julia-version: ["1.11", "1.12"]
     steps:
       - uses: actions/checkout@v4
 
@@ -39,21 +38,14 @@ jobs:
 
       - uses: julia-actions/setup-julia@v2
         with:
-          version: ${{ matrix.julia-version }}
+          version: "1.12"
 
       - uses: julia-actions/cache@v2
 
       - name: Install juliacall
         run: pip install juliacall
 
-      - name: Preinstall Julia packages
-        run: |
-          julia -e '
-            using Pkg
-            Pkg.add(["MathOptInterface", "HiGHS"])
-            using MathOptInterface
-            using HiGHS
-          '
-
       - name: Run solve tests
         run: python tests/test_solve.py
+        env:
+          JUMPY_BACKEND: juliacall

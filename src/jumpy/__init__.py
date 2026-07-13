@@ -1,38 +1,32 @@
 """
-JuMPy: A Python interface to MathOptInterface via GeneratorOptInterface.
+JuMPy: A Python interface to MathOptInterface via GenOpt.
 
-Builds expression graphs in Python, hands them off to a compiled Julia library
-(MOI + GeneratorOptInterface + Bridges + HiGHS) for constraint expansion and solving.
+Models are built eagerly: every operation performs the corresponding MOI
+call, either in the compiled Julia library (juliac backend, no Julia
+installation needed) or through juliacall.
 """
 
 from jumpy.expressions import (
+    Constraint,
+    Node,
+    Objective,
+    Parameter,
     Variable,
     VariableVector,
-    Constant,
-    Parameter,
-    Expr,
-    Func,
-    Constraint,
-    Objective,
 )
 from jumpy.expressions import sin, cos, exp, log, sqrt, abs as jp_abs
-from jumpy.iterators import Iterator
-from jumpy.model import Model, minimize, maximize, sum_over
+from jumpy.model import Model, minimize, maximize
 
 __all__ = [
     "Model",
+    "Node",
     "Variable",
     "VariableVector",
-    "Constant",
     "Parameter",
-    "Expr",
-    "Func",
     "Constraint",
     "Objective",
-    "Iterator",
     "minimize",
     "maximize",
-    "sum_over",
     "sin",
     "cos",
     "exp",
