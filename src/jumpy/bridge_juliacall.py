@@ -122,13 +122,13 @@ def build_moi_model(jl, model: Model) -> list[float]:
         )
         all_jl_vars.append(block_vars)
 
-    # Add individual constraints
-    for con in model._individual_constraints:
-        _add_individual_constraint(jl, optimizer, all_jl_vars, con)
-
     # Add constraint groups via GenOpt
     for group in model._constraint_groups:
         _add_constraint_group(jl, optimizer, all_jl_vars, model, group)
+
+    # Add individual constraints
+    for con in model._individual_constraints:
+        _add_individual_constraint(jl, optimizer, all_jl_vars, con)
 
     # Set objective
     if model._objective is not None:
