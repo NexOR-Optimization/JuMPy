@@ -42,7 +42,6 @@ def sum_over(iterator: Iterator, expr: Expr) -> Expr:
     """
     return SumExpr(iterator, expr)
 
-
 @dataclass
 class ConstraintGroup:
     """
@@ -74,6 +73,8 @@ class VariableBlock:
     lower: float | None
     upper: float | None
     vector: VariableVector
+    binary: bool = False
+    integer: bool = False
 
 
 class SumExpr(Expr):
@@ -127,6 +128,8 @@ class Model:
         lower: float | None = None,
         upper: float | None = None,
         name: str | None = None,
+        binary: bool = False,
+        integer: bool = False,
     ) -> VariableVector:
         """
         Add a block of decision variables.
@@ -141,7 +144,9 @@ class Model:
             vars.append(Variable(start + k, var_name))
         self._num_vars += count
         vec = VariableVector(vars, name)
-        self._var_blocks.append(VariableBlock(start, count, lower, upper, vec))
+        self._var_blocks.append(
+            VariableBlock(start, count, lower, upper, vec, binary, integer)
+        )
         return vec
 
     def variable(
@@ -150,9 +155,13 @@ class Model:
         lower: float | None = None,
         upper: float | None = None,
         name: str | None = None,
+        binary: bool = False,
+        integer: bool = False,
     ) -> Variable:
         """Add a single decision variable."""
-        vec = self.variables(1, lower=lower, upper=upper, name=name)
+        vec = self.variables(
+            1, lower=lower, upper=upper, name=name, binary=binary, integer=integer,
+        )
         return vec[0]
 
     # -- Constraints -----------------------------------------------------------
@@ -265,5 +274,3 @@ class Model:
         if self._solution is None:
             raise RuntimeError("Model has not been solved yet. Call optimize() first.")
         return self._solution[var.index]
-
-

@@ -40,22 +40,7 @@ def _define_helpers(jl):
     # jl.Any[...] is broken in PythonCall with Julia 1.12+
     _any_vec = jl.seval("(args...) -> Any[args...]")
     jl.seval("""
-        function _jumpy_scalar_affine(terms, constant)
-            return MOI.ScalarAffineFunction(terms, constant)
-        end
-
-        function _jumpy_affine_term(coef, var)
-            return MOI.ScalarAffineTerm(coef, var)
-        end
-
-        function _jumpy_set_objective!(optimizer, sense, func)
-            MOI.set(optimizer, MOI.ObjectiveSense(), sense)
-            F = typeof(func)
-            MOI.set(optimizer, MOI.ObjectiveFunction{F}(), func)
-        end
-    """)
-    jl.seval("""
-        function _jumpy_add_variables!(optimizer, count, lower, upper)
+        function _jumpy_add_variables!(optimizer, count, lower, upper, binary, integer)
             vars = MOI.add_variables(optimizer, count)
             if !isnothing(lower)
                 for v in vars
@@ -65,6 +50,15 @@ def _define_helpers(jl):
             if !isnothing(upper)
                 for v in vars
                     MOI.add_constraint(optimizer, v, MOI.LessThan(upper))
+                end
+            end
+            if binary
+                for v in vars
+                    MOI.add_constraint(optimizer, v, MOI.ZeroOne())
+                end
+            elseif integer
+                for v in vars
+                    MOI.add_constraint(optimizer, v, MOI.Integer())
                 end
             end
             return vars
@@ -111,29 +105,38 @@ def build_moi_model(jl, model: Model) -> list[float]:
     Constraint groups are passed as GenOpt.FunctionGenerator objects
     so that expansion happens entirely in Julia.
     """
+
     _define_helpers(jl)
 
     optimizer = jl._jumpy_create_optimizer()
+    all_jl_vars = _populate_optimizer(jl, optimizer, model)
+    jl.MOI.optimize_b(optimizer)
 
-    # Add variables — one bulk call per block
+    # Flatten all variable blocks into one solution vector
+    all_vars_flat = jl.seval("vcat")(*(v for v in all_jl_vars))
+    jl_solution = jl._jumpy_get_solution(optimizer, all_vars_flat)
+    return [float(jl_solution[i]) for i in range(len(jl_solution))]
+
+def _populate_optimizer(jl, optimizer, model: Model):
+    _define_helpers(jl)
+
     all_jl_vars = []
     for block in model._var_blocks:
         lower = float(block.lower) if block.lower is not None else jl.nothing
         upper = float(block.upper) if block.upper is not None else jl.nothing
         block_vars = jl._jumpy_add_variables_b(
             optimizer, block.count, lower, upper,
+            block.binary,
+            block.integer,
         )
         all_jl_vars.append(block_vars)
 
-    # Add constraint groups via GenOpt
-    for group in model._constraint_groups:
-        _add_constraint_group(jl, optimizer, all_jl_vars, model, group)
-
-    # Add individual constraints
     for con in model._individual_constraints:
         _add_individual_constraint(jl, optimizer, all_jl_vars, con)
 
-    # Set objective
+    for group in model._constraint_groups:
+        _add_constraint_group(jl, optimizer, all_jl_vars, model, group)
+
     if model._objective is not None:
         sense = (
             jl.MOI.MIN_SENSE
@@ -141,15 +144,10 @@ def build_moi_model(jl, model: Model) -> list[float]:
             else jl.MOI.MAX_SENSE
         )
         obj_func = _expr_to_moi(jl, all_jl_vars, model._objective.expr)
-        jl._jumpy_set_objective_b(optimizer, sense, obj_func)
-
-    # Optimize and extract solution
-    jl.MOI.optimize_b(optimizer)
-
-    # Flatten all variable blocks into one solution vector
-    all_vars_flat = jl.seval("vcat")(*(v for v in all_jl_vars))
-    jl_solution = jl._jumpy_get_solution(optimizer, all_vars_flat)
-    return [float(jl_solution[i]) for i in range(len(jl_solution))]
+        jl.MOI.set(optimizer, jl.MOI.ObjectiveSense(), sense)
+        jl.MOI.set(optimizer, jl.MOI.ObjectiveFunction[jl.typeof(obj_func)](), obj_func)
+    
+    return all_jl_vars
 
 
 def _is_linear_template(expr) -> bool:
@@ -340,9 +338,9 @@ def _expr_to_moi_linear(jl, all_jl_vars, expr):
     jl_terms = jl.seval("MOI.ScalarAffineTerm{Float64}[]")
     for coef, var_idx in terms:
         jl_var = _get_jl_var_by_index(jl, all_jl_vars, var_idx)
-        jl.push_b(jl_terms, jl._jumpy_affine_term(float(coef), jl_var))
+        jl.push_b(jl_terms, jl.MOI.ScalarAffineTerm(float(coef), jl_var))
 
-    return jl._jumpy_scalar_affine(jl_terms, float(constant))
+    return jl.MOI.ScalarAffineFunction(jl_terms, float(constant))
 
 
 def _expr_to_moi(jl, all_jl_vars, expr):
