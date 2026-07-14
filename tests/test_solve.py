@@ -9,7 +9,6 @@ import sys
 sys.path.insert(0, "src")
 
 from jumpy import Model, Iterator, Parameter, minimize, maximize
-from jumpy.expressions import exp, log
 
 def _model():
     return Model(backend="juliacall")
