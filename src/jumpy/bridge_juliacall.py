@@ -109,17 +109,8 @@ def build_moi_model(jl, model: Model) -> list[float]:
     _define_helpers(jl)
 
     optimizer = jl._jumpy_create_optimizer()
-    all_jl_vars = _populate_optimizer(jl, optimizer, model)
-    jl.MOI.optimize_b(optimizer)
 
-    # Flatten all variable blocks into one solution vector
-    all_vars_flat = jl.seval("vcat")(*(v for v in all_jl_vars))
-    jl_solution = jl._jumpy_get_solution(optimizer, all_vars_flat)
-    return [float(jl_solution[i]) for i in range(len(jl_solution))]
-
-def _populate_optimizer(jl, optimizer, model: Model):
-    _define_helpers(jl)
-
+    # Add variables — one bulk call per block
     all_jl_vars = []
     for block in model._var_blocks:
         lower = float(block.lower) if block.lower is not None else jl.nothing
@@ -131,12 +122,15 @@ def _populate_optimizer(jl, optimizer, model: Model):
         )
         all_jl_vars.append(block_vars)
 
+    # Add individual constraints
     for con in model._individual_constraints:
         _add_individual_constraint(jl, optimizer, all_jl_vars, con)
 
+    # Add constraint groups via GenOpt
     for group in model._constraint_groups:
         _add_constraint_group(jl, optimizer, all_jl_vars, model, group)
 
+    # Set objective
     if model._objective is not None:
         sense = (
             jl.MOI.MIN_SENSE
@@ -144,10 +138,17 @@ def _populate_optimizer(jl, optimizer, model: Model):
             else jl.MOI.MAX_SENSE
         )
         obj_func = _expr_to_moi(jl, all_jl_vars, model._objective.expr)
+
         jl.MOI.set(optimizer, jl.MOI.ObjectiveSense(), sense)
         jl.MOI.set(optimizer, jl.MOI.ObjectiveFunction[jl.typeof(obj_func)](), obj_func)
-    
-    return all_jl_vars
+
+    # Optimize and extract solution
+    jl.MOI.optimize_b(optimizer)
+
+    # Flatten all variable blocks into one solution vector
+    all_vars_flat = jl.seval("vcat")(*(v for v in all_jl_vars))
+    jl_solution = jl._jumpy_get_solution(optimizer, all_vars_flat)
+    return [float(jl_solution[i]) for i in range(len(jl_solution))]
 
 
 def _is_linear_template(expr) -> bool:
