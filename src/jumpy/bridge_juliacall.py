@@ -40,7 +40,7 @@ def _define_helpers(jl):
     # jl.Any[...] is broken in PythonCall with Julia 1.12+
     _any_vec = jl.seval("(args...) -> Any[args...]")
     jl.seval("""
-        function _jumpy_add_variables!(optimizer, count, lower, upper)
+        function _jumpy_add_variables!(optimizer, count, lower, upper, binary, integer)
             vars = MOI.add_variables(optimizer, count)
             if !isnothing(lower)
                 for v in vars
@@ -50,6 +50,15 @@ def _define_helpers(jl):
             if !isnothing(upper)
                 for v in vars
                     MOI.add_constraint(optimizer, v, MOI.LessThan(upper))
+                end
+            end
+            if binary
+                for v in vars
+                    MOI.add_constraint(optimizer, v, MOI.ZeroOne())
+                end
+            elseif integer
+                for v in vars
+                    MOI.add_constraint(optimizer, v, MOI.Integer())
                 end
             end
             return vars
@@ -96,6 +105,7 @@ def build_moi_model(jl, model: Model) -> list[float]:
     Constraint groups are passed as GenOpt.FunctionGenerator objects
     so that expansion happens entirely in Julia.
     """
+
     _define_helpers(jl)
 
     optimizer = jl._jumpy_create_optimizer()
@@ -107,6 +117,8 @@ def build_moi_model(jl, model: Model) -> list[float]:
         upper = float(block.upper) if block.upper is not None else jl.nothing
         block_vars = jl._jumpy_add_variables_b(
             optimizer, block.count, lower, upper,
+            block.binary,
+            block.integer,
         )
         all_jl_vars.append(block_vars)
 
