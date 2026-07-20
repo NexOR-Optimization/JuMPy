@@ -13,5 +13,11 @@ dependencies = []
 [project.optional-dependencies]
 juliacall = ["juliacall>=0.9.23"]
 
+[dependency-groups]
+tests = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/jumpy"]

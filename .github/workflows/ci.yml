@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  test-expressions:
-    name: Python expression tests
+  test-python:
+    name: Python tests (no Julia)
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -16,12 +16,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Run expression tests
-        run: python tests/test_expressions.py
+      - name: Run tests
+        run: >
+          uv run --group tests pytest
+          tests/test_expressions.py tests/test_backend.py tests/test_MILP.py
 
   test-solve:
     name: End-to-end solve (juliacall + HiGHS)
@@ -32,20 +34,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
 
       - uses: julia-actions/setup-julia@v2
         with:
-          version: "1.12"
+          version: "1.11"
 
       - uses: julia-actions/cache@v2
 
-      - name: Install juliacall
-        run: pip install juliacall
-
       - name: Run solve tests
-        run: python tests/test_solve.py
+        run: uv run --group tests --extra juliacall pytest tests/test_solve.py
         env:
           JUMPY_BACKEND: juliacall

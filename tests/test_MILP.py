@@ -1,54 +1,45 @@
 """
-Test implementation of binary and integer variables by checking the mof output
+Tests that binary/integer variables produce the right MOI calls:
+VariableIndex-in-ZeroOne / VariableIndex-in-Integer constraints, as in MOI.
 """
 
-import json
 import jumpy as jp
+from mock_ops import MockOps
 
-def test_binary_variables_stored_correctly():
-    """VariableBlock records binary=True."""
-    m = jp.Model()
-    x = m.variables(3, binary=True, name="x")
-    assert m._var_blocks[-1].binary is True
-    assert m._var_blocks[-1].integer is False
 
-def test_integer_variables_stored_correctly():
-    m = jp.Model()
-    x = m.variables(3, integer=True, name="x")
-    assert m._var_blocks[-1].integer is True
-    assert m._var_blocks[-1].binary is False
+def test_binary_variables():
+    ops = MockOps()
+    m = jp.Model(backend=ops)
+    m.variables(3, binary=True, name="x")
+    assert ops.constraints == [(("var", k), "binary", 0.0) for k in range(3)]
 
-def test_single_binary_variable():
-    m = jp.Model()
-    x = m.variable(binary=True, name="x")
-    assert m._var_blocks[-1].binary is True
 
-def test_default_is_false():
-    """Existing code not broken, continuous variables unchanged."""
-    m = jp.Model()
-    x = m.variables(3, lower=0, name="x")
-    assert m._var_blocks[-1].binary is False
-    assert m._var_blocks[-1].integer is False
+def test_integer_variables():
+    ops = MockOps()
+    m = jp.Model(backend=ops)
+    m.variables(3, integer=True, name="x")
+    assert ops.constraints == [(("var", k), "integer", 0.0) for k in range(3)]
 
-if __name__ == "__main__":
-    import tempfile, sys, pathlib, traceback
 
-    passed = failed = 0
-    tmp = pathlib.Path(tempfile.mkdtemp())
-    tests = [v for k, v in globals().items() if k.startswith("test_")]
+def test_single_binary_variable_with_bounds():
+    ops = MockOps()
+    m = jp.Model(backend=ops)
+    m.variable(lower=0, binary=True, name="x")
+    assert ops.constraints == [
+        (("var", 0), ">=", 0.0),
+        (("var", 0), "binary", 0.0),
+    ]
 
-    for test in tests:
-        try:
-            if "tmp_path" in test.__code__.co_varnames:
-                test(tmp)
-            else:
-                test()
-            passed += 1
-            print(f"  PASS  {test.__name__}")
-        except Exception as e:
-            failed += 1
-            print(f"  FAIL  {test.__name__}: {e}")
-            traceback.print_exc()
 
-    print(f"\n{passed} passed, {failed} failed")
-    sys.exit(1 if failed else 0)
+def test_binary_takes_precedence_over_integer():
+    ops = MockOps()
+    m = jp.Model(backend=ops)
+    m.variable(binary=True, integer=True, name="x")
+    assert ops.constraints == [(("var", 0), "binary", 0.0)]
+
+
+def test_default_is_continuous():
+    ops = MockOps()
+    m = jp.Model(backend=ops)
+    m.variables(3, lower=0, name="x")
+    assert all(sense == ">=" for _, sense, _ in ops.constraints)

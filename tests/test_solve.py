@@ -9,9 +9,6 @@ Backend is selected with the JUMPY_BACKEND environment variable:
 """
 
 import os
-import sys
-sys.path.insert(0, "src")
-
 from jumpy import Model, minimize, maximize
 
 BACKEND = os.environ.get("JUMPY_BACKEND", "juliac")
@@ -186,19 +183,3 @@ def test_set_cover():
     m.objective = minimize(sum(s[k] for k in range(4)))
     m.optimize()
     assert abs(sum(m.value(s[k]) for k in range(4)) - 2.0) < 1e-6
-
-if __name__ == "__main__":
-    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
-    passed = failed = 0
-    for test in tests:
-        try:
-            test()
-            passed += 1
-            print(f"  PASS {test.__name__}")
-        except Exception as e:
-            failed += 1
-            import traceback
-            print(f"  FAIL {test.__name__}: {e}")
-            traceback.print_exc()
-    print(f"\n{passed} passed, {failed} failed")
-    sys.exit(1 if failed else 0)

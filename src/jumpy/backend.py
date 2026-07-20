@@ -12,14 +12,19 @@ from __future__ import annotations
 import ctypes
 
 
-def get_ops(backend: str):
+def get_ops(backend):
     if backend == "juliac":
         return JuliacOps(_load_lib())
     if backend == "juliacall":
         from jumpy.bridge_juliacall import JuliaCallOps
 
         return JuliaCallOps()
-    raise ValueError(f"Unknown backend '{backend}'. Choose from: juliac, juliacall")
+    if isinstance(backend, str):
+        raise ValueError(
+            f"Unknown backend '{backend}'. Choose from: juliac, juliacall"
+        )
+    # An ops object used directly (tests, custom backends).
+    return backend
 
 
 # The Julia runtime can only be initialized once per process.

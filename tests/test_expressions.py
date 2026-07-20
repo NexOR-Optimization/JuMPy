@@ -1,50 +1,7 @@
-"""
-Tests for eager expression building, using a mock ops object.
-
-The mock records every MOI call as a tuple, so these tests check exactly
-what a backend receives — pure Python, no Julia needed.
-"""
-
-import sys
-sys.path.insert(0, "src")
+"""Tests for eager expression building, using the mock ops object."""
 
 from jumpy.expressions import Node, Parameter, Variable, VariableVector, sin
-
-
-class MockOps:
-    def __init__(self):
-        self.constraints = []
-        self.groups = []
-        self.num_vars = 0
-
-    def constant(self, v):
-        return v
-
-    def variable(self, index):
-        return ("var", index)
-
-    def scalar_nonlinear(self, head, args):
-        return (head, *args)
-
-    def iterator(self, values):
-        return ("iterator", tuple(values))
-
-    def contiguous_variables(self, start, count):
-        return ("block", start, count)
-
-    def float_array(self, values):
-        return ("data", tuple(values))
-
-    def add_variables(self, count):
-        start = self.num_vars
-        self.num_vars += count
-        return start
-
-    def add_constraint(self, func, sense, rhs):
-        self.constraints.append((func, sense, rhs))
-
-    def add_constraint_group(self, func, sense, linear):
-        self.groups.append((func, sense, linear))
+from mock_ops import MockOps
 
 
 def test_arithmetic_builds_scalar_nonlinear():
@@ -122,20 +79,3 @@ def test_template_linearity_flag():
     i = Node(ops, ops.iterator([0.0, 1.0]))
     assert (x[i] + x[i + 1] <= 10).func.linear
     assert not (sin(x[i]) <= 1).func.linear
-
-
-if __name__ == "__main__":
-    import traceback
-    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
-    passed = failed = 0
-    for test in tests:
-        try:
-            test()
-            passed += 1
-            print(f"  PASS {test.__name__}")
-        except Exception as e:
-            failed += 1
-            print(f"  FAIL {test.__name__}: {e}")
-            traceback.print_exc()
-    print(f"\n{passed} passed, {failed} failed")
-    sys.exit(1 if failed else 0)

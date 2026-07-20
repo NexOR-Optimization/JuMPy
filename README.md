@@ -173,14 +173,17 @@ src/jumpy/
 ## Development
 
 ```bash
-# Run tests
-python3 tests/test_expressions.py
-
-# Run example
-python3 examples/basic.py
+# Run the pure-Python tests (uses uv: https://docs.astral.sh/uv/)
+uv run --group tests pytest tests/test_expressions.py tests/test_backend.py tests/test_MILP.py
 
 # Build the compiled backend (see julia/README.md), then:
-JUMPY_BACKEND=juliac python3 tests/test_solve.py
+uv run --group tests pytest tests/test_solve.py
+
+# Or through juliacall (needs no compiled library):
+JUMPY_BACKEND=juliacall uv run --group tests --extra juliacall pytest tests/test_solve.py
+
+# Run example
+uv run examples/basic.py
 ```
 
 The compiled backend lives in [`julia/`](julia/): a small Julia package
