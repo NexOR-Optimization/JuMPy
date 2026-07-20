@@ -23,6 +23,9 @@ jobs:
       - name: Run expression tests
         run: python tests/test_expressions.py
 
+      - name: Run backend discovery tests
+        run: python tests/test_backend.py
+
   test-solve:
     name: End-to-end solve (juliacall + HiGHS)
     runs-on: ubuntu-latest
