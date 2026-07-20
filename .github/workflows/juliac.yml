@@ -49,12 +49,12 @@ jobs:
         working-directory: julia
         run: >
           julia --project=@juliac -m JuliaC
-          --output-lib build/libjumpy_highs
+          --output-lib build/libjumpy_highs --project .
           --compile-ccallable
           --jl-option handle-signals=no
           --bundle build
           --verbose
-          .
+          juliac_entry.jl
 
       - uses: actions/setup-python@v5
         with:

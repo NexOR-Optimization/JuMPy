@@ -64,14 +64,37 @@ function _unbox(node::Ptr{Cvoid})
     return (unsafe_pointer_to_objref(node)::Base.RefValue{Any})[]
 end
 
+# The function nodes Python builds (see expressions.py). Asserting this
+# union at the ABI boundary makes dispatch static, which `--trim` needs.
+const FunctionNode = Union{Float64,MOI.VariableIndex,MOI.ScalarNonlinearFunction}
+# What _simplify can produce from a FunctionNode. Four types: exactly the
+# compiler's union-splitting limit, so calls on this union stay static.
+const AnyFunction = Union{
+    Float64,
+    MOI.VariableIndex,
+    MOI.ScalarAffineFunction{Float64},
+    MOI.ScalarNonlinearFunction,
+}
+
+# Report through the C runtime directly: ccalls resolve statically, so this
+# path survives `--trim` (both the Base and Core printing stacks dispatch
+# dynamically and get stripped).
+function _print_error(@nospecialize(err))
+    # @nospecialize: one compiled instance taking Any, so the dynamic call
+    # from the catch blocks always finds code in the trimmed image.
+    ccall(:jl_safe_printf, Cvoid, (Cstring,), "JuMPyHiGHS error: ")
+    stream = ccall(:jl_stderr_stream, Ptr{Cvoid}, ())
+    ccall(:jl_static_show, Csize_t, (Ptr{Cvoid}, Any), stream, err)
+    ccall(:jl_safe_printf, Cvoid, (Cstring,), "\n")
+    return
+end
+
 macro _catch(default, expr)
     quote
         try
             $(esc(expr))
         catch err
-            print(stderr, "JuMPyHiGHS error: ")
-            showerror(stderr, err)
-            println(stderr)
+            _print_error(err)
             $(esc(default))
         end
     end
@@ -204,19 +227,25 @@ function _simplify(func::MOI.ScalarNonlinearFunction)
 end
 _simplify(func) = func
 
-function _scalar_set(sense::Cint, rhs::Float64)
-    if sense == 0
-        return MOI.LessThan(rhs)
+# One branch per set so that every `normalize_and_add_constraint` call has
+# a statically-known set type: returning the set from a helper would make a
+# 5-type union, past the compiler's union-splitting limit, and the dispatch
+# would go dynamic — which `--trim` strips.
+function _add(optimizer, func::AnyFunction, sense::Cint, rhs::Float64)::Clonglong
+    ci = if sense == 0
+        MOI.Utilities.normalize_and_add_constraint(optimizer, func, MOI.LessThan(rhs))
     elseif sense == 1
-        return MOI.GreaterThan(rhs)
+        MOI.Utilities.normalize_and_add_constraint(optimizer, func, MOI.GreaterThan(rhs))
     elseif sense == 2
-        return MOI.EqualTo(rhs)
+        MOI.Utilities.normalize_and_add_constraint(optimizer, func, MOI.EqualTo(rhs))
     elseif sense == 3
-        return MOI.ZeroOne()
+        MOI.Utilities.normalize_and_add_constraint(optimizer, func, MOI.ZeroOne())
     elseif sense == 4
-        return MOI.Integer()
+        MOI.Utilities.normalize_and_add_constraint(optimizer, func, MOI.Integer())
+    else
+        error("Invalid constraint sense: ", sense)
     end
-    return error("Invalid constraint sense: $sense")
+    return Clonglong(ci.value::Int64)
 end
 
 # MOI.add_constraint(func, set) where set is
@@ -231,12 +260,7 @@ Base.@ccallable function jumpy_add_constraint(
 )::Clonglong
     @_catch Clonglong(-1) begin
         handle = _get(model)
-        ci = MOI.Utilities.normalize_and_add_constraint(
-            handle.optimizer,
-            _simplify(_unbox(func)),
-            _scalar_set(sense, rhs),
-        )
-        Clonglong(ci.value)
+        _add(handle.optimizer, _simplify(_unbox(func)::FunctionNode)::AnyFunction, sense, rhs)
     end
 end
 
@@ -251,21 +275,26 @@ Base.@ccallable function jumpy_add_group_constraint(
 )::Clonglong
     @_catch Clonglong(-1) begin
         handle = _get(model)
-        set = _scalar_set(sense, 0.0)
         template, iterators = GenOpt.collect_iterator_refs(
             _unbox(func)::MOI.ScalarNonlinearFunction,
         )
-        sizes = Tuple(length.(iterators))
-        for idx in CartesianIndices(sizes)
-            values = [iterators[k].values[idx[k]] for k in eachindex(iterators)]
+        # Linear enumeration of the product grid, first iterator fastest
+        # (the same order as CartesianIndices, whose arity would be a
+        # runtime value here — dynamic, which `--trim` cannot keep).
+        sizes = Int64[length(it) for it in iterators]
+        total = prod(sizes)
+        values = Vector{Float64}(undef, length(iterators))
+        for linear in 0:(total-1)
+            remainder = linear
+            for k in eachindex(iterators)
+                iterator = iterators[k]::GenOpt.Iterator{Float64}
+                values[k] = iterator.values[remainder%sizes[k]+1]
+                remainder = div(remainder, sizes[k])
+            end
             expanded = GenOpt._expand(template, values)
-            MOI.Utilities.normalize_and_add_constraint(
-                handle.optimizer,
-                _simplify(expanded),
-                set,
-            )
+            _add(handle.optimizer, _simplify(expanded::FunctionNode)::AnyFunction, sense, 0.0)
         end
-        Clonglong(prod(sizes))
+        Clonglong(total)
     end
 end
 
@@ -291,7 +320,7 @@ Base.@ccallable function jumpy_set_objective_function(
 )::Cint
     @_catch Cint(-1) begin
         handle = _get(model)
-        f = _simplify(_unbox(func))
+        f = _simplify(_unbox(func)::FunctionNode)::AnyFunction
         if f isa MOI.VariableIndex || f isa Float64
             # HiGHS has no VariableIndex or constant objective; the affine
             # one is equivalent.
@@ -309,7 +338,7 @@ Base.@ccallable function jumpy_optimize(model::Ptr{Cvoid})::Cint
     @_catch Cint(-1) begin
         handle = _get(model)
         MOI.optimize!(handle.optimizer)
-        Cint(Integer(MOI.get(handle.optimizer, MOI.TerminationStatus())))
+        Cint(Integer(MOI.get(handle.optimizer, MOI.TerminationStatus())::MOI.TerminationStatusCode))
     end
 end
 
@@ -317,7 +346,7 @@ end
 Base.@ccallable function jumpy_primal_status(model::Ptr{Cvoid})::Cint
     @_catch Cint(-1) begin
         handle = _get(model)
-        Cint(Integer(MOI.get(handle.optimizer, MOI.PrimalStatus())))
+        Cint(Integer(MOI.get(handle.optimizer, MOI.PrimalStatus())::MOI.ResultStatusCode))
     end
 end
 
@@ -335,7 +364,7 @@ Base.@ccallable function jumpy_get_values(
             handle.optimizer,
             MOI.VariablePrimal(),
             handle.variables[1:n],
-        )
+        )::Vector{Float64}
         for k in 1:n
             unsafe_store!(out, values[k], k)
         end
@@ -346,7 +375,7 @@ end
 Base.@ccallable function jumpy_objective_value(model::Ptr{Cvoid})::Cdouble
     @_catch Cdouble(NaN) begin
         handle = _get(model)
-        Cdouble(MOI.get(handle.optimizer, MOI.ObjectiveValue()))
+        Cdouble(MOI.get(handle.optimizer, MOI.ObjectiveValue())::Float64)
     end
 end
 
