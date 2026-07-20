@@ -1,287 +1,220 @@
 """
-Expression graph for JuMPy.
+Expression nodes, built eagerly as MOI functions.
 
-Builds a tree of nodes that maps directly to MOI.ScalarNonlinearFunction:
-    ScalarNonlinearFunction(head::Symbol, args::Vector{Any})
+Every arithmetic operation immediately performs one MOI call through the
+model's `ops` object — via juliacall or the compiled library. A Node is a
+thin Python handle around the resulting MOI object; there is no Python-side
+expression tree and no conversion step.
 
-Each node is either:
-    - Variable(index)              -> MOI.VariableIndex(index)
-    - Constant(value)              -> Float64
-    - BinaryOp(op, l, r)          -> MOI.ScalarNonlinearFunction(op, [l, r])
-    - UnaryOp(op, arg)            -> MOI.ScalarNonlinearFunction(op, [arg])
-    - Func(name, arg)             -> MOI.ScalarNonlinearFunction(name, [arg])
-    - IteratorRef(iterator)        -> GeneratorOptInterface.IteratorIndex
-    - IndexedVariable(vec, index)  -> variable lookup resolved during expansion
-    - IndexedParameter(param, idx) -> data lookup resolved during expansion
+Iterators (from Model.iterator) are ordinary nodes wrapping a
+GenOpt.IteratorRef, so templates like `x[i] + x[i + 1] <= 10` are also
+built eagerly; GenOpt discovers the iterators by identity when the group
+constraint is added.
 """
 
 from __future__ import annotations
 
-from typing import Union
-
-Numeric = Union[int, float]
+Numeric = (int, float)
 
 
-def _wrap(other: Expr | Numeric) -> Expr:
-    """Wrap a numeric literal into a Constant node."""
-    if isinstance(other, Expr):
-        return other
-    if isinstance(other, (int, float)):
-        return Constant(float(other))
-    raise TypeError(f"Cannot convert {type(other).__name__} to Expr")
+def _moi(ops, value):
+    """The MOI object of a Node or a numeric literal."""
+    if isinstance(value, Node):
+        return value.moi
+    if isinstance(value, Numeric):
+        return ops.constant(float(value))
+    raise TypeError(f"Cannot use {type(value).__name__} in an expression")
 
 
-class Expr:
-    """Base class for all expression-graph nodes."""
+def _is_linear(value) -> bool:
+    return not isinstance(value, Node) or value.linear
 
-    # -- arithmetic operators --------------------------------------------------
 
-    def __add__(self, other: Expr | Numeric) -> BinaryOp:
-        return BinaryOp("+", self, _wrap(other))
+class Node:
+    """A handle to an MOI expression owned by the model's backend."""
 
-    def __radd__(self, other: Expr | Numeric) -> BinaryOp:
-        return BinaryOp("+", _wrap(other), self)
+    def __init__(self, ops, moi, *, linear: bool = True):
+        self._ops = ops
+        self.moi = moi
+        self.linear = linear
 
-    def __sub__(self, other: Expr | Numeric) -> BinaryOp:
-        return BinaryOp("-", self, _wrap(other))
+    def _snf(self, head: str, args, *, linear: bool = True) -> Node:
+        return Node(
+            self._ops,
+            self._ops.scalar_nonlinear(head, [_moi(self._ops, a) for a in args]),
+            linear=linear and all(_is_linear(a) for a in args),
+        )
 
-    def __rsub__(self, other: Expr | Numeric) -> BinaryOp:
-        return BinaryOp("-", _wrap(other), self)
+    # -- arithmetic (each call is one MOI ScalarNonlinearFunction) --------------
 
-    def __mul__(self, other: Expr | Numeric) -> BinaryOp:
-        return BinaryOp("*", self, _wrap(other))
+    def __add__(self, other):
+        return self._snf("+", [self, other])
 
-    def __rmul__(self, other: Expr | Numeric) -> BinaryOp:
-        return BinaryOp("*", _wrap(other), self)
+    def __radd__(self, other):
+        return self._snf("+", [other, self])
 
-    def __truediv__(self, other: Expr | Numeric) -> BinaryOp:
-        return BinaryOp("/", self, _wrap(other))
+    def __sub__(self, other):
+        return self._snf("-", [self, other])
 
-    def __rtruediv__(self, other: Expr | Numeric) -> BinaryOp:
-        return BinaryOp("/", _wrap(other), self)
+    def __rsub__(self, other):
+        return self._snf("-", [other, self])
 
-    def __pow__(self, other: Expr | Numeric) -> BinaryOp:
-        return BinaryOp("^", self, _wrap(other))
+    def __mul__(self, other):
+        return self._snf("*", [self, other])
 
-    def __rpow__(self, other: Expr | Numeric) -> BinaryOp:
-        return BinaryOp("^", _wrap(other), self)
+    def __rmul__(self, other):
+        return self._snf("*", [other, self])
 
-    def __neg__(self) -> UnaryOp:
-        return UnaryOp("-", self)
+    def __truediv__(self, other):
+        return self._snf("/", [self, other], linear=False)
 
-    def __pos__(self) -> Expr:
+    def __rtruediv__(self, other):
+        return self._snf("/", [other, self], linear=False)
+
+    def __pow__(self, other):
+        return self._snf("^", [self, other], linear=False)
+
+    def __rpow__(self, other):
+        return self._snf("^", [other, self], linear=False)
+
+    def __neg__(self):
+        return self._snf("-", [self])
+
+    def __pos__(self):
         return self
 
-    # -- comparison operators (return Constraint objects) ----------------------
+    # -- comparisons (normalized to `self - other  sense  0`) -------------------
 
-    def __le__(self, other: Expr | Numeric) -> Constraint:
-        return Constraint(self, "<=", _wrap(other))
+    def __le__(self, other) -> Constraint:
+        return Constraint(self - other, "<=")
 
-    def __ge__(self, other: Expr | Numeric) -> Constraint:
-        return Constraint(self, ">=", _wrap(other))
+    def __ge__(self, other) -> Constraint:
+        return Constraint(self - other, ">=")
 
-    def __eq__(self, other: Expr | Numeric) -> Constraint:
-        return Constraint(self, "==", _wrap(other))
+    def __eq__(self, other) -> Constraint:
+        return Constraint(self - other, "==")
 
 
-class Variable(Expr):
-    """
-    A decision variable. Maps to MOI.VariableIndex(index).
+class Variable(Node):
+    """A single decision variable; keeps its column for solution lookup."""
 
-    Users don't create these directly; they are returned by Model.variables().
-    """
-
-    def __init__(self, index: int, name: str | None = None):
+    def __init__(self, ops, index: int, name: str | None = None):
+        super().__init__(ops, ops.variable(index))
         self.index = index
         self.name = name
 
     def __repr__(self) -> str:
-        if self.name:
-            return self.name
-        return f"x[{self.index}]"
-
-
-class Constant(Expr):
-    """A numeric constant in the expression tree."""
-
-    def __init__(self, value: float):
-        self.value = value
-
-    def __repr__(self) -> str:
-        return str(self.value)
-
-
-class BinaryOp(Expr):
-    """Binary operation node: +, -, *, /, ^."""
-
-    def __init__(self, op: str, left: Expr, right: Expr):
-        self.op = op
-        self.left = left
-        self.right = right
-
-    def __repr__(self) -> str:
-        return f"({self.left} {self.op} {self.right})"
-
-
-class UnaryOp(Expr):
-    """Unary operation node (currently just negation)."""
-
-    def __init__(self, op: str, arg: Expr):
-        self.op = op
-        self.arg = arg
-
-    def __repr__(self) -> str:
-        return f"({self.op}{self.arg})"
-
-
-class Func(Expr):
-    """Named function call: sin, cos, exp, log, sqrt, abs."""
-
-    def __init__(self, name: str, arg: Expr):
-        self.name = name
-        self.arg = _wrap(arg)
-
-    def __repr__(self) -> str:
-        return f"{self.name}({self.arg})"
-
-
-class IndexedVariable(Expr):
-    """
-    Symbolic variable lookup: x[expr] where expr contains IteratorRefs.
-
-    During expansion on the Julia side, the index expression is evaluated
-    for each iterator value to resolve to a concrete MOI.VariableIndex.
-    """
-
-    def __init__(self, variable_vector: VariableVector, index_expr: Expr):
-        self.variable_vector = variable_vector
-        self.index_expr = index_expr
-
-    def __repr__(self) -> str:
-        name = self.variable_vector.name or "x"
-        return f"{name}[{self.index_expr}]"
-
-
-class IndexedParameter(Expr):
-    """
-    Symbolic data lookup: param[expr] where expr contains IteratorRefs.
-
-    During expansion, the index expression is evaluated for each iterator
-    value to look up a concrete float from the parameter data.
-    """
-
-    def __init__(self, parameter: Parameter, index_expr: Expr):
-        self.parameter = parameter
-        self.index_expr = index_expr
-
-    def __repr__(self) -> str:
-        name = self.parameter.name or "p"
-        return f"{name}[{self.index_expr}]"
+        return self.name or f"x[{self.index}]"
 
 
 class VariableVector:
     """
     A block of decision variables returned by Model.variables().
 
-    Supports both concrete indexing (x[0] -> Variable) and symbolic
-    indexing (x[i] -> IndexedVariable, where i is an Iterator/Expr).
+    Concrete indexing (x[0]) returns a Variable; symbolic indexing (x[i]
+    with an expression) builds a getindex template node over the contiguous
+    block.
     """
 
-    def __init__(self, variables: list[Variable], name: str | None = None):
-        self._variables = variables
+    def __init__(self, ops, start: int, count: int, name: str | None = None):
+        self._ops = ops
+        self.start = start
+        self.count = count
         self.name = name
+        self._block = None  # GenOpt.ContiguousArrayOfVariables, built lazily
 
-    def __getitem__(self, index: int | Expr) -> Variable | IndexedVariable:
-        if isinstance(index, (int,)):
-            return self._variables[index]
-        if isinstance(index, Expr):
-            return IndexedVariable(self, index)
-        raise TypeError(f"Index must be int or Expr, got {type(index).__name__}")
+    def __getitem__(self, index):
+        if isinstance(index, int):
+            var_name = f"{self.name}[{index}]" if self.name else None
+            return Variable(self._ops, self.start + index, var_name)
+        if isinstance(index, Node):
+            if self._block is None:
+                self._block = self._ops.contiguous_variables(self.start, self.count)
+            block = Node(self._ops, self._block)
+            # 0-based Python index -> 1-based Julia index
+            return block._snf("getindex", [block, index + 1])
+        raise TypeError(f"Index must be int or Node, got {type(index).__name__}")
 
     def __len__(self) -> int:
-        return len(self._variables)
+        return self.count
 
     def __iter__(self):
-        return iter(self._variables)
+        return (self[k] for k in range(self.count))
 
     def __repr__(self) -> str:
-        name = self.name or "x"
-        return f"{name}[0:{len(self._variables)}]"
+        return f"{self.name or 'x'}[0:{self.count}]"
 
 
 class Parameter:
     """
-    A vector of constant data for use in constraint group templates.
+    A vector of constant data returned by Model.parameter().
 
-    Supports symbolic indexing: costs[i] where i is an Iterator.
-
-    Example:
-        costs = jp.Parameter([3.0, 1.5, 2.0])
-        m.constraint_group([i], costs[i] * x[i] <= 50)
+    Concrete indexing (costs[0]) returns a float; symbolic indexing
+    (costs[i]) builds a getindex template node over the data vector.
     """
 
-    def __init__(self, values: list[float], name: str | None = None):
+    def __init__(self, ops, values, name: str | None = None):
+        self._ops = ops
         self.values = [float(v) for v in values]
         self.name = name
+        self._array = None  # data vector node, built lazily
 
-    def __getitem__(self, index: int | Expr) -> Constant | IndexedParameter:
-        if isinstance(index, (int,)):
-            return Constant(self.values[index])
-        if isinstance(index, Expr):
-            return IndexedParameter(self, index)
-        raise TypeError(f"Index must be int or Expr, got {type(index).__name__}")
+    def __getitem__(self, index):
+        if isinstance(index, int):
+            return self.values[index]
+        if isinstance(index, Node):
+            if self._array is None:
+                self._array = self._ops.float_array(self.values)
+            array = Node(self._ops, self._array)
+            return array._snf("getindex", [array, index + 1])
+        raise TypeError(f"Index must be int or Node, got {type(index).__name__}")
 
     def __len__(self) -> int:
         return len(self.values)
 
     def __repr__(self) -> str:
-        name = self.name or "param"
-        return f"{name}[0:{len(self.values)}]"
+        return f"{self.name or 'param'}[0:{len(self.values)}]"
 
 
 class Constraint:
-    """
-    Represents lhs {<=, >=, ==} rhs.
+    """A normalized constraint: `func sense 0`."""
 
-    Normalized before passing to MOI as: (lhs - rhs) in {Nonpositives, Nonnegatives, Zeros}.
-    """
-
-    def __init__(self, lhs: Expr, sense: str, rhs: Expr):
-        self.lhs = lhs
+    def __init__(self, func: Node, sense: str):
+        self.func = func
         self.sense = sense
-        self.rhs = rhs
 
     def __repr__(self) -> str:
-        return f"{self.lhs} {self.sense} {self.rhs}"
+        return f"<constraint: f(x) {self.sense} 0>"
 
 
 class Objective:
     """An optimization objective (minimize or maximize)."""
 
-    def __init__(self, sense: str, expr: Expr):
+    def __init__(self, sense: str, func: Node):
         self.sense = sense
-        self.expr = expr
-
-    def __repr__(self) -> str:
-        return f"{self.sense}({self.expr})"
+        self.func = func
 
 
-# -- convenience functions that return Func nodes -----------------------------
+# -- nonlinear functions --------------------------------------------------------
 
-def sin(x: Expr | Numeric) -> Func:
-    return Func("sin", _wrap(x))
+def _func(name: str, x: Node) -> Node:
+    return x._snf(name, [x], linear=False)
 
-def cos(x: Expr | Numeric) -> Func:
-    return Func("cos", _wrap(x))
 
-def exp(x: Expr | Numeric) -> Func:
-    return Func("exp", _wrap(x))
+def sin(x):
+    return _func("sin", x)
 
-def log(x: Expr | Numeric) -> Func:
-    return Func("log", _wrap(x))
+def cos(x):
+    return _func("cos", x)
 
-def sqrt(x: Expr | Numeric) -> Func:
-    return Func("sqrt", _wrap(x))
+def exp(x):
+    return _func("exp", x)
 
-def abs(x: Expr | Numeric) -> Func:
-    return Func("abs", _wrap(x))
+def log(x):
+    return _func("log", x)
+
+def sqrt(x):
+    return _func("sqrt", x)
+
+def abs(x):
+    return _func("abs", x)

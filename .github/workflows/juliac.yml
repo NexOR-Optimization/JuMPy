@@ -1,0 +1,72 @@
+name: juliac backend
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-entrypoints:
+    name: Julia entry-point tests (in-process)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.12"
+
+      - uses: julia-actions/cache@v2
+
+      - name: Instantiate
+        run: julia --project=julia -e 'using Pkg; Pkg.instantiate()'
+
+      - name: Run entry-point tests
+        run: julia --project=julia julia/test/runtests.jl
+
+  build-lib:
+    name: Build and test compiled library (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.12"
+
+      - uses: julia-actions/cache@v2
+
+      - name: Install JuliaC
+        run: julia --project=@juliac -e 'using Pkg; Pkg.add("JuliaC")'
+
+      - name: Build shared library
+        working-directory: julia
+        run: >
+          julia --project=@juliac -m JuliaC
+          --output-lib build/libjumpy_highs
+          --compile-ccallable
+          --jl-option handle-signals=no
+          --bundle build
+          --verbose
+          .
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run end-to-end tests against the compiled library
+        run: python3 tests/test_solve.py
+        env:
+          JUMPY_BACKEND: juliac
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: jumpy-backend-${{ matrix.os }}
+          path: julia/build
