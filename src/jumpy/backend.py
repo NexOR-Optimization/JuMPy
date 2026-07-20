@@ -36,9 +36,14 @@ def _load_lib():
     soext = {"Linux": ".so", "Darwin": ".dylib", "Windows": ".dll"}[platform.system()]
     lib_name = "libjumpy_highs" + soext
 
-    candidates = []
+    # JUMPY_LIB is authoritative: no silent fallback to another library.
     if "JUMPY_LIB" in os.environ:
-        candidates.append(os.environ["JUMPY_LIB"])
+        path = os.environ["JUMPY_LIB"]
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"JUMPY_LIB points to a missing file: {path}")
+        return _init_lib(path)
+
+    candidates = []
     pkg_dir = os.path.dirname(__file__)
     # Wheel layout: shipped inside the package.
     candidates.append(os.path.join(pkg_dir, "lib", lib_name))
@@ -55,7 +60,11 @@ def _load_lib():
             "  2. Build it locally: see julia/README.md\n"
             "  3. Use the juliacall backend: jp.Model(backend='juliacall')\n"
         )
+    return _init_lib(path)
 
+
+def _init_lib(path):
+    global _LIB
     # RTLD_GLOBAL so that libjulia symbols are visible process-wide,
     # which the Julia runtime requires.
     lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
