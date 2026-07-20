@@ -68,11 +68,11 @@ Then, from this directory:
 
 ```bash
 julia --project=@juliac -m JuliaC \
-    --output-lib build/libjumpy_highs \
+    --output-lib build/libjumpy_highs --project . \
     --compile-ccallable \
     --jl-option handle-signals=no \
     --bundle build \
-    .
+    juliac_entry.jl
 ```
 
 Notes:
@@ -85,9 +85,25 @@ Notes:
   HiGHS_jll artifact with `libhighs.so`. This is the two-shared-library
   layout: `libjumpy_highs.so` (our entry points + Julia runtime image) loads
   `libhighs.so` (the solver distributed by HiGHS_jll) dynamically.
-- No `--trim` for now: the MOI wrapper relies on dynamic dispatch that
-  `--trim=safe` cannot verify yet. The untrimmed library is large but
-  correct; trimming is an optimization to revisit.
+- Trimming (experimental, not the shipping build): `--trim=unsafe-warn`
+  shrinks `libjumpy_highs.so` from ~410 MB to ~5 MB (bundle: 325 MB to
+  142 MB) and has passed the full test suite — but the build is fragile.
+  Trimmed images can only dynamically dispatch to specializations that were
+  compiled in, and the required set of `Base.Experimental.entrypoint`
+  declarations (see `juliac_entry.jl`, `trim_dispatch.jl`, generated from a
+  `--trace-dispatch` run of `workload.jl`) is not stable across builds:
+  adding roots can shift inference elsewhere and un-compile a previously
+  working path, failing at runtime with an uncatchable `MissingCodeError`.
+  Revisit as juliac's trim tooling matures; the source-level groundwork
+  (typed ABI boundary, static set construction, `ccall`-based error
+  reporting) is in place and benefits the untrimmed build too. To try it:
+
+  ```bash
+  julia --project=@juliac -m JuliaC \
+      --output-lib build-trim/libjumpy_highs --project . \
+      --compile-ccallable --jl-option handle-signals=no \
+      --experimental --trim=unsafe-warn --bundle build-trim juliac_entry.jl
+  ```
 
 ## Testing
 
