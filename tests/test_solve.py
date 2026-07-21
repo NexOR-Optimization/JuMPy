@@ -2,16 +2,35 @@
 End-to-end tests that solve models with HiGHS.
 
 Backend is selected with the JUMPY_BACKEND environment variable:
-    JUMPY_BACKEND=juliac python tests/test_solve.py   (default)
-        requires the compiled library (julia/README.md), no Julia needed
-    JUMPY_BACKEND=juliacall python tests/test_solve.py
-        requires Julia + juliacall: pip install juliacall
+    JUMPY_BACKEND=juliac   (default) requires the compiled library
+        (julia/README.md), no Julia needed
+    JUMPY_BACKEND=juliacall requires Julia + juliacall:
+        pip install jumpy[juliacall]
+
+The whole module is skipped when the selected backend is not available.
 """
 
+import importlib.util
 import os
-from jumpy import Model, minimize, maximize
+
+import pytest
+
+from jumpy import Model, backend, minimize, maximize
 
 BACKEND = os.environ.get("JUMPY_BACKEND", "juliac")
+
+
+def _backend_available():
+    if BACKEND == "juliacall":
+        return importlib.util.find_spec("juliacall") is not None
+    # A set JUMPY_LIB counts as available even if the file is missing:
+    # loading must then fail loudly instead of the suite silently skipping.
+    return backend.find_lib() is not None
+
+
+pytestmark = pytest.mark.skipif(
+    not _backend_available(), reason=f"the {BACKEND} backend is not available"
+)
 
 
 def _model():
