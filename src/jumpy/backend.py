@@ -31,40 +31,51 @@ def get_ops(backend):
 _LIB = None
 
 
-def _load_lib():
-    global _LIB
-    if _LIB is not None:
-        return _LIB
+def _default_paths():
     import os
     import platform
 
     soext = {"Linux": ".so", "Darwin": ".dylib", "Windows": ".dll"}[platform.system()]
     lib_name = "libjumpy_highs" + soext
-
-    # JUMPY_LIB is authoritative: no silent fallback to another library.
-    if "JUMPY_LIB" in os.environ:
-        path = os.environ["JUMPY_LIB"]
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"JUMPY_LIB points to a missing file: {path}")
-        return _init_lib(path)
-
-    candidates = []
     pkg_dir = os.path.dirname(__file__)
-    # Wheel layout: shipped inside the package.
-    candidates.append(os.path.join(pkg_dir, "lib", lib_name))
-    # Development layout: JuliaC bundle in <repo>/julia/build.
     repo = os.path.dirname(os.path.dirname(pkg_dir))
-    candidates.append(os.path.join(repo, "julia", "build", "lib", lib_name))
+    return [
+        # Wheel layout: shipped inside the package.
+        os.path.join(pkg_dir, "lib", lib_name),
+        # Development layout: JuliaC bundle in <repo>/julia/build.
+        os.path.join(repo, "julia", "build", "lib", lib_name),
+    ]
 
-    path = next((p for p in candidates if os.path.exists(p)), None)
+
+def find_lib():
+    """
+    The compiled library _load_lib will use: $JUMPY_LIB if set (authoritative
+    even if the file is missing — loading it errors rather than falling back),
+    else the first default location that exists, else None.
+    """
+    import os
+
+    if "JUMPY_LIB" in os.environ:
+        return os.environ["JUMPY_LIB"]
+    return next((p for p in _default_paths() if os.path.exists(p)), None)
+
+
+def _load_lib():
+    import os
+
+    if _LIB is not None:
+        return _LIB
+    path = find_lib()
     if path is None:
         raise FileNotFoundError(
-            f"Could not find the compiled JuMPy backend library ({lib_name}). "
-            "Searched:\n  " + "\n  ".join(candidates) + "\nEither:\n"
+            "Could not find the compiled JuMPy backend library. Searched:\n  "
+            + "\n  ".join(_default_paths()) + "\nEither:\n"
             "  1. Install the pre-built wheel: pip install jumpy\n"
             "  2. Build it locally: see julia/README.md\n"
             "  3. Use the juliacall backend: jp.Model(backend='juliacall')\n"
         )
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"JUMPY_LIB points to a missing file: {path}")
     return _init_lib(path)
 
 

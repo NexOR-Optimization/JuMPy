@@ -21,9 +21,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Run tests
-        run: >
-          uv run --group tests pytest
-          tests/test_expressions.py tests/test_backend.py tests/test_MILP.py
+        run: uv run --group tests pytest
 
   test-solve:
     name: End-to-end solve (juliacall + HiGHS)
@@ -44,7 +42,7 @@ jobs:
 
       - uses: julia-actions/cache@v2
 
-      - name: Run solve tests
-        run: uv run --group tests --extra juliacall pytest tests/test_solve.py
+      - name: Run tests
+        run: uv run --group tests --extra juliacall pytest
         env:
           JUMPY_BACKEND: juliacall
