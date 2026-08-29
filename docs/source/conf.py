@@ -38,6 +38,10 @@ sphinx_gallery_conf = {
     "filename_pattern": r".*\.py",
     "abort_on_example_error": True,
     "only_warn_on_example_error": False,
+    # JuMPy tutorials currently produce text output only. Disable Gallery's
+    # default Matplotlib scraper and module resetter so docs stay lightweight.
+    "image_scrapers": (),
+    "reset_modules": (),
     "remove_config_comments": True,
     "show_memory": False,
 }
