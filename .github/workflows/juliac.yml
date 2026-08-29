@@ -68,3 +68,60 @@ jobs:
         with:
           name: jumpy-backend-${{ matrix.os }}
           path: julia/build
+
+  docs:
+    name: Executable documentation
+    needs: build-lib
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: Download compiled backend
+        uses: actions/download-artifact@v4
+        with:
+          name: jumpy-backend-ubuntu-latest
+          path: julia/build
+
+      - name: Build and execute documentation
+        run: uv run --frozen --group docs sphinx-build -M html docs/source docs/build -W --keep-going
+        env:
+          JUMPY_LIB: ${{ github.workspace }}/julia/build/lib/libjumpy_highs.so
+
+      - name: Upload documentation for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: jumpy-documentation
+          path: docs/build/html
+
+      - name: Configure GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs/build/html
+
+  deploy-docs:
+    name: Deploy documentation
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: docs
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
