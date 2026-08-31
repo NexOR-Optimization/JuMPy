@@ -1,5 +1,8 @@
 # JuMPy
 
+[![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://nexor-optimization.github.io/JuMPy/)
+[![CI](https://github.com/NexOR-Optimization/JuMPy/actions/workflows/ci.yml/badge.svg)](https://github.com/NexOR-Optimization/JuMPy/actions/workflows/ci.yml)
+
 A Python interface to [MathOptInterface](https://github.com/jump-dev/MathOptInterface.jl) via [GenOpt](https://github.com/blegat/GenOpt.jl).
 
 JuMPy lets you build optimization models in Python at the speed of compiled Julia. It does this by constructing lightweight expression templates in Python and handing them off to a compiled Julia backend for constraint expansion and solving — keeping the expensive work out of Python entirely.
