@@ -31,6 +31,8 @@ import GenOpt
 import HiGHS
 import MathOptInterface as MOI
 
+include(joinpath(@__DIR__, "..", "..", "src", "jumpy", "julia", "JuMPyMOI.jl"))
+
 # The only solver-specific line in this package.
 const Optimizer = HiGHS.Optimizer
 
@@ -164,7 +166,7 @@ Base.@ccallable function jumpy_scalar_nonlinear(
 )::Ptr{Cvoid}
     @_catch C_NULL begin
         handle = _get(model)
-        func = MOI.ScalarNonlinearFunction(
+        func = JuMPyMOI.scalar_nonlinear(
             Symbol(unsafe_string(head)),
             Any[_unbox(unsafe_load(args, k)) for k in 1:nargs],
         )
@@ -213,38 +215,10 @@ end
 
 # -- Constraints --------------------------------------------------------------
 
-# Simplify returns a ScalarAffineFunction when the expression is affine, so
-# optimizers without nonlinear support (like HiGHS) accept it. Never narrow
-# below ScalarAffineFunction: `x >= 0` as a constraint must stay a row, not
-# become a VariableIndex bound (same semantics as JuMP's @constraint). Only
-# a function that already is a VariableIndex — the bounds path — is a bound.
-function _simplify(func::MOI.ScalarNonlinearFunction)
-    f = MOI.Nonlinear.SymbolicAD.simplify(func)
-    if f isa MOI.VariableIndex || f isa Float64
-        return convert(MOI.ScalarAffineFunction{Float64}, f)
-    end
-    return f
-end
-_simplify(func) = func
+const _simplify = JuMPyMOI.simplify
 
-# One branch per set so that every `normalize_and_add_constraint` call has
-# a statically-known set type: returning the set from a helper would make a
-# 5-type union, past the compiler's union-splitting limit, and the dispatch
-# would go dynamic — which `--trim` strips.
 function _add(optimizer, func::AnyFunction, sense::Cint, rhs::Float64)::Clonglong
-    ci = if sense == 0
-        MOI.Utilities.normalize_and_add_constraint(optimizer, func, MOI.LessThan(rhs))
-    elseif sense == 1
-        MOI.Utilities.normalize_and_add_constraint(optimizer, func, MOI.GreaterThan(rhs))
-    elseif sense == 2
-        MOI.Utilities.normalize_and_add_constraint(optimizer, func, MOI.EqualTo(rhs))
-    elseif sense == 3
-        MOI.Utilities.normalize_and_add_constraint(optimizer, func, MOI.ZeroOne())
-    elseif sense == 4
-        MOI.Utilities.normalize_and_add_constraint(optimizer, func, MOI.Integer())
-    else
-        error("Invalid constraint sense: ", sense)
-    end
+    ci = JuMPyMOI.normalize_and_add_constraint(optimizer, func, sense, rhs)
     return Clonglong(ci.value::Int64)
 end
 

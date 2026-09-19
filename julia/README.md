@@ -51,6 +51,14 @@ Affine expressions built as `ScalarNonlinearFunction` trees are narrowed to
 `ScalarAffineFunction` with `MOI.Nonlinear.SymbolicAD.simplify` before being
 passed to the optimizer, so HiGHS accepts them.
 
+The constructor and normalization implementation lives in
+[`src/jumpy/julia/JuMPyMOI.jl`](../src/jumpy/julia/JuMPyMOI.jl). It is a
+solver-independent Julia module shared with the JuliaCall backend, and is
+included in the Python wheel so JuliaCall can load it without a source checkout.
+The JuliaC backend includes the same file at build time; model ownership,
+opaque-pointer rooting, and C entry points remain in `JuMPyHiGHS`.
+There is no additional shared object or second Julia runtime to initialize.
+
 The consumer must initialize the Julia runtime once after loading the
 library, by calling `jl_init_with_image_handle(dlopen_handle)` (see
 `_load_lib` in `src/jumpy/backend.py`).

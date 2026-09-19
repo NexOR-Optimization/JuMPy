@@ -8,6 +8,10 @@ library (jumpy.backend.JuliacOps).
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from jumpy.backend import _SENSE_CODES
+
 _JL = None
 
 
@@ -34,6 +38,8 @@ def _julia():
     jl.seval("import MathOptInterface as MOI")
     jl.seval("import GenOpt")
     jl.seval("import HiGHS")
+    # Load the same constructor source that is compiled into the JuliaC image.
+    jl.include(str(Path(__file__).with_name("julia") / "JuMPyMOI.jl"))
     _JL = jl
     return jl
 
@@ -42,11 +48,11 @@ class JuliaCallOps:
     def __init__(self):
         jl = _julia()
         self._jl = jl
+        self._moi = jl.JuMPyMOI
         # jl.Any[...] is broken in PythonCall with Julia 1.12+
         self._any_vec = jl.seval("(args...) -> Any[args...]")
         # {} type application is not expressible in Python syntax
         self._objective_attr = jl.seval("f -> MOI.ObjectiveFunction{typeof(f)}()")
-        self._to_affine = jl.seval("f -> convert(MOI.ScalarAffineFunction{Float64}, f)")
         self._optimizer = jl.seval("""
             let optimizer = MOI.instantiate(
                     MOI.OptimizerWithAttributes(HiGHS.Optimizer, "output_flag" => false),
@@ -71,7 +77,7 @@ class JuliaCallOps:
 
     def scalar_nonlinear(self, head, args):
         jl = self._jl
-        return jl.MOI.ScalarNonlinearFunction(jl.Symbol(head), self._any_vec(*args))
+        return self._moi.scalar_nonlinear(jl.Symbol(head), self._any_vec(*args))
 
     def iterator(self, values):
         jl = self._jl
@@ -93,12 +99,7 @@ class JuliaCallOps:
         Only a function that already is a VariableIndex — the bounds path —
         is a bound.
         """
-        jl = self._jl
-        if jl.isa(func, jl.MOI.ScalarNonlinearFunction):
-            func = jl.MOI.Nonlinear.SymbolicAD.simplify(func)
-            if jl.isa(func, jl.MOI.VariableIndex) or isinstance(func, float):
-                func = self._to_affine(func)
-        return func
+        return self._moi.simplify(func)
 
     # -- Model building ----------------------------------------------------------
 
@@ -107,23 +108,9 @@ class JuliaCallOps:
         self._variables.extend(self._jl.MOI.add_variables(self._optimizer, count))
         return start
 
-    def _set(self, sense, rhs):
-        jl = self._jl
-        if sense == "<=":
-            return jl.MOI.LessThan(float(rhs))
-        if sense == ">=":
-            return jl.MOI.GreaterThan(float(rhs))
-        if sense == "==":
-            return jl.MOI.EqualTo(float(rhs))
-        if sense == "binary":
-            return jl.MOI.ZeroOne()
-        if sense == "integer":
-            return jl.MOI.Integer()
-        raise ValueError(f"Unknown constraint sense: {sense}")
-
     def add_constraint(self, func, sense, rhs):
-        self._jl.MOI.Utilities.normalize_and_add_constraint(
-            self._optimizer, self._simplify(func), self._set(sense, rhs),
+        self._moi.normalize_and_add_constraint(
+            self._optimizer, self._simplify(func), _SENSE_CODES[sense], float(rhs),
         )
 
     def add_constraint_group(self, func, sense, linear):
@@ -135,14 +122,7 @@ class JuliaCallOps:
         template, iterators = jl.GenOpt.collect_iterator_refs(func)
         generator = jl.seval(f"GenOpt.FunctionGenerator{{{target}}}")(template, iterators)
         n = jl.MOI.output_dimension(generator)
-        if sense == "<=":
-            set_ = jl.MOI.Nonpositives(n)
-        elif sense == ">=":
-            set_ = jl.MOI.Nonnegatives(n)
-        elif sense == "==":
-            set_ = jl.MOI.Zeros(n)
-        else:
-            raise ValueError(f"Unknown constraint sense: {sense}")
+        set_ = self._moi.vector_set(_SENSE_CODES[sense], n)
         jl.MOI.add_constraint(self._optimizer, generator, set_)
 
     def set_objective(self, sense, func):
