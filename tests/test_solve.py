@@ -15,7 +15,8 @@ import os
 
 import pytest
 
-from jumpy import Model, backend, minimize, maximize
+from jumpy import EqualTo, GreaterThan, Integer, LessThan, Model, ZeroOne
+from jumpy import backend, minimize, maximize
 
 BACKEND = os.environ.get("JUMPY_BACKEND", "juliac")
 
@@ -48,6 +49,51 @@ def test_simple_lp():
     m.optimize()
 
     assert abs(m.value(x) + m.value(y) - 10.0) < 1e-6
+
+
+@pytest.mark.parametrize(
+    "set_type, objective",
+    [(LessThan, maximize), (GreaterThan, minimize), (EqualTo, minimize)],
+)
+def test_function_in_scalar_set(set_type, objective):
+    m = _model()
+    x, y = m.variables(2, lower=0)
+
+    m.constraint(2 * x + y + 3, set_type(11))
+    m.objective = objective(2 * x + y)
+    m.optimize()
+
+    assert 2 * m.value(x) + m.value(y) == pytest.approx(8.0)
+
+
+def test_variable_in_domain_sets():
+    m = _model()
+    x = m.variable()
+    y = m.variable()
+
+    m.constraint(x, ZeroOne())
+    m.constraint(y, Integer())
+    m.constraint(y, GreaterThan(0))
+    m.constraint(y, LessThan(2.5))
+    # The comparison form can be mixed with explicit function-in-set constraints.
+    m.constraint(x >= 0.2)
+    m.objective = maximize(x + y)
+    m.optimize()
+
+    assert m.value(x) == pytest.approx(1.0)
+    assert m.value(y) == pytest.approx(2.0)
+
+
+def test_explicit_set_expression_preserves_affine_row():
+    m = _model()
+    x = m.variable(lower=0)
+
+    # Simplifying x + 0 must not turn the row into a duplicate variable bound.
+    m.constraint(x + 0, GreaterThan(1))
+    m.objective = minimize(x)
+    m.optimize()
+
+    assert m.value(x) == pytest.approx(1.0)
 
 
 def test_constraint_group_lp():

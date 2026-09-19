@@ -107,6 +107,18 @@ For one-off constraints that don't need grouping:
 m.constraint(x[0] + x[1] == 5)
 ```
 
+You can also pass a function and an explicit scalar set:
+
+```python
+m.constraint(x[0] + x[1], jp.LessThan(1))  # x[0] + x[1] <= 1
+m.constraint(x[0], jp.Integer())          # x[0] is integer
+```
+
+The supported sets are `LessThan(upper)`, `GreaterThan(lower)`, `EqualTo(value)`,
+`ZeroOne()`, and `Integer()`. Passing a variable directly adds a variable bound
+or domain; a comparison such as `x[0] <= 1` instead adds an affine constraint.
+Vector and custom sets are not yet supported.
+
 ## API reference
 
 ### Model
@@ -118,6 +130,7 @@ m.constraint(x[0] + x[1] == 5)
 | `m.variable(lower=, upper=, name=, binary=, integer=)` | Add a single variable |
 | `m.constraint_group(template)` | Add a constraint group (iterators are discovered from the template) |
 | `m.constraint(con)` | Add an individual constraint |
+| `m.constraint(func, set_)` | Add a scalar function-in-set constraint |
 | `m.objective = jp.minimize(expr)` | Set a minimization objective |
 | `m.objective = jp.maximize(expr)` | Set a maximization objective |
 | `m.iterator(range(n))` | An index set for constraint groups |
@@ -160,6 +173,7 @@ src/jumpy/
 ├── expressions.py        # Node handles with operator overloading (eager MOI calls)
 ├── bridge_juliacall.py   # MOI ops via juliacall
 ├── backend.py            # Backend selection; MOI ops via ctypes (juliac)
+├── sets.py               # Scalar constraint set descriptors
 └── model.py              # Model class: variables, groups, objective, solve
 ```
 
@@ -177,7 +191,7 @@ src/jumpy/
 
 ```bash
 # Run the pure-Python tests (uses uv: https://docs.astral.sh/uv/)
-uv run --group tests pytest tests/test_expressions.py tests/test_backend.py tests/test_MILP.py
+uv run --group tests pytest tests/test_expressions.py tests/test_backend.py tests/test_MILP.py tests/test_constraints.py
 
 # Build the compiled backend (see julia/README.md), then:
 uv run --group tests pytest tests/test_solve.py

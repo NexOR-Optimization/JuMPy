@@ -17,6 +17,7 @@ from jumpy.expressions import (
     Variable,
     VariableVector,
 )
+from jumpy.sets import ScalarSet, _constraint_args
 
 # MOI.OPTIMAL in MOI.TerminationStatusCode.
 OPTIMAL = 1
@@ -131,9 +132,32 @@ class Model:
 
     # -- Constraints -----------------------------------------------------------
 
-    def constraint(self, con: Constraint) -> None:
-        """Add a single constraint (MOI.add_constraint)."""
-        self._ops.add_constraint(con.func.moi, con.sense, 0.0)
+    def constraint(self, con: Constraint | Node, set_: ScalarSet | None = None) -> None:
+        """
+        Add a comparison constraint or a scalar function-in-set constraint.
+
+        Examples:
+            m.constraint(x + y <= 1)
+            m.constraint(x + y, jp.LessThan(1))
+            m.constraint(x, jp.Integer())
+
+        Passing a variable directly adds a variable bound or domain, as in
+        MOI. Comparisons such as ``x <= 1`` instead add affine constraints.
+        Explicit sets are currently limited to LessThan, GreaterThan,
+        EqualTo, ZeroOne, and Integer; vector and custom sets are not supported.
+        """
+        if set_ is None:
+            if not isinstance(con, Constraint):
+                raise TypeError("Expected a comparison constraint or a function and a set")
+            func, sense, rhs = con.func, con.sense, 0.0
+        else:
+            if not isinstance(con, Node):
+                raise TypeError("Expected a scalar expression when a set is provided")
+            func = con
+            sense, rhs = _constraint_args(set_)
+        if func._ops is not self._ops:
+            raise ValueError("Constraint expression belongs to a different model")
+        self._ops.add_constraint(func.moi, sense, rhs)
 
     def constraint_group(self, con: Constraint) -> None:
         """

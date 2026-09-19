@@ -16,6 +16,7 @@ from jumpy.expressions import (
 )
 from jumpy.expressions import sin, cos, exp, log, sqrt, abs as jp_abs
 from jumpy.model import Model, minimize, maximize
+from jumpy.sets import EqualTo, GreaterThan, Integer, LessThan, ZeroOne
 
 __all__ = [
     "Model",
@@ -27,6 +28,11 @@ __all__ = [
     "Objective",
     "minimize",
     "maximize",
+    "LessThan",
+    "GreaterThan",
+    "EqualTo",
+    "ZeroOne",
+    "Integer",
     "sin",
     "cos",
     "exp",
