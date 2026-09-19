@@ -31,7 +31,7 @@ import GenOpt
 import HiGHS
 import MathOptInterface as MOI
 
-include(joinpath(@__DIR__, "..", "..", "src", "jumpy", "julia", "JuMPyMOI.jl"))
+include("JuMPyMOI.jl")
 
 # The only solver-specific line in this package.
 const Optimizer = HiGHS.Optimizer

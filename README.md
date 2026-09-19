@@ -156,7 +156,7 @@ JuMPy has two layers:
 2. **Compiled Julia library** (built with juliac): exposes the MOI API as C entry points, one per MOI call — `jumpy_scalar_nonlinear` is the compiled `MOI.ScalarNonlinearFunction` constructor, and so on. GenOpt is compiled in: templates reference iterators by identity (`GenOpt.IteratorRef`) and groups are expanded in Julia.
 
 Both backends use the same solver-independent Julia constructor module,
-[`JuMPyMOI.jl`](src/jumpy/julia/JuMPyMOI.jl), for nonlinear functions, constraint
+[`JuMPyMOI.jl`](julia/src/JuMPyMOI.jl), for nonlinear functions, constraint
 sets, and scalar constraint normalization. JuliaCall loads this source from the
 Python package; JuliaC compiles it into the backend image. The resulting values
 are actual MOI objects, not Python copies of the Julia definitions. This shares
@@ -167,7 +167,7 @@ src/jumpy/
 ├── expressions.py        # Node handles with operator overloading (eager MOI calls)
 ├── bridge_juliacall.py   # MOI ops via juliacall
 ├── backend.py            # Backend selection; MOI ops via ctypes (juliac)
-├── julia/JuMPyMOI.jl     # Shared MOI constructors and normalization
+├── julia/JuMPyMOI.jl     # In wheels: shared source from julia/src/JuMPyMOI.jl
 └── model.py              # Model class: variables, groups, objective, solve
 ```
 

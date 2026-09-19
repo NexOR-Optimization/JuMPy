@@ -1,6 +1,6 @@
 module JuMPyMOI
 
-# Shared by JuliaCall (loaded from the Python package) and the JuliaC image.
+# Shared by JuliaCall (packaged in the Python wheel) and the JuliaC image.
 # This module owns no optimizer, runtime, or opaque-pointer registry. All
 # values are ordinary MOI objects in the runtime that loads this source.
 import MathOptInterface as MOI

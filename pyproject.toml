@@ -28,3 +28,6 @@ testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jumpy"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"julia/src/JuMPyMOI.jl" = "jumpy/julia/JuMPyMOI.jl"

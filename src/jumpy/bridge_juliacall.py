@@ -39,7 +39,11 @@ def _julia():
     jl.seval("import GenOpt")
     jl.seval("import HiGHS")
     # Load the same constructor source that is compiled into the JuliaC image.
-    jl.include(str(Path(__file__).with_name("julia") / "JuMPyMOI.jl"))
+    source = Path(__file__).with_name("julia") / "JuMPyMOI.jl"
+    if not source.is_file():
+        # Editable installation: the canonical source stays in the Julia project.
+        source = Path(__file__).resolve().parents[2] / "julia" / "src" / "JuMPyMOI.jl"
+    jl.include(str(source))
     _JL = jl
     return jl
 
