@@ -41,7 +41,14 @@ The Python workload is proportional to the **number of groups**, not the number 
 pip install jumpy
 ```
 
-No Julia installation required — JuMPy ships a precompiled solver backend built with [juliac](https://docs.julialang.org/en/v1/devdocs/juliac/).
+The default `juliac` backend needs neither a Julia installation nor `juliacall`:
+JuMPy ships a precompiled solver backend built with
+[juliac](https://docs.julialang.org/en/v1/devdocs/juliac/).
+
+For the optional JuliaCall interface, install `jumpy[juliacall]`. Both interfaces
+can use the same compiled image and native MOI objects; JuliaCall additionally
+needs a matching Julia version and a package environment containing PythonCall.
+See the [backend instructions](julia/README.md).
 
 ## Quick start
 
@@ -155,18 +162,24 @@ JuMPy has two layers:
 
 2. **Compiled Julia library** (built with juliac): exposes the MOI API as C entry points, one per MOI call — `jumpy_scalar_nonlinear` is the compiled `MOI.ScalarNonlinearFunction` constructor, and so on. GenOpt is compiled in: templates reference iterators by identity (`GenOpt.IteratorRef`) and groups are expanded in Julia.
 
-Both backends use the same solver-independent Julia constructor module,
-[`JuMPyMOI.jl`](julia/src/JuMPyMOI.jl), for nonlinear functions, constraint
-sets, and scalar constraint normalization. JuliaCall loads this source from the
-Python package; JuliaC compiles it into the backend image. The resulting values
-are actual MOI objects, not Python copies of the Julia definitions. This shares
-source code, not live objects between separate Julia runtimes.
+The default build is one shared Julia image containing HiGHS, GenOpt, and the
+solver-independent constructors in [`JuMPyMOI.jl`](julia/src/JuMPyMOI.jl).
+JuliaCall attaches to that same image/runtime, so both interfaces can use actual
+MOI objects without duplicating their definitions in Python. The low-level
+`jumpy.moi.MOIConstructors` interface owns these objects through checked integer
+handles, not cross-runtime pointers. The public `Model.constraint(func, set)`
+overload is not implemented yet.
+
+When no compiled library is available, JuliaCall can still load the shared
+constructor source from the Python package. The optional experimental trimmed
+build is compiled-only: it cannot initialize JuliaCall/PythonCall.
 
 ```
 src/jumpy/
 ├── expressions.py        # Node handles with operator overloading (eager MOI calls)
 ├── bridge_juliacall.py   # MOI ops via juliacall
 ├── backend.py            # Backend selection; MOI ops via ctypes (juliac)
+├── moi.py                # Owned handles to native MOI sets and functions
 ├── julia/JuMPyMOI.jl     # In wheels: shared source from julia/src/JuMPyMOI.jl
 └── model.py              # Model class: variables, groups, objective, solve
 ```
@@ -190,7 +203,7 @@ uv run --group tests pytest tests/test_expressions.py tests/test_backend.py test
 # Build the compiled backend (see julia/README.md), then:
 uv run --group tests pytest tests/test_solve.py
 
-# Or through juliacall (needs no compiled library):
+# Or through juliacall (uses the shared image when available):
 JUMPY_BACKEND=juliacall uv run --group tests --extra juliacall pytest tests/test_solve.py
 
 # Run example

@@ -71,3 +71,37 @@ let J = JuMPyHiGHS
     J.jumpy_optimize(C_NULL)
     J.jumpy_free_model(m)
 end
+
+# Model-independent native constructors and native-set consumption. These are
+# the same entry points used by Python; no JuliaCall dependency is required.
+let J = JuMPyHiGHS, A = JuMPyHiGHS.JuMPyMOIABI
+    for sense in Cint.(0:4)
+        h = A.jumpy_moi_scalar_set(sense, 1.0)
+        A.jumpy_moi_kind(h)
+        A.jumpy_moi_release(h)
+    end
+    for sense in Cint.(0:2)
+        h = A.jumpy_moi_vector_set(sense, Clonglong(3))
+        A.jumpy_moi_kind(h)
+        A.jumpy_moi_release(h)
+    end
+    x = A.jumpy_moi_variable(Clonglong(1))
+    y = A.jumpy_moi_constant(1.0)
+    args = UInt64[x, y]
+    head = "+"
+    f = GC.@preserve args head A.jumpy_moi_scalar_nonlinear(
+        Cstring(pointer(head)), pointer(args), Clonglong(2),
+    )
+    A.jumpy_moi_release(x)
+    A.jumpy_moi_release(y)
+    A.jumpy_moi_kind(f)
+    A.jumpy_moi_release(f)
+
+    m = J.jumpy_new_model()
+    J.jumpy_add_variables(m, Clonglong(1))
+    x = J.jumpy_variable(m, Clonglong(0))
+    s = A.jumpy_moi_scalar_set(Cint(0), 1.0)
+    J.jumpy_add_constraint_set(m, x, s)
+    A.jumpy_moi_release(s)
+    J.jumpy_free_model(m)
+end

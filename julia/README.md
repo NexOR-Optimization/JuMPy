@@ -51,24 +51,39 @@ Affine expressions built as `ScalarNonlinearFunction` trees are narrowed to
 `ScalarAffineFunction` with `MOI.Nonlinear.SymbolicAD.simplify` before being
 passed to the optimizer, so HiGHS accepts them.
 
-The constructor and normalization implementation lives in
-[`src/JuMPyMOI.jl`](src/JuMPyMOI.jl). It is a
-solver-independent Julia module shared with the JuliaCall backend, and is
-included in the Python wheel so JuliaCall can load it without a source checkout.
-The JuliaC backend includes the same file at build time; model ownership,
-opaque-pointer rooting, and C entry points remain in `JuMPyHiGHS`.
-There is no additional shared object or second Julia runtime to initialize.
-Keeping the canonical source inside the Julia project also lets JuliaC copy
-that project into an isolated build directory. Wheel builds package the same
-file as `jumpy/julia/JuMPyMOI.jl`; editable installs load the canonical source.
+The default build contains HiGHS, GenOpt, and the constructors from
+[`src/JuMPyMOI.jl`](src/JuMPyMOI.jl) in **one Julia image**. JuliaCall can attach
+to that same image/runtime and use the actual MOI values. Loading independent
+Julia images does not make their objects interchangeable.
 
-The consumer must initialize the Julia runtime once after loading the
-library, by calling `jl_init_with_image_handle(dlopen_handle)` (see
-`_load_lib` in `src/jumpy/backend.py`).
+The additional ABI in [`src/JuMPyMOIABI.jl`](src/JuMPyMOIABI.jl) owns model-independent
+sets and function nodes in a Julia registry:
+
+| Entry point | Result |
+|---|---|
+| `jumpy_moi_scalar_set(sense, rhs)` | Native `LessThan`, `GreaterThan`, `EqualTo`, `ZeroOne`, or `Integer` |
+| `jumpy_moi_vector_set(sense, dimension)` | Native `Nonpositives`, `Nonnegatives`, or `Zeros` |
+| `jumpy_moi_constant(value)`, `jumpy_moi_variable(index)` | Function leaves; variable indices are MOI's **one-based** indices |
+| `jumpy_moi_scalar_nonlinear(head, args*, nargs)` | Native nonlinear function retaining its argument objects |
+| `jumpy_moi_release(handle)` | Release the registry's reference |
+| `jumpy_moi_kind(handle)` | Inspect the supported kind; `-1` for an invalid handle |
+| `jumpy_add_constraint_set(m, f, handle)` | Consume a native scalar set with the existing model/function-pointer ABI |
+
+Constructors return checked `uint64` handles (`0` on failure), not Julia object
+addresses. Handles are image-local, never reused, and invalid after release.
+Releasing a model-independent handle does not invalidate objects already owned
+by an expression or borrowed by JuliaCall. No Python class duplicates a set's
+Julia definition.
+
+The Python loader validates native ABI/profile metadata before initialization,
+rejects a different active image, and initializes the runtime only once. Build
+through `build.jl` so this metadata is included. The constructor source is also
+packaged as `jumpy/julia/JuMPyMOI.jl` for source-only JuliaCall use when no compiled
+library is available.
 
 ## Building
 
-Requires Julia 1.12+, a C compiler, and the
+Requires Julia, a C compiler, and the
 [JuliaC.jl](https://github.com/JuliaLang/JuliaC.jl) frontend:
 
 ```bash
@@ -78,43 +93,61 @@ julia --project=@juliac -e 'using Pkg; Pkg.add("JuliaC")'
 Then, from this directory:
 
 ```bash
-julia --project=@juliac -m JuliaC \
-    --output-lib build/libjumpy_highs --project . \
-    --compile-ccallable \
-    --jl-option handle-signals=no \
-    --bundle build \
-    juliac_entry.jl
+julia --project=@juliac build.jl shared
 ```
 
-Notes:
+`shared` is the default profile. An optional second argument selects the output
+directory, for example `build.jl shared build`. The default output is
+`build-shared/lib/libjumpy_highs.so` (`.dylib`/`.dll` on other platforms).
+The wrapper disables Julia's signal handlers and bundles the runtime libraries
+and HiGHS artifacts. HiGHS's native solver library is a dependency of this one
+Julia image, not a second Julia image.
 
-- `--jl-option handle-signals=no` is required because the library is loaded
-  into a Python process; Julia's signal handlers would conflict with Python's.
-- `--bundle` makes the output relocatable: `build/lib/` contains
-  `libjumpy_highs.so` next to the Julia runtime libraries
-  (`build/lib/julia/`), and `build/share/julia/artifacts/` contains the
-  HiGHS_jll artifact with `libhighs.so`. This is the two-shared-library
-  layout: `libjumpy_highs.so` (our entry points + Julia runtime image) loads
-  `libhighs.so` (the solver distributed by HiGHS_jll) dynamically.
-- Trimming (experimental, not the shipping build): `--trim=unsafe-warn`
-  shrinks `libjumpy_highs.so` from ~410 MB to ~5 MB (bundle: 325 MB to
-  142 MB) and has passed the full test suite — but the build is fragile.
-  Trimmed images can only dynamically dispatch to specializations that were
-  compiled in, and the required set of `Base.Experimental.entrypoint`
-  declarations (see `juliac_entry.jl`, `trim_dispatch.jl`, generated from a
-  `--trace-dispatch` run of `workload.jl`) is not stable across builds:
-  adding roots can shift inference elsewhere and un-compile a previously
-  working path, failing at runtime with an uncatchable `MissingCodeError`.
-  Revisit as juliac's trim tooling matures; the source-level groundwork
-  (typed ABI boundary, static set construction, `ccall`-based error
-  reporting) is in place and benefits the untrimmed build too. To try it:
+### Using JuliaCall with the shared image
 
-  ```bash
-  julia --project=@juliac -m JuliaC \
-      --output-lib build-trim/libjumpy_highs --project . \
-      --compile-ccallable --jl-option handle-signals=no \
-      --experimental --trim=unsafe-warn --bundle build-trim juliac_entry.jl
-  ```
+Install `jumpy[juliacall]` and select the same Julia version used to build the
+image. `PYTHON_JULIAPKG_EXE` can select the matching Julia executable;
+`PYTHON_JULIAPKG_PROJECT` can select a compatible environment containing
+PythonCall. Start a fresh Python process and let JuMPy configure JuliaCall:
+importing ordinary JuliaCall first initializes a different image, which JuMPy
+will reject. Both JuliaCall-first **through JuMPy** and compiled-first use are
+supported. The compiled-only backend never needs to import JuliaCall.
+
+For low-level native construction:
+
+```python
+from jumpy.moi import MOIConstructors
+
+native = MOIConstructors()
+with native.scalar_set("<=", 1.0) as owned:
+    set_ = owned.to_julia()  # Actual MOI.LessThan{Float64} in the same runtime
+    assert set_.upper == 1.0
+# The registry handle is released; JuliaCall still owns its borrowed value.
+assert set_.upper == 1.0
+```
+
+`to_julia()` requires the optional JuliaCall dependency. Construction and handle
+release alone do not. `from_julia(value)` roots a supported object from the same
+runtime. This low-level API does **not** add `Model.constraint(func, set)` yet.
+
+### Experimental trimming
+
+To try the compiled-only profile:
+
+```bash
+julia --project=@juliac build.jl trimmed
+```
+
+Select it explicitly with `JUMPY_LIB`; `build-trimmed` is not auto-discovered.
+Do not load both profiles in one process. A trimmed image cannot initialize
+JuliaCall/PythonCall, and the loader rejects that combination before import.
+
+This profile uses `--trim=unsafe-warn` and finite entry-point declarations in
+`juliac_entry.jl`, `trim_dispatch.jl`, and `trim_runtime.jl`. Tests and tutorials
+exercise supported combinations, but verifier warnings remain: successful
+examples are not a guarantee for arbitrary models or dependency versions.
+Missing dynamic-dispatch specializations can still fail at runtime. The shared,
+untrimmed image is the primary build.
 
 ## Testing
 
@@ -127,8 +160,10 @@ julia --project=. test/runtests.jl
 End-to-end through the compiled library and Python ctypes:
 
 ```bash
-cd .. && JUMPY_BACKEND=juliac python3 tests/test_solve.py
+cd ..
+JUMPY_BACKEND=juliac uv run --group tests pytest
 ```
 
-The Python loader searches `$JUMPY_LIB`, the installed package's `lib/`
-directory, then `julia/build/lib/` (this development layout).
+`JUMPY_LIB` overrides discovery. Otherwise, the Python loader searches the
+installed package's `lib/`, then `julia/build-shared/lib/`, then the legacy
+`julia/build/lib/` development location.
