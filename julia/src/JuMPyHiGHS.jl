@@ -102,6 +102,8 @@ macro _catch(default, expr)
     end
 end
 
+include("JuMPyMOIABI.jl")
+
 # -- Model lifecycle ----------------------------------------------------------
 
 Base.@ccallable function jumpy_new_model()::Ptr{Cvoid}
@@ -235,6 +237,39 @@ Base.@ccallable function jumpy_add_constraint(
     @_catch Clonglong(-1) begin
         handle = _get(model)
         _add(handle.optimizer, _simplify(_unbox(func)::FunctionNode)::AnyFunction, sense, rhs)
+    end
+end
+
+# Consume the native set object owned by this image's constructor registry.
+# Each branch keeps the concrete set type visible to the trimming compiler.
+# The registry retains ownership; it is safe to release the handle after this
+# call because MOI owns the constraint data it needs from then on.
+function _add_set(optimizer, func::AnyFunction, set)::Clonglong
+    ci = if set isa MOI.LessThan{Float64}
+        MOI.Utilities.normalize_and_add_constraint(optimizer, func, set)
+    elseif set isa MOI.GreaterThan{Float64}
+        MOI.Utilities.normalize_and_add_constraint(optimizer, func, set)
+    elseif set isa MOI.EqualTo{Float64}
+        MOI.Utilities.normalize_and_add_constraint(optimizer, func, set)
+    elseif set isa MOI.ZeroOne
+        MOI.Utilities.normalize_and_add_constraint(optimizer, func, set)
+    elseif set isa MOI.Integer
+        MOI.Utilities.normalize_and_add_constraint(optimizer, func, set)
+    else
+        throw(ArgumentError("Set is unsupported by the compiled scalar constraint ABI"))
+    end
+    return Clonglong(ci.value::Int64)
+end
+
+Base.@ccallable function jumpy_add_constraint_set(
+    model::Ptr{Cvoid},
+    func::Ptr{Cvoid},
+    set_handle::UInt64,
+)::Clonglong
+    @_catch Clonglong(-1) begin
+        handle = _get(model)
+        set = JuMPyMOIABI.get_object(set_handle)
+        _add_set(handle.optimizer, _simplify(_unbox(func)::FunctionNode)::AnyFunction, set)
     end
 end
 

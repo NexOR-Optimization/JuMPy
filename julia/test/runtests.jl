@@ -4,6 +4,7 @@ import JuMPyHiGHS
 using Test
 
 include("moi_constructors.jl")
+include("moi_abi.jl")
 
 variable(m, i) = JuMPyHiGHS.jumpy_variable(m, Clonglong(i))
 constant(m, v) = JuMPyHiGHS.jumpy_constant(m, Cdouble(v))

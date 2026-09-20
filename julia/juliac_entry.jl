@@ -1,8 +1,8 @@
 # JuliaC entry script: build with
 #
-#     juliac --output-lib build/libjumpy_highs --project . juliac_entry.jl \
-#         --compile-ccallable --jl-option handle-signals=no \
-#         --experimental --trim=unsafe-warn --bundle build
+#     julia --project=@juliac build.jl shared
+#
+# Trimming is opt-in and experimental: replace `shared` with `trimmed`.
 #
 # The `Base.Experimental.entrypoint` declarations below must execute in the
 # image-build session (module top-level code runs at package-precompile
@@ -82,5 +82,9 @@ for (f, args) in (
 end
 
 include("trim_dispatch.jl")
+
+if Base.JLOptions().trim != 0
+    include("trim_runtime.jl")
+end
 
 include("workload.jl")

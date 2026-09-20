@@ -5,5 +5,7 @@ dist/
 build/
 .venv/
 build-trim/
+julia/build-shared/
+julia/build-trimmed/
 docs/build/
 docs/source/generated/

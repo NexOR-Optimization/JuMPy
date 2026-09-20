@@ -47,14 +47,7 @@ jobs:
 
       - name: Build shared library
         working-directory: julia
-        run: >
-          julia --project=@juliac -m JuliaC
-          --output-lib build/libjumpy_highs --project .
-          --compile-ccallable
-          --jl-option handle-signals=no
-          --bundle build
-          --verbose
-          juliac_entry.jl
+        run: julia --project=@juliac build.jl shared build
 
       - uses: astral-sh/setup-uv@v7
         with:
@@ -62,6 +55,16 @@ jobs:
 
       - name: Run tests against the compiled library
         run: uv run --group tests pytest
+        env:
+          JUMPY_BACKEND: juliac
+
+      - name: Select the matching Julia installation for JuliaCall
+        run: echo "PYTHON_JULIAPKG_EXE=$(command -v julia)" >> "$GITHUB_ENV"
+
+      - name: Run tests with JuliaCall sharing the compiled image
+        run: uv run --group tests --extra juliacall pytest
+        env:
+          JUMPY_BACKEND: juliacall
 
       - name: Upload bundle
         uses: actions/upload-artifact@v4

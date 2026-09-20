@@ -10,6 +10,9 @@ two implementations expose the same methods.
 from __future__ import annotations
 
 import ctypes
+import atexit
+import os
+from pathlib import Path
 
 
 def get_ops(backend):
@@ -29,6 +32,67 @@ def get_ops(backend):
 
 # The Julia runtime can only be initialized once per process.
 _LIB = None
+_SHUTTING_DOWN = False
+
+
+def _shutdown():
+    global _SHUTTING_DOWN
+    _SHUTTING_DOWN = True
+
+
+def _arm_shutdown_guard():
+    # Register again after JuliaCall initializes: atexit runs in reverse order,
+    # so native finalizers stop calling Julia before JuliaCall tears it down.
+    atexit.register(_shutdown)
+
+
+def _open_lib(path):
+    # Retain the GIL when the same runtime also hosts PythonCall.
+    lib = ctypes.PyDLL(str(path), mode=ctypes.RTLD_GLOBAL)
+    try:
+        version = ctypes.c_uint32.in_dll(lib, "jumpy_abi_version").value
+        lib._jumpy_trimmed = bool(ctypes.c_uint32.in_dll(lib, "jumpy_image_trimmed").value)
+    except ValueError:
+        raise RuntimeError("This JuMPy library has no constructor ABI metadata; rebuild with julia/build.jl") from None
+    if version != 1:
+        raise RuntimeError(f"Unsupported JuMPy constructor ABI version: {version}")
+    for name in ("jumpy_runtime_image_path", "jumpy_runtime_library_path", "jl_ver_string"):
+        function = getattr(lib, name)
+        function.argtypes, function.restype = [], ctypes.c_char_p
+    lib.jl_is_initialized.argtypes = []
+    lib.jl_is_initialized.restype = ctypes.c_int
+    return lib
+
+
+def _check_active_image(lib):
+    active = lib.jumpy_runtime_image_path()
+    if active is None or Path(os.fsdecode(active)).resolve() != Path(lib._name).resolve():
+        raise RuntimeError(
+            "Julia is already initialized with a different system image. "
+            "Restart Python and select the same JuMPy shared image for both backends."
+        )
+
+
+def _require_shared_image(lib):
+    if lib._jumpy_trimmed:
+        raise RuntimeError(
+            "A trimmed JuMPy image cannot initialize JuliaCall/PythonCall. "
+            "Use the 'shared' build profile for native-object sharing, or use "
+            "the trimmed image with backend='juliac' only."
+        )
+
+
+def _check_shared_runtime(lib, jl):
+    _require_shared_image(lib)
+    from juliacall import CONFIG
+
+    own = ctypes.cast(lib.jl_is_initialized, ctypes.c_void_p).value
+    other = ctypes.cast(CONFIG["lib"].jl_is_initialized, ctypes.c_void_p).value
+    if own != other:
+        raise RuntimeError("JuliaCall and JuMPy loaded different Julia runtimes")
+    _check_active_image(lib)
+    if not jl.seval("isdefined(Main, :JuMPyHiGHS) && isdefined(JuMPyHiGHS, :JuMPyMOIABI)"):
+        raise RuntimeError("JuliaCall's image does not contain the JuMPy constructor ABI")
 
 
 def _default_paths():
@@ -42,7 +106,8 @@ def _default_paths():
     return [
         # Wheel layout: shipped inside the package.
         os.path.join(pkg_dir, "lib", lib_name),
-        # Development layout: JuliaC bundle in <repo>/julia/build.
+        # Supported development build, then the legacy/CI bundle location.
+        os.path.join(repo, "julia", "build-shared", "lib", lib_name),
         os.path.join(repo, "julia", "build", "lib", lib_name),
     ]
 
@@ -63,6 +128,8 @@ def find_lib():
 def _load_lib():
     import os
 
+    if _SHUTTING_DOWN:
+        raise RuntimeError("The Julia runtime is shutting down")
     if _LIB is not None:
         return _LIB
     path = find_lib()
@@ -81,15 +148,18 @@ def _load_lib():
 
 def _init_lib(path):
     global _LIB
-    # RTLD_GLOBAL so that libjulia symbols are visible process-wide,
-    # which the Julia runtime requires.
-    lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+    if _SHUTTING_DOWN:
+        raise RuntimeError("The Julia runtime is shutting down")
+    lib = _open_lib(path)
+    if lib.jl_is_initialized():
+        _check_active_image(lib)
 
     # Initialize the Julia runtime from the image embedded in the library.
     init = lib.jl_init_with_image_handle
     init.argtypes = [ctypes.c_void_p]
     init.restype = None
     init(lib._handle)
+    _check_active_image(lib)
 
     c_longlong = ctypes.c_longlong
     c_int = ctypes.c_int
@@ -137,7 +207,23 @@ def _init_lib(path):
     lib.jumpy_objective_value.argtypes = [c_void_p]
     lib.jumpy_objective_value.restype = c_double
 
+    u64 = ctypes.c_uint64
+    p_u64 = ctypes.POINTER(u64)
+    for name, arguments, result in (
+        ("jumpy_moi_scalar_set", [c_int, c_double], u64),
+        ("jumpy_moi_vector_set", [c_int, c_longlong], u64),
+        ("jumpy_moi_constant", [c_double], u64),
+        ("jumpy_moi_variable", [c_longlong], u64),
+        ("jumpy_moi_scalar_nonlinear", [ctypes.c_char_p, p_u64, c_longlong], u64),
+        ("jumpy_moi_release", [u64], c_int),
+        ("jumpy_moi_kind", [u64], c_int),
+        ("jumpy_add_constraint_set", [c_void_p, c_void_p, u64], c_longlong),
+    ):
+        function = getattr(lib, name)
+        function.argtypes, function.restype = arguments, result
+
     _LIB = lib
+    _arm_shutdown_guard()
     return lib
 
 
@@ -154,13 +240,19 @@ class JuliacOps:
     """
 
     def __init__(self, lib):
+        from jumpy.moi import MOIConstructors
+
         self._lib = lib
+        self._constructors = MOIConstructors(lib)
         self._m = lib.jumpy_new_model()
         if not self._m:  # NULL
             raise RuntimeError("Failed to create model")
 
     def free(self):
-        self._lib.jumpy_free_model(self._m)
+        if self._m:
+            if not _SHUTTING_DOWN:
+                self._lib.jumpy_free_model(self._m)
+            self._m = None
 
     def _node(self, node):
         if not node:  # NULL
@@ -201,7 +293,8 @@ class JuliacOps:
         return start
 
     def add_constraint(self, func, sense, rhs):
-        ci = self._lib.jumpy_add_constraint(self._m, func, _SENSE_CODES[sense], rhs)
+        with self._constructors.scalar_set(sense, rhs) as set_:
+            ci = self._lib.jumpy_add_constraint_set(self._m, func, set_.handle)
         if ci < 0:
             raise RuntimeError("Failed to add constraint")
 
