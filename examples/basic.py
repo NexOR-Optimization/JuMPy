@@ -8,7 +8,7 @@ expanded by GenOpt in compiled Julia, not in Python.
 import sys
 sys.path.insert(0, "src")
 
-import jumpy as jp
+import jumpy.highs as jp
 
 # ── Create a model ────────────────────────────────────────────────────────────
 
@@ -33,6 +33,9 @@ m.constraint_group(x[10 * p + q] >= 0)
 costs = m.parameter([float(k) * 0.5 + 1.0 for k in range(100)], name="costs")
 k = m.iterator(range(100))
 m.constraint_group(costs[k] * x[k] <= 50)
+
+# An individual constraint can use an explicit native MOI set.
+m.constraint(x[0] + x[1], jp.MOI.LessThan(8.0))
 
 # ── Objective and solve ───────────────────────────────────────────────────────
 

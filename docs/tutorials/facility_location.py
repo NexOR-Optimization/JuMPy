@@ -37,7 +37,7 @@ facility :math:`j`. Given assignment costs :math:`c_{i,j}` and opening costs
 
 from math import hypot
 
-import jumpy as jp
+import jumpy.highs as jp
 
 # Data
 # ----
