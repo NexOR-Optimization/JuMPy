@@ -17,6 +17,25 @@ reference iterators by identity (`GenOpt.IteratorRef`) and
 `GenOpt.FunctionGeneratorBridge`, one scalar constraint per combination of
 iterator values.
 
+In Python, select this backend with `import jumpy.highs as jp`, then construct
+`jp.Model()` without a backend argument. `import jumpy.juliacall as jp` selects
+the alternative JuliaCall interface. The two interfaces share constructor
+source, not live Julia objects; use one runtime per process.
+
+Both support explicit scalar sets alongside comparison syntax:
+
+```python
+import jumpy.highs as jp
+
+model = jp.Model()
+x, y = model.variables(2, lower=0)
+model.constraint(x + y, jp.MOI.LessThan(1.0))
+```
+
+The compiled facade exposes the five native scalar sets `LessThan`,
+`GreaterThan`, `EqualTo`, `ZeroOne`, and `Integer`. Python stores only ownership
+handles, not duplicate set definitions. JuliaCall exposes the actual MOI module.
+
 ## C ABI
 
 See `src/JuMPyHiGHS.jl` for the full conventions.
@@ -39,6 +58,9 @@ nodes belong to the model that built them, and everything is freed by
 | `jumpy_contiguous_variables(m, offset, count) -> void*` | `GenOpt.ContiguousArrayOfVariables`, 1-based-indexable block of variables |
 | `jumpy_float_array(m, values*, len) -> void*` | a data vector, 1-based-indexable in templates |
 | `jumpy_add_constraint(m, f, sense, rhs) -> int64` | `MOI.add_constraint(f, set)` with set `{0: LessThan, 1: GreaterThan, 2: EqualTo}(rhs)` or `{3: ZeroOne, 4: Integer}`; function constants are normalized into the set; variable bounds are just variable nodes |
+| `jumpy_scalar_set(sense, rhs) -> uint64` | Construct and retain a native scalar set; same sense tags, `0` on error |
+| `jumpy_free_set(id) -> int32` | Release a native set handle |
+| `jumpy_add_constraint_set(m, f, id) -> int64` | Add a scalar constraint using the retained native set |
 | `jumpy_add_group_constraint(m, f, sense) -> int64` | expand the template over its iterators (GenOpt), one scalar constraint each; returns the count |
 | `jumpy_set_objective_sense(m, sense) -> int32` | `MOI.set(MOI.ObjectiveSense())`; 0 = min, 1 = max |
 | `jumpy_set_objective_function(m, f) -> int32` | `MOI.set(MOI.ObjectiveFunction{F}(), f)` |
@@ -46,6 +68,12 @@ nodes belong to the model that built them, and everything is freed by
 | `jumpy_primal_status(m) -> int32` | `Int(MOI.ResultStatusCode)` (`FEASIBLE_POINT == 1`) |
 | `jumpy_get_values(m, out*, len) -> int64` | `MOI.VariablePrimal`; copies into `out` |
 | `jumpy_objective_value(m) -> float64` | `MOI.ObjectiveValue` |
+
+Native sets use checked integer handles, independently of model-owned function
+pointers. A set can be reused across models in the same image and remains valid
+after a model closes, until the set is released. The Python wrapper releases
+sets automatically and also supports `close()` and context managers. Handles
+cannot be passed to JuliaCall or another image.
 
 Affine expressions built as `ScalarNonlinearFunction` trees are narrowed to
 `ScalarAffineFunction` with `MOI.Nonlinear.SymbolicAD.simplify` before being
@@ -127,7 +155,8 @@ julia --project=. test/runtests.jl
 End-to-end through the compiled library and Python ctypes:
 
 ```bash
-cd .. && JUMPY_BACKEND=juliac python3 tests/test_solve.py
+cd ..
+JUMPY_BACKEND=juliac uv run --group tests pytest tests/test_solve.py
 ```
 
 The Python loader searches `$JUMPY_LIB`, the installed package's `lib/`

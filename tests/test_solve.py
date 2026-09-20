@@ -15,9 +15,13 @@ import os
 
 import pytest
 
-from jumpy import Model, backend, minimize, maximize
+from jumpy import backend, minimize, maximize
 
 BACKEND = os.environ.get("JUMPY_BACKEND", "juliac")
+if BACKEND == "juliacall":
+    import jumpy.juliacall as jp
+else:
+    import jumpy.highs as jp
 
 
 def _backend_available():
@@ -34,7 +38,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def _model():
-    return Model(backend=BACKEND)
+    return jp.Model()
 
 
 def test_simple_lp():
@@ -202,3 +206,126 @@ def test_set_cover():
     m.objective = minimize(sum(s[k] for k in range(4)))
     m.optimize()
     assert abs(sum(m.value(s[k]) for k in range(4)) - 2.0) < 1e-6
+
+
+def test_native_less_than_constraint():
+    m = _model()
+    try:
+        x, y = m.variables(2)
+        m.constraint(x + y, jp.MOI.LessThan(1.0))
+        m.objective = jp.maximize(x + y)
+        m.optimize()
+        assert m.value(x) + m.value(y) == pytest.approx(1.0)
+    finally:
+        m.close()
+
+
+@pytest.mark.parametrize(
+    ("constructor", "rhs", "direction"),
+    [("LessThan", 7.0, "max"), ("GreaterThan", 7.0, "min"), ("EqualTo", 7.0, "min")],
+)
+def test_native_set_normalizes_expression_constant(constructor, rhs, direction):
+    m = _model()
+    try:
+        x = m.variable(lower=0)
+        m.constraint(2 * x + 3, getattr(jp.MOI, constructor)(rhs))
+        m.objective = (jp.maximize if direction == "max" else jp.minimize)(x)
+        m.optimize()
+        assert m.value(x) == pytest.approx(2.0)
+    finally:
+        m.close()
+
+
+def test_native_bare_variable_bound_and_expression_row():
+    m = _model()
+    try:
+        x = m.variable()
+        m.constraint(x, jp.MOI.GreaterThan(0.0))
+        # An expression simplifying to x must remain a row, not try to add a
+        # second VariableIndex-in-GreaterThan bound on the same variable.
+        m.constraint(x + 0, jp.MOI.GreaterThan(2.0))
+        m.constraint(x, jp.MOI.LessThan(4.0))
+        m.objective = jp.minimize(x)
+        m.optimize()
+        assert m.value(x) == pytest.approx(2.0)
+    finally:
+        m.close()
+
+
+@pytest.mark.parametrize(
+    ("constructor", "bound", "optimum"),
+    [("ZeroOne", 1.5, 1.0), ("Integer", 2.5, 2.0)],
+)
+def test_native_integrality_set(constructor, bound, optimum):
+    m = _model()
+    try:
+        x = m.variable(lower=0)
+        m.constraint(x, getattr(jp.MOI, constructor)())
+        m.constraint(x + 0, jp.MOI.LessThan(bound))
+        m.objective = jp.maximize(x)
+        m.optimize()
+        assert m.value(x) == pytest.approx(optimum)
+    finally:
+        m.close()
+
+
+@pytest.mark.parametrize("value", [0.0, 2.0])
+def test_native_numeric_constraint(value):
+    m = _model()
+    try:
+        x = m.variable(lower=0, upper=1)
+        m.constraint(value, jp.MOI.LessThan(3.0))
+        m.objective = jp.maximize(x)
+        m.optimize()
+        assert m.value(x) == pytest.approx(1.0)
+    finally:
+        m.close()
+
+
+def test_native_set_reuse_across_models():
+    set_ = jp.MOI.LessThan(2.0)
+    try:
+        for _ in range(2):
+            m = _model()
+            try:
+                x = m.variable(lower=0)
+                m.constraint(x + 0, set_)
+                m.objective = jp.maximize(x)
+                m.optimize()
+                assert m.value(x) == pytest.approx(2.0)
+            finally:
+                m.close()
+    finally:
+        if BACKEND != "juliacall":
+            set_.close()
+
+
+def test_native_constraint_rejects_foreign_expression():
+    first, second = _model(), _model()
+    try:
+        x = first.variable()
+        with pytest.raises(ValueError, match="different model"):
+            second.constraint(x, jp.MOI.LessThan(1.0))
+        with pytest.raises(ValueError, match="different model"):
+            second.constraint(x <= 1.0)
+    finally:
+        first.close()
+        second.close()
+
+
+@pytest.mark.skipif(
+    BACKEND == "juliacall", reason="Only compiled set handles are explicitly closed",
+)
+def test_compiled_constraint_retains_set_after_handle_is_closed():
+    m = _model()
+    try:
+        x = m.variable(lower=0)
+        with jp.MOI.LessThan(3.0) as set_:
+            m.constraint(x + 0, set_)
+        with pytest.raises(RuntimeError, match="closed"):
+            m.constraint(x + 0, set_)
+        m.objective = jp.maximize(x)
+        m.optimize()
+        assert m.value(x) == pytest.approx(3.0)
+    finally:
+        m.close()

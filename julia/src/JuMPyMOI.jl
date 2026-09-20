@@ -49,8 +49,10 @@ end
 # Functions already passed as VariableIndex are bounds and stay unchanged.
 function simplify(func::MOI.ScalarNonlinearFunction)
     f = MOI.Nonlinear.SymbolicAD.simplify(func)
-    if f isa MOI.VariableIndex || f isa Float64
+    if f isa MOI.VariableIndex
         return convert(MOI.ScalarAffineFunction{Float64}, f)
+    elseif f isa Real
+        return convert(MOI.ScalarAffineFunction{Float64}, Float64(f))
     end
     return f
 end

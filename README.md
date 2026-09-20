@@ -41,12 +41,25 @@ The Python workload is proportional to the **number of groups**, not the number 
 pip install jumpy
 ```
 
-No Julia installation required — JuMPy ships a precompiled solver backend built with [juliac](https://docs.julialang.org/en/v1/devdocs/juliac/).
+The compiled HiGHS interface needs neither a Julia installation nor `juliacall`:
+JuMPy ships a precompiled solver backend built with
+[juliac](https://docs.julialang.org/en/v1/devdocs/juliac/).
+
+Choose the interface when importing:
+
+```python
+import jumpy.highs as jp       # Compiled HiGHS
+# Or: import jumpy.juliacall as jp  # Requires pip install 'jumpy[juliacall]'
+```
+
+Both expose the same modeling helpers and `Model()`, without a `backend`
+argument. `jumpy.Model` is no longer exported. Use one interface per process;
+the two Julia runtimes do not share objects.
 
 ## Quick start
 
 ```python
-import jumpy as jp
+import jumpy.highs as jp
 
 m = jp.Model()
 x = m.variables(100, lower=0, name="x")
@@ -99,6 +112,9 @@ i = m.iterator(range(n))
 m.constraint_group(jp.sin(x[i]) + jp.exp(x[i]) <= 1.0)
 ```
 
+These functions construct nonlinear expressions; the chosen solver must support
+them. HiGHS does not support the nonlinear constraints in this example.
+
 ### Individual constraints
 
 For one-off constraints that don't need grouping:
@@ -106,6 +122,24 @@ For one-off constraints that don't need grouping:
 ```python
 m.constraint(x[0] + x[1] == 5)
 ```
+
+You can also pass an expression and an actual MOI set:
+
+```python
+m.constraint(x[0] + x[1], jp.MOI.LessThan(5.0))
+
+z = m.variable()
+m.constraint(z, jp.MOI.Integer())
+```
+
+The compiled interface exposes `LessThan`, `GreaterThan`, `EqualTo`, `ZeroOne`,
+and `Integer`. These constructors create native Julia sets, not Python copies
+of their definitions. JuliaCall's `jp.MOI` is the actual Julia module. Sets
+must come from the same interface as the model.
+
+In the explicit-set form, a bare variable remains an MOI variable constraint
+(a bound or integrality restriction). Comparison syntax such as
+`m.constraint(z >= 0)` retains its affine-row semantics.
 
 ## API reference
 
@@ -118,6 +152,7 @@ m.constraint(x[0] + x[1] == 5)
 | `m.variable(lower=, upper=, name=, binary=, integer=)` | Add a single variable |
 | `m.constraint_group(template)` | Add a constraint group (iterators are discovered from the template) |
 | `m.constraint(con)` | Add an individual constraint |
+| `m.constraint(func, jp.MOI.LessThan(rhs))` | Add a scalar function-in-set constraint |
 | `m.objective = jp.minimize(expr)` | Set a minimization objective |
 | `m.objective = jp.maximize(expr)` | Set a maximization objective |
 | `m.iterator(range(n))` | An index set for constraint groups |
@@ -164,9 +199,11 @@ source code, not live objects between separate Julia runtimes.
 
 ```
 src/jumpy/
+├── highs.py              # Public compiled interface: Model() and native MOI sets
+├── juliacall.py          # Public JuliaCall interface: Model() and Julia's MOI
 ├── expressions.py        # Node handles with operator overloading (eager MOI calls)
 ├── bridge_juliacall.py   # MOI ops via juliacall
-├── backend.py            # Backend selection; MOI ops via ctypes (juliac)
+├── backend.py            # Compiled MOI ops via ctypes
 ├── julia/JuMPyMOI.jl     # In wheels: shared source from julia/src/JuMPyMOI.jl
 └── model.py              # Model class: variables, groups, objective, solve
 ```

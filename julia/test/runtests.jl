@@ -35,6 +35,8 @@ function get_values(m, n::Int)
     return out
 end
 
+include("native_sets.jl")
+
 # min x + y  s.t.  x + y >= 10, x, y >= 0
 @testset "simple LP" begin
     m = JuMPyHiGHS.jumpy_new_model()

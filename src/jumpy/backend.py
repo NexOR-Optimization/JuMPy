@@ -10,21 +10,7 @@ two implementations expose the same methods.
 from __future__ import annotations
 
 import ctypes
-
-
-def get_ops(backend):
-    if backend == "juliac":
-        return JuliacOps(_load_lib())
-    if backend == "juliacall":
-        from jumpy.bridge_juliacall import JuliaCallOps
-
-        return JuliaCallOps()
-    if isinstance(backend, str):
-        raise ValueError(
-            f"Unknown backend '{backend}'. Choose from: juliac, juliacall"
-        )
-    # An ops object used directly (tests, custom backends).
-    return backend
+import sys
 
 
 # The Julia runtime can only be initialized once per process.
@@ -72,7 +58,7 @@ def _load_lib():
             + "\n  ".join(_default_paths()) + "\nEither:\n"
             "  1. Install the pre-built wheel: pip install jumpy\n"
             "  2. Build it locally: see julia/README.md\n"
-            "  3. Use the juliacall backend: jp.Model(backend='juliacall')\n"
+            "  3. Use JuliaCall: import jumpy.juliacall as jp\n"
         )
     if not os.path.exists(path):
         raise FileNotFoundError(f"JUMPY_LIB points to a missing file: {path}")
@@ -81,9 +67,31 @@ def _load_lib():
 
 def _init_lib(path):
     global _LIB
+    juliacall = sys.modules.get("juliacall")
+    if juliacall is not None and juliacall.CONFIG.get("inited"):
+        raise RuntimeError(
+            "JuliaCall is already initialized. Use one JuMPy backend per process; "
+            "restart Python to switch to jumpy.highs."
+        )
     # RTLD_GLOBAL so that libjulia symbols are visible process-wide,
     # which the Julia runtime requires.
     lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+
+    # Check the new ABI before starting Julia; an older build must be rebuilt.
+    try:
+        lib.jumpy_scalar_set.argtypes = [ctypes.c_int, ctypes.c_double]
+        lib.jumpy_scalar_set.restype = ctypes.c_uint64
+        lib.jumpy_free_set.argtypes = [ctypes.c_uint64]
+        lib.jumpy_free_set.restype = ctypes.c_int
+        lib.jumpy_add_constraint_set.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint64]
+        lib.jumpy_add_constraint_set.restype = ctypes.c_longlong
+    except AttributeError:
+        raise RuntimeError("Rebuild the JuMPy library: this build has no native-set constructor ABI") from None
+
+    lib.jl_is_initialized.argtypes = []
+    lib.jl_is_initialized.restype = ctypes.c_int
+    if lib.jl_is_initialized():
+        raise RuntimeError("Julia is already initialized; start a fresh process for jumpy.highs")
 
     # Initialize the Julia runtime from the image embedded in the library.
     init = lib.jl_init_with_image_handle
@@ -160,7 +168,9 @@ class JuliacOps:
             raise RuntimeError("Failed to create model")
 
     def free(self):
-        self._lib.jumpy_free_model(self._m)
+        if self._m:
+            self._lib.jumpy_free_model(self._m)
+            self._m = None
 
     def _node(self, node):
         if not node:  # NULL
@@ -204,6 +214,15 @@ class JuliacOps:
         ci = self._lib.jumpy_add_constraint(self._m, func, _SENSE_CODES[sense], rhs)
         if ci < 0:
             raise RuntimeError("Failed to add constraint")
+
+    def add_constraint_set(self, func, set_):
+        from jumpy._highs_moi import NativeSet
+
+        if not isinstance(set_, NativeSet) or set_._lib is not self._lib:
+            raise TypeError("Expected an MOI set created by jumpy.highs")
+        ci = self._lib.jumpy_add_constraint_set(self._m, func, set_.handle)
+        if ci < 0:
+            raise RuntimeError("Failed to add the native-set constraint")
 
     def add_constraint_group(self, func, sense, linear):
         n = self._lib.jumpy_add_group_constraint(self._m, func, _SENSE_CODES[sense])
