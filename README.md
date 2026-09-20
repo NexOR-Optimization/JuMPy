@@ -3,9 +3,9 @@
 [![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://nexor-optimization.github.io/JuMPy/)
 [![CI](https://github.com/NexOR-Optimization/JuMPy/actions/workflows/ci.yml/badge.svg)](https://github.com/NexOR-Optimization/JuMPy/actions/workflows/ci.yml)
 
-A Python interface to [MathOptInterface](https://github.com/jump-dev/MathOptInterface.jl) via [GenOpt](https://github.com/blegat/GenOpt.jl).
+A Python interface to [JuMP](https://github.com/jump-dev/JuMP.jl) and [GenOpt](https://github.com/blegat/GenOpt.jl), with native [MathOptInterface](https://github.com/jump-dev/MathOptInterface.jl) sets.
 
-JuMPy lets you build optimization models in Python at the speed of compiled Julia. It does this by constructing lightweight expression templates in Python and handing them off to a compiled Julia backend for constraint expansion and solving — keeping the expensive work out of Python entirely.
+JuMPy lets you build optimization models from Python using native JuMP and GenOpt expressions behind thin Python handles. The Julia backend handles expression construction, constraint expansion, and solving.
 
 ## Why JuMPy?
 
@@ -36,6 +36,11 @@ flowchart LR
 The Python workload is proportional to the **number of groups**, not the number of constraints.
 
 ## Installation
+
+This branch's native JuMP/GenOpt integration is a prototype. Building it or
+using its JuliaCall interface currently requires a patched development checkout
+of GenOpt; released GenOpt 0.2.1 is not sufficient. See the
+[local development setup](julia/README.md#building).
 
 ```
 pip install jumpy
@@ -77,6 +82,9 @@ print(m.value(x[0]))
 ## Constraint groups
 
 Constraint groups are the core feature. Instead of building constraints one by one in Python, you write a single expression template with symbolic iterators.
+
+`m.constraint_group(template)` is an alias for `m.constraint(template)`: GenOpt
+recognizes iterator expressions and handles their expansion in Julia.
 
 ### Basic group
 
@@ -135,11 +143,13 @@ m.constraint(z, jp.MOI.Integer())
 The compiled interface exposes `LessThan`, `GreaterThan`, `EqualTo`, `ZeroOne`,
 and `Integer`. These constructors create native Julia sets, not Python copies
 of their definitions. JuliaCall's `jp.MOI` is the actual Julia module. Sets
-must come from the same interface as the model.
+must come from the same interface as the model. Comparisons, variable bounds,
+and constraint groups use the same native sets internally.
 
-In the explicit-set form, a bare variable remains an MOI variable constraint
-(a bound or integrality restriction). Comparison syntax such as
-`m.constraint(z >= 0)` retains its affine-row semantics.
+Comparison syntax is shorthand: `m.constraint(z <= 1)` delegates to
+`m.constraint(z, jp.MOI.LessThan(1.0))`. In either form, a bare variable remains
+an MOI variable constraint (a bound or integrality restriction). Use an
+expression such as `z + 0` when you want an affine row instead of a bound.
 
 ## API reference
 
@@ -151,7 +161,7 @@ In the explicit-set form, a bare variable remains an MOI variable constraint
 | `m.variables(n, lower=, upper=, name=, binary=, integer=)` | Add `n` variables, returns a `VariableVector` |
 | `m.variable(lower=, upper=, name=, binary=, integer=)` | Add a single variable |
 | `m.constraint_group(template)` | Add a constraint group (iterators are discovered from the template) |
-| `m.constraint(con)` | Add an individual constraint |
+| `m.constraint(con)` | Add a scalar constraint or iterator-based group |
 | `m.constraint(func, jp.MOI.LessThan(rhs))` | Add a scalar function-in-set constraint |
 | `m.objective = jp.minimize(expr)` | Set a minimization objective |
 | `m.objective = jp.maximize(expr)` | Set a maximization objective |
@@ -168,6 +178,14 @@ Variables and iterators support standard arithmetic (`+`, `-`, `*`, `/`, `**`) a
 jp.sin(x)   jp.cos(x)   jp.exp(x)
 jp.log(x)   jp.sqrt(x)  jp.jp_abs(x)
 ```
+
+Operations construct native JuMP expressions. JuMP determines whether an
+expression is affine, quadratic, or nonlinear; Python does not classify it.
+Integer literals remain integers, so `x ** 2` uses JuMP's quadratic arithmetic;
+`x ** 2.0` follows its floating-exponent nonlinear arithmetic.
+HiGHS supports linear constraints and convex quadratic objectives, such as
+`m.objective = jp.minimize((x - 2) ** 2)`. Unsupported constraints and objectives
+raise errors.
 
 ### Symbolic indexing
 
@@ -186,25 +204,25 @@ costs[i]      # symbolic: a getindex template node over the data
 
 JuMPy has two layers:
 
-1. **Python package** (`jumpy`): Operator overloading builds MOI functions *eagerly* — every operation is one MOI call through the backend's `ops` object. There is no Python-side expression tree and no conversion step.
+1. **Python package** (`jumpy`): Operator overloading calls native Julia operations eagerly. Python retains opaque expression references, without an expression tree or affine/nonlinear classification.
 
-2. **Compiled Julia library** (built with juliac): exposes the MOI API as C entry points, one per MOI call — `jumpy_scalar_nonlinear` is the compiled `MOI.ScalarNonlinearFunction` constructor, and so on. GenOpt is compiled in: templates reference iterators by identity (`GenOpt.IteratorRef`) and groups are expanded in Julia.
+2. **Julia modeling layer**: JuMP constructs variables, expressions, constraints, and objectives. GenOpt builds iterator templates and expands them through its MOI bridge. The compiled interface exposes this layer through a small C ABI; JuliaCall invokes the same source directly.
 
-Both backends use the same solver-independent Julia constructor module,
-[`JuMPyMOI.jl`](julia/src/JuMPyMOI.jl), for nonlinear functions, constraint
-sets, and scalar constraint normalization. JuliaCall loads this source from the
-Python package; JuliaC compiles it into the backend image. The resulting values
-are actual MOI objects, not Python copies of the Julia definitions. This shares
-source code, not live objects between separate Julia runtimes.
+Both backends use the same solver-independent Julia module,
+[`JuMPyModel.jl`](julia/src/JuMPyModel.jl). JuliaCall loads this source from the
+Python package; JuliaC compiles it into the backend image. Expressions are
+native JuMP/GenOpt objects and sets are native MOI objects. This shares source
+code, not live objects between separate Julia runtimes. The compiled build is
+currently untrimmed.
 
 ```
 src/jumpy/
 ├── highs.py              # Public compiled interface: Model() and native MOI sets
 ├── juliacall.py          # Public JuliaCall interface: Model() and Julia's MOI
-├── expressions.py        # Node handles with operator overloading (eager MOI calls)
-├── bridge_juliacall.py   # MOI ops via juliacall
-├── backend.py            # Compiled MOI ops via ctypes
-├── julia/JuMPyMOI.jl     # In wheels: shared source from julia/src/JuMPyMOI.jl
+├── expressions.py        # Native expression handles and operator overloading
+├── bridge_juliacall.py   # Native modeling operations via juliacall
+├── backend.py            # Compiled modeling operations via ctypes
+├── julia/JuMPyModel.jl    # In wheels: shared source from julia/src/JuMPyModel.jl
 └── model.py              # Model class: variables, groups, objective, solve
 ```
 
@@ -212,10 +230,10 @@ src/jumpy/
 
 | Python | Julia |
 |---|---|
-| `m.iterator(range(n))` | `GenOpt.IteratorRef(GenOpt.Iterator(values))` |
-| `x[i]` (symbolic) | `getindex` node over `GenOpt.ContiguousArrayOfVariables` |
-| `x[i] + x[i+1] <= 10` | `MOI.ScalarNonlinearFunction` template |
-| `m.constraint_group(...)` | `GenOpt.FunctionGenerator` (iterators discovered by identity) |
+| `m.iterator(range(n))` | A native GenOpt iterator |
+| `x[i]` (symbolic) | GenOpt symbolic indexing of JuMP variables |
+| `x[i] + x[i+1] <= 10` | A GenOpt expression template and native `MOI.LessThan` set |
+| `m.constraint(...)` / `m.constraint_group(...)` | JuMP constraint construction; GenOpt's bridge expands iterator templates |
 | `m.parameter([...])` | Data vector, `getindex` resolved during expansion |
 
 ## Development
@@ -234,9 +252,9 @@ JUMPY_BACKEND=juliacall uv run --group tests --extra juliacall pytest tests/test
 uv run examples/basic.py
 ```
 
-The compiled backend lives in [`julia/`](julia/): a small Julia package
-(`JuMPyHiGHS`) exposing C entry points that mirror the MOI API around a raw
-`HiGHS.Optimizer`, compiled with
+The compiled backend lives in [`julia/`](julia/): a Julia package
+(`JuMPyHiGHS`) exposing native JuMP/GenOpt model construction with HiGHS through
+C entry points, compiled with
 [JuliaC](https://github.com/JuliaLang/JuliaC.jl). See
 [`julia/README.md`](julia/README.md) for the C ABI and build instructions.
 

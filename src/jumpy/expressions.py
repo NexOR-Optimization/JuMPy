@@ -1,15 +1,12 @@
 """
-Expression nodes, built eagerly as MOI functions.
+Opaque handles to native JuMP and GenOpt expressions.
 
-Every arithmetic operation immediately performs one MOI call through the
+Every arithmetic operation immediately calls a Julia operator through the
 model's `ops` object — via juliacall or the compiled library. A Node is a
-thin Python handle around the resulting MOI object; there is no Python-side
-expression tree and no conversion step.
+thin Python handle around the resulting Julia object; expression types and
+coefficient promotion are owned by JuMP, not classified in Python.
 
-Iterators (from Model.iterator) are ordinary nodes wrapping a
-GenOpt.IteratorRef, so templates like `x[i] + x[i + 1] <= 10` are also
-built eagerly; GenOpt discovers the iterators by identity when the group
-constraint is added.
+Iterators and indexed expressions use GenOpt's native operator overloads.
 """
 
 from __future__ import annotations
@@ -17,84 +14,83 @@ from __future__ import annotations
 Numeric = (int, float)
 
 
-def _moi(ops, value):
-    """The MOI object of a Node or a numeric literal."""
+def _native(ops, value):
+    """The native Julia object of a Node or a numeric literal."""
     if isinstance(value, Node):
         if value._ops is not ops:
             raise ValueError("Cannot combine expressions from different models")
-        return value.moi
+        return value.ref
     if isinstance(value, Numeric):
-        return ops.constant(float(value))
+        return ops.constant(value)
     raise TypeError(f"Cannot use {type(value).__name__} in an expression")
 
 
-def _is_linear(value) -> bool:
-    return not isinstance(value, Node) or value.linear
-
-
 class Node:
-    """A handle to an MOI expression owned by the model's backend."""
+    """A handle to a Julia expression owned by the model's backend."""
 
-    def __init__(self, ops, moi, *, linear: bool = True):
+    def __init__(self, ops, ref):
         self._ops = ops
-        self.moi = moi
-        self.linear = linear
+        self.ref = ref
 
-    def _snf(self, head: str, args, *, linear: bool = True) -> Node:
+    def _apply(self, op: str, args) -> Node:
         return Node(
             self._ops,
-            self._ops.scalar_nonlinear(head, [_moi(self._ops, a) for a in args]),
-            linear=linear and all(_is_linear(a) for a in args),
+            self._ops.apply(op, [_native(self._ops, a) for a in args]),
         )
 
-    # -- arithmetic (each call is one MOI ScalarNonlinearFunction) --------------
+    # -- arithmetic (Julia decides the resulting expression type) -------------
 
     def __add__(self, other):
-        return self._snf("+", [self, other])
+        return self._apply("+", [self, other])
 
     def __radd__(self, other):
-        return self._snf("+", [other, self])
+        return self._apply("+", [other, self])
 
     def __sub__(self, other):
-        return self._snf("-", [self, other])
+        return self._apply("-", [self, other])
 
     def __rsub__(self, other):
-        return self._snf("-", [other, self])
+        return self._apply("-", [other, self])
 
     def __mul__(self, other):
-        return self._snf("*", [self, other])
+        return self._apply("*", [self, other])
 
     def __rmul__(self, other):
-        return self._snf("*", [other, self])
+        return self._apply("*", [other, self])
 
     def __truediv__(self, other):
-        return self._snf("/", [self, other], linear=False)
+        return self._apply("/", [self, other])
 
     def __rtruediv__(self, other):
-        return self._snf("/", [other, self], linear=False)
+        return self._apply("/", [other, self])
 
     def __pow__(self, other):
-        return self._snf("^", [self, other], linear=False)
+        return self._apply("^", [self, other])
 
     def __rpow__(self, other):
-        return self._snf("^", [other, self], linear=False)
+        return self._apply("^", [other, self])
 
     def __neg__(self):
-        return self._snf("-", [self])
+        return self._apply("-", [self])
 
     def __pos__(self):
         return self
 
-    # -- comparisons (normalized to `self - other  sense  0`) -------------------
+    # -- comparisons: shorthand for a function in a native set -----------------
+
+    def _comparison(self, other, set_type) -> Constraint:
+        if isinstance(other, Numeric):
+            return Constraint(self, set_type(float(other)))
+        return Constraint(self - other, set_type(0.0))
 
     def __le__(self, other) -> Constraint:
-        return Constraint(self - other, "<=")
+        return self._comparison(other, self._ops.MOI.LessThan)
 
     def __ge__(self, other) -> Constraint:
-        return Constraint(self - other, ">=")
+        return self._comparison(other, self._ops.MOI.GreaterThan)
 
     def __eq__(self, other) -> Constraint:
-        return Constraint(self - other, "==")
+        return self._comparison(other, self._ops.MOI.EqualTo)
 
 
 class Variable(Node):
@@ -123,7 +119,7 @@ class VariableVector:
         self.start = start
         self.count = count
         self.name = name
-        self._block = None  # GenOpt.ContiguousArrayOfVariables, built lazily
+        self._block = None  # Native JuMP variable array, built lazily.
 
     def __getitem__(self, index):
         if isinstance(index, int):
@@ -134,7 +130,7 @@ class VariableVector:
                 self._block = self._ops.contiguous_variables(self.start, self.count)
             block = Node(self._ops, self._block)
             # 0-based Python index -> 1-based Julia index
-            return block._snf("getindex", [block, index + 1])
+            return block._apply("getindex", [block, index + 1])
         raise TypeError(f"Index must be int or Node, got {type(index).__name__}")
 
     def __len__(self) -> int:
@@ -168,7 +164,7 @@ class Parameter:
             if self._array is None:
                 self._array = self._ops.float_array(self.values)
             array = Node(self._ops, self._array)
-            return array._snf("getindex", [array, index + 1])
+            return array._apply("getindex", [array, index + 1])
         raise TypeError(f"Index must be int or Node, got {type(index).__name__}")
 
     def __len__(self) -> int:
@@ -179,14 +175,14 @@ class Parameter:
 
 
 class Constraint:
-    """A normalized constraint: `func sense 0`."""
+    """A scalar expression in a native MOI set."""
 
-    def __init__(self, func: Node, sense: str):
+    def __init__(self, func: Node, set_):
         self.func = func
-        self.sense = sense
+        self.set = set_
 
     def __repr__(self) -> str:
-        return f"<constraint: f(x) {self.sense} 0>"
+        return f"<constraint: f(x) in {self.set}>"
 
 
 class Objective:
@@ -200,7 +196,7 @@ class Objective:
 # -- nonlinear functions --------------------------------------------------------
 
 def _func(name: str, x: Node) -> Node:
-    return x._snf(name, [x], linear=False)
+    return x._apply(name, [x])
 
 
 def sin(x):

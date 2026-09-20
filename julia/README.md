@@ -1,25 +1,21 @@
 # JuMPyHiGHS
 
-The compiled Julia backend for JuMPy: C entry points that mirror the
-[MathOptInterface](https://github.com/jump-dev/MathOptInterface.jl) API,
-one MOI call per entry point. Python builds models by calling these
-eagerly (`src/jumpy/expressions.py` + `model.py`), identically for the
-juliacall and juliac backends; `jumpy_scalar_nonlinear` is simply the
-compiled counterpart of `jl.MOI.ScalarNonlinearFunction(...)`. Nothing is
-HiGHS-specific except the `Optimizer` constant in `src/JuMPyHiGHS.jl`: any
-MOI optimizer can be compiled behind the same entry points.
+The compiled Julia backend for JuMPy exposes native
+[JuMP](https://github.com/jump-dev/JuMP.jl) and
+[GenOpt](https://github.com/blegat/GenOpt.jl) modeling operations through a small
+C ABI. Python holds opaque references and forwards operations; Julia constructs
+and classifies expressions.
 
-The optimizer is used raw — **no** `MOI.Bridges`, **no**
-`CachingOptimizer`. Whatever it does not support (for HiGHS: nonlinear
-functions) is reported as an error. GenOpt is compiled in: templates
-reference iterators by identity (`GenOpt.IteratorRef`) and
-`jumpy_add_group_constraint` expands them here with the same loop as
-`GenOpt.FunctionGeneratorBridge`, one scalar constraint per combination of
-iterator values.
+The shared modeling layer creates a JuMP direct model over an MOI bridge
+optimizer, with GenOpt's `FunctionGeneratorBridge` registered. Scalar and
+iterator-based constraints both use `JuMP.build_constraint` and
+`JuMP.add_constraint`. GenOpt handles expansion through its bridge; JuMPy does
+not implement a separate expansion loop. HiGHS supports linear constraints and
+convex quadratic objectives. Unsupported functions and sets produce errors.
 
 In Python, select this backend with `import jumpy.highs as jp`, then construct
 `jp.Model()` without a backend argument. `import jumpy.juliacall as jp` selects
-the alternative JuliaCall interface. The two interfaces share constructor
+the alternative JuliaCall interface. The two interfaces share modeling
 source, not live Julia objects; use one runtime per process.
 
 Both support explicit scalar sets alongside comparison syntax:
@@ -40,47 +36,48 @@ handles, not duplicate set definitions. JuliaCall exposes the actual MOI module.
 
 See `src/JuMPyHiGHS.jl` for the full conventions.
 
-A model is an opaque `void*` pointing at the Julia-side model object; MOI
-functions are opaque `void*` nodes built with the constructor entry points.
+A model is an opaque `void*` pointing at the Julia-side model object; native
+expressions are opaque `void*` nodes built with the operation entry points.
 Both are rooted on the Julia side (the GC cannot see references held by C):
 nodes belong to the model that built them, and everything is freed by
 `jumpy_free_model`, after which no pointer from that model may be used.
 
-| Function | MOI equivalent |
+| Function | Julia operation |
 |---|---|
-| `jumpy_new_model() -> void*` | `Optimizer()` (NULL on error) |
+| `jumpy_new_model() -> void*` | Create a JuMP model with HiGHS and the GenOpt bridge (NULL on error) |
 | `jumpy_free_model(m) -> int32` | release the model and its nodes |
-| `jumpy_add_variables(m, count) -> int64` | `MOI.add_variables`; returns the 0-based start index |
+| `jumpy_add_variables(m, count) -> int64` | Add JuMP variables; returns the 0-based start index |
 | `jumpy_constant(m, value) -> void*` | a `Float64` node |
-| `jumpy_variable(m, index) -> void*` | `MOI.VariableIndex` of the 0-based column `index` |
-| `jumpy_scalar_nonlinear(m, head, args**, nargs) -> void*` | `MOI.ScalarNonlinearFunction(Symbol(head), Any[args...])` |
-| `jumpy_iterator(m, values*, len) -> void*` | `GenOpt.IteratorRef(GenOpt.Iterator(values))`, usable in template expressions |
-| `jumpy_contiguous_variables(m, offset, count) -> void*` | `GenOpt.ContiguousArrayOfVariables`, 1-based-indexable block of variables |
+| `jumpy_integer_constant(m, value) -> void*` | an `Int64` node, preserving integer exponents and indices |
+| `jumpy_variable(m, index) -> void*` | `JuMP.VariableRef` for the 0-based column `index` |
+| `jumpy_apply(m, op, args**, nargs) -> void*` | Apply the native Julia operator to JuMP/GenOpt arguments |
+| `jumpy_iterator(m, values*, len) -> void*` | `GenOpt.iterator` over `Float64` values |
+| `jumpy_integer_iterator(m, values*, len) -> void*` | `GenOpt.iterator` over `Int64` values, including integer index ranges |
+| `jumpy_contiguous_variables(m, offset, count) -> void*` | A 1-based-indexable vector of JuMP variables |
 | `jumpy_float_array(m, values*, len) -> void*` | a data vector, 1-based-indexable in templates |
-| `jumpy_add_constraint(m, f, sense, rhs) -> int64` | `MOI.add_constraint(f, set)` with set `{0: LessThan, 1: GreaterThan, 2: EqualTo}(rhs)` or `{3: ZeroOne, 4: Integer}`; function constants are normalized into the set; variable bounds are just variable nodes |
-| `jumpy_scalar_set(sense, rhs) -> uint64` | Construct and retain a native scalar set; same sense tags, `0` on error |
+| `jumpy_less_than(rhs) -> uint64` | Construct and retain `MOI.LessThan(rhs)` |
+| `jumpy_greater_than(rhs) -> uint64` | Construct and retain `MOI.GreaterThan(rhs)` |
+| `jumpy_equal_to(rhs) -> uint64` | Construct and retain `MOI.EqualTo(rhs)` |
+| `jumpy_zero_one() -> uint64` | Construct and retain `MOI.ZeroOne()` |
+| `jumpy_integer() -> uint64` | Construct and retain `MOI.Integer()` |
 | `jumpy_free_set(id) -> int32` | Release a native set handle |
-| `jumpy_add_constraint_set(m, f, id) -> int64` | Add a scalar constraint using the retained native set |
-| `jumpy_add_group_constraint(m, f, sense) -> int64` | expand the template over its iterators (GenOpt), one scalar constraint each; returns the count |
-| `jumpy_set_objective_sense(m, sense) -> int32` | `MOI.set(MOI.ObjectiveSense())`; 0 = min, 1 = max |
-| `jumpy_set_objective_function(m, f) -> int32` | `MOI.set(MOI.ObjectiveFunction{F}(), f)` |
-| `jumpy_optimize(m) -> int32` | `MOI.optimize!`; returns `Int(MOI.TerminationStatusCode)` (`OPTIMAL == 1`) |
-| `jumpy_primal_status(m) -> int32` | `Int(MOI.ResultStatusCode)` (`FEASIBLE_POINT == 1`) |
-| `jumpy_get_values(m, out*, len) -> int64` | `MOI.VariablePrimal`; copies into `out` |
-| `jumpy_objective_value(m) -> float64` | `MOI.ObjectiveValue` |
+| `jumpy_add_constraint(m, f, id) -> int64` | Build and add a JuMP constraint using the native set, including GenOpt templates |
+| `jumpy_set_objective_sense(m, sense) -> int32` | Set the JuMP objective sense; 0 = min, 1 = max |
+| `jumpy_set_objective_function(m, f) -> int32` | Set the native JuMP objective expression |
+| `jumpy_optimize(m) -> int32` | `JuMP.optimize!`; returns the MOI termination status (`OPTIMAL == 1`) |
+| `jumpy_primal_status(m) -> int32` | The MOI result status (`FEASIBLE_POINT == 1`) |
+| `jumpy_get_values(m, out*, len) -> int64` | `JuMP.value` for the variables; copies into `out` |
+| `jumpy_objective_value(m) -> float64` | `JuMP.objective_value` |
 
-Native sets use checked integer handles, independently of model-owned function
-pointers. A set can be reused across models in the same image and remains valid
+Native sets use checked `uint64` identity handles, not set-kind codes; constructors
+return `0` on error. Comparisons, variable bounds, and constraint groups all use
+these native sets. A set can be reused across models in the same image and remains valid
 after a model closes, until the set is released. The Python wrapper releases
 sets automatically and also supports `close()` and context managers. Handles
 cannot be passed to JuliaCall or another image.
 
-Affine expressions built as `ScalarNonlinearFunction` trees are narrowed to
-`ScalarAffineFunction` with `MOI.Nonlinear.SymbolicAD.simplify` before being
-passed to the optimizer, so HiGHS accepts them.
-
-The constructor and normalization implementation lives in
-[`src/JuMPyMOI.jl`](src/JuMPyMOI.jl). It is a
+The shared modeling implementation lives in
+[`src/JuMPyModel.jl`](src/JuMPyModel.jl). It is a
 solver-independent Julia module shared with the JuliaCall backend, and is
 included in the Python wheel so JuliaCall can load it without a source checkout.
 The JuliaC backend includes the same file at build time; model ownership,
@@ -88,7 +85,7 @@ opaque-pointer rooting, and C entry points remain in `JuMPyHiGHS`.
 There is no additional shared object or second Julia runtime to initialize.
 Keeping the canonical source inside the Julia project also lets JuliaC copy
 that project into an isolated build directory. Wheel builds package the same
-file as `jumpy/julia/JuMPyMOI.jl`; editable installs load the canonical source.
+file as `jumpy/julia/JuMPyModel.jl`; editable installs load the canonical source.
 
 The consumer must initialize the Julia runtime once after loading the
 library, by calling `jl_init_with_image_handle(dlopen_handle)` (see
@@ -103,11 +100,36 @@ Requires Julia 1.12+, a C compiler, and the
 julia --project=@juliac -e 'using Pkg; Pkg.add("JuliaC")'
 ```
 
-Then, from this directory:
+This native JuMP/GenOpt integration is a prototype requiring the patched
+development checkout of GenOpt. The released GenOpt 0.2.1 recorded in the
+repository manifest is not sufficient for its symbolic indexing and independent
+iterator operations. Until those fixes are released, develop the patched
+checkout explicitly; installing the released package alone is not enough.
+
+From this directory, prepare a separate Julia environment so local development
+paths do not change the repository manifest:
+
+```bash
+export JUMPY_GENOPT_SOURCE=/path/to/patched/GenOpt
+export JUMPY_BACKEND_SOURCE="$PWD"
+export JUMPY_JULIA_PROJECT="$(mktemp -d)"
+JULIA_PKG_OFFLINE=true julia --project="$JUMPY_JULIA_PROJECT" -e '
+    using Pkg
+    Pkg.develop([
+        PackageSpec(path=ENV["JUMPY_GENOPT_SOURCE"]),
+        PackageSpec(path=ENV["JUMPY_BACKEND_SOURCE"]),
+    ])
+    Pkg.instantiate()
+'
+```
+
+Offline mode requires the other dependencies and solver artifacts to be cached;
+omit `JULIA_PKG_OFFLINE=true` if they need downloading. Then build with that
+environment:
 
 ```bash
 julia --project=@juliac -m JuliaC \
-    --output-lib build/libjumpy_highs --project . \
+    --output-lib build/libjumpy_highs --project "$JUMPY_JULIA_PROJECT" \
     --compile-ccallable \
     --jl-option handle-signals=no \
     --bundle build \
@@ -124,32 +146,15 @@ Notes:
   HiGHS_jll artifact with `libhighs.so`. This is the two-shared-library
   layout: `libjumpy_highs.so` (our entry points + Julia runtime image) loads
   `libhighs.so` (the solver distributed by HiGHS_jll) dynamically.
-- Trimming (experimental, not the shipping build): `--trim=unsafe-warn`
-  shrinks `libjumpy_highs.so` from ~410 MB to ~5 MB (bundle: 325 MB to
-  142 MB) and has passed the full test suite — but the build is fragile.
-  Trimmed images can only dynamically dispatch to specializations that were
-  compiled in, and the required set of `Base.Experimental.entrypoint`
-  declarations (see `juliac_entry.jl`, `trim_dispatch.jl`, generated from a
-  `--trace-dispatch` run of `workload.jl`) is not stable across builds:
-  adding roots can shift inference elsewhere and un-compile a previously
-  working path, failing at runtime with an uncatchable `MissingCodeError`.
-  Revisit as juliac's trim tooling matures; the source-level groundwork
-  (typed ABI boundary, static set construction, `ccall`-based error
-  reporting) is in place and benefits the untrimmed build too. To try it:
-
-  ```bash
-  julia --project=@juliac -m JuliaC \
-      --output-lib build-trim/libjumpy_highs --project . \
-      --compile-ccallable --jl-option handle-signals=no \
-      --experimental --trim=unsafe-warn --bundle build-trim juliac_entry.jl
-  ```
+- This backend currently uses an untrimmed JuliaC image. Trimming is not
+  configured or validated for this native JuMP/GenOpt implementation.
 
 ## Testing
 
 In-process tests of the entry points (fast, no compilation):
 
 ```bash
-julia --project=. test/runtests.jl
+julia --project="$JUMPY_JULIA_PROJECT" test/runtests.jl
 ```
 
 End-to-end through the compiled library and Python ctypes:
@@ -161,3 +166,16 @@ JUMPY_BACKEND=juliac uv run --group tests pytest tests/test_solve.py
 
 The Python loader searches `$JUMPY_LIB`, the installed package's `lib/`
 directory, then `julia/build/lib/` (this development layout).
+
+For JuliaCall, use a PythonCall environment with the same patched GenOpt
+checkout developed into it. For an existing environment:
+
+```bash
+export JUMPY_PYTHONCALL_PROJECT=/path/to/pythoncall/environment
+JULIA_PKG_OFFLINE=true julia --project="$JUMPY_PYTHONCALL_PROJECT" -e '
+    using Pkg
+    Pkg.develop(path=ENV["JUMPY_GENOPT_SOURCE"])
+'
+export PYTHON_JULIACALL_PROJECT="$JUMPY_PYTHONCALL_PROJECT"
+export PYTHON_JULIACALL_EXE="$(julia -e 'print(joinpath(Sys.BINDIR, Base.julia_exename()))')"
+```

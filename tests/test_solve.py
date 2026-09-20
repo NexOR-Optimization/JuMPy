@@ -11,7 +11,10 @@ The whole module is skipped when the selected backend is not available.
 """
 
 import importlib.util
+import operator
 import os
+import subprocess
+import sys
 
 import pytest
 
@@ -54,22 +57,32 @@ def test_simple_lp():
     assert abs(m.value(x) + m.value(y) - 10.0) < 1e-6
 
 
-def test_constraint_group_lp():
-    """
-    min sum(x)  s.t.  x[i] >= 1 for i in 0..9, x[i] >= 0
-    Optimal: all x[i] = 1, obj = 10
-    """
+@pytest.mark.parametrize("method", ["constraint", "constraint_group"])
+@pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize(
+    ("constructor", "compare", "objective"),
+    [
+        ("LessThan", operator.le, maximize),
+        ("GreaterThan", operator.ge, minimize),
+        ("EqualTo", operator.eq, minimize),
+    ],
+)
+def test_constraint_group_native_sets(method, explicit, constructor, compare, objective):
+    """All three native sets vectorize correctly, including nonzero bounds."""
     m = _model()
-    x = m.variables(10, lower=0, name="x")
-
-    i = m.iterator(range(10))
-    m.constraint_group(x[i] >= 1)
-
-    m.objective = minimize(sum(x))
-    m.optimize()
-
-    total = sum(m.value(v) for v in x)
-    assert abs(total - 10.0) < 1e-6
+    try:
+        x = m.variables(10, lower=0, upper=3, name="x")
+        i = m.iterator(range(10))
+        con = (
+            jp.Constraint(x[i] + 0, getattr(jp.MOI, constructor)(2.0))
+            if explicit else compare(x[i], 2.0)
+        )
+        getattr(m, method)(con)
+        m.objective = objective(sum(x))
+        m.optimize()
+        assert [m.value(v) for v in x] == pytest.approx([2.0] * len(x))
+    finally:
+        m.close()
 
 
 def test_constraint_group_consecutive():
@@ -236,15 +249,39 @@ def test_native_set_normalizes_expression_constant(constructor, rhs, direction):
         m.close()
 
 
-def test_native_bare_variable_bound_and_expression_row():
+@pytest.mark.parametrize("explicit", [False, True])
+def test_constraint_normalization_does_not_mutate_reused_expression(explicit):
+    model = jp.Model()
+    try:
+        x = model.variable(lower=0)
+        expr = x + 3
+        for rhs in (5.0, 4.0):
+            if explicit:
+                model.constraint(expr, jp.MOI.LessThan(rhs))
+            else:
+                model.constraint(expr <= rhs)
+        model.objective = jp.maximize(expr)
+        model.optimize()
+        assert model.value(x) == pytest.approx(1.0)
+    finally:
+        model.close()
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_native_bare_variable_bound_and_expression_row(explicit):
     m = _model()
     try:
         x = m.variable()
-        m.constraint(x, jp.MOI.GreaterThan(0.0))
         # An expression simplifying to x must remain a row, not try to add a
         # second VariableIndex-in-GreaterThan bound on the same variable.
-        m.constraint(x + 0, jp.MOI.GreaterThan(2.0))
-        m.constraint(x, jp.MOI.LessThan(4.0))
+        if explicit:
+            m.constraint(x, jp.MOI.GreaterThan(0.0))
+            m.constraint(x + 0, jp.MOI.GreaterThan(2.0))
+            m.constraint(x, jp.MOI.LessThan(4.0))
+        else:
+            m.constraint(x >= 0.0)
+            m.constraint(x + 0 >= 2.0)
+            m.constraint(x <= 4.0)
         m.objective = jp.minimize(x)
         m.optimize()
         assert m.value(x) == pytest.approx(2.0)
@@ -269,7 +306,7 @@ def test_native_integrality_set(constructor, bound, optimum):
         m.close()
 
 
-@pytest.mark.parametrize("value", [0.0, 2.0])
+@pytest.mark.parametrize("value", [0, 0.0, 2, 2.0])
 def test_native_numeric_constraint(value):
     m = _model()
     try:
@@ -280,6 +317,65 @@ def test_native_numeric_constraint(value):
         assert m.value(x) == pytest.approx(1.0)
     finally:
         m.close()
+
+
+def test_native_quadratic_objective():
+    """Ordinary arithmetic must create a JuMP quadratic, not a nonlinear tree."""
+    model = jp.Model()
+    try:
+        x = model.variable(lower=0, upper=5)
+        model.objective = jp.minimize((x - 2) ** 2)
+        model.optimize()
+        assert model.value(x) == pytest.approx(2.0, abs=1e-6)
+    finally:
+        model.close()
+
+
+@pytest.mark.parametrize("group", [False, True])
+@pytest.mark.parametrize("kind", ["quadratic", "nonlinear"])
+def test_unsupported_constraint_reports_native_error(group, kind):
+    """Unsupported expressions must error, never be silently treated as affine."""
+    if BACKEND != "juliacall":
+        # Julia caches its stderr at startup, before pytest's per-test capture.
+        # Start fresh to capture the actual native unsupported diagnostic.
+        script = f"""
+import jumpy.highs as jp
+model = jp.Model()
+variables = model.variables(2, lower=0, upper=5)
+x = variables[model.iterator(range(2))] if {group!r} else variables[0]
+func = x**2 if {kind!r} == "quadratic" else jp.sin(x)
+try:
+    model.constraint(func, jp.MOI.LessThan(1.0))
+except RuntimeError as failure:
+    assert "constraint" in str(failure)
+else:
+    raise AssertionError("HiGHS unexpectedly accepted the constraint")
+finally:
+    model.close()
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        detail = result.stderr
+        assert any(text in detail.lower() for text in (
+            "unsupported", "not supported", "does not support",
+        )), detail
+        return
+    model = jp.Model()
+    try:
+        variables = model.variables(2, lower=0, upper=5)
+        x = variables[model.iterator(range(2))] if group else variables[0]
+        func = x**2 if kind == "quadratic" else jp.sin(x)
+        with pytest.raises(Exception) as failure:
+            model.constraint(func, jp.MOI.LessThan(1.0))
+        detail = str(failure.value)
+        assert any(text in detail.lower() for text in (
+            "unsupported", "not supported", "does not support",
+        )), detail
+    finally:
+        model.close()
 
 
 def test_native_set_reuse_across_models():

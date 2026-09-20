@@ -1,5 +1,11 @@
 # Installation
 
+This branch's native JuMP/GenOpt integration is a prototype. Both building the
+compiled backend and using JuliaCall currently require the patched development
+checkout of GenOpt; released GenOpt 0.2.1 is not sufficient. Follow the
+[development environment setup](https://github.com/NexOR-Optimization/JuMPy/blob/main/julia/README.md#building)
+to select that checkout without changing the repository manifest.
+
 Install JuMPy from PyPI:
 
 ```console
@@ -29,7 +35,8 @@ import jumpy.juliacall as jp
 model = jp.Model()
 ```
 
-This interface loads Julia and calls its actual MathOptInterface module. It
+This interface loads Julia and uses the same JuMP/GenOpt modeling source as the
+compiled backend. `jp.MOI` is Julia's actual MathOptInterface module. It
 does not need the compiled JuMPy library. Both interfaces expose the same
 modeling helpers and `jp.MOI`, but they are alternatives: choose one per Python
 process, and do not pass models, expressions, or sets between them.
