@@ -1,43 +1,53 @@
 """
-A mock ops object recording every MOI call as a tuple, so tests can check
+A mock ops object recording native operations as tuples, so tests can check
 exactly what a backend receives — pure Python, no Julia needed.
 """
+
+from types import SimpleNamespace
 
 
 class MockOps:
     def __init__(self):
         self.constraints = []
-        self.groups = []
-        self.num_vars = 0
+        self.arrays = []
+        self.value_calls = []
+        self.value_result = 1.25
+        self.optimize_calls = 0
+        self.MOI = SimpleNamespace(
+            LessThan=lambda upper: ("LessThan", upper),
+            GreaterThan=lambda lower: ("GreaterThan", lower),
+            EqualTo=lambda value: ("EqualTo", value),
+            ZeroOne=lambda: ("ZeroOne",),
+            Integer=lambda: ("Integer",),
+        )
 
     def constant(self, v):
         return v
 
-    def variable(self, index):
-        return ("var", index)
-
-    def scalar_nonlinear(self, head, args):
-        return (head, *args)
+    def apply(self, op, args):
+        return (op, *args)
 
     def iterator(self, values):
         return ("iterator", tuple(values))
-
-    def contiguous_variables(self, start, count):
-        return ("block", start, count)
 
     def float_array(self, values):
         return ("data", tuple(values))
 
     def add_variables(self, count):
-        start = self.num_vars
-        self.num_vars += count
-        return start
+        ref = ("array", len(self.arrays), count)
+        self.arrays.append(ref)
+        return ref
 
-    def add_constraint(self, func, sense, rhs):
-        self.constraints.append((func, sense, rhs))
+    def add_constraint(self, func, set_):
+        self.constraints.append((func, set_))
 
-    def add_constraint_group(self, func, sense, linear):
-        self.groups.append((func, sense, linear))
+    def optimize(self):
+        self.optimize_calls += 1
+        return 1
+
+    def value(self, func):
+        self.value_calls.append(func)
+        return self.value_result
 
     def free(self):
         pass

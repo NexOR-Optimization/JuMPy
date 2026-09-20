@@ -4,7 +4,7 @@ JuMPy: A Python interface to MathOptInterface via GenOpt.
 Select a backend with ``import jumpy.highs as jp`` or
 ``import jumpy.juliacall as jp``. This module exports backend-neutral helpers.
 
-Models are built eagerly: every operation performs the corresponding MOI
+Models are built eagerly: every operation performs the corresponding Julia
 call, either in the compiled Julia library (juliac backend, no Julia
 installation needed) or through juliacall.
 """
