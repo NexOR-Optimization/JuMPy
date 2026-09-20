@@ -63,7 +63,6 @@ class JuliaCallOps:
         # jl.Any[...] is broken in PythonCall with Julia 1.12+
         self._any_vec = jl.seval("(args...) -> Any[args...]")
         self._model = self._jump.model(jl.HiGHS.Optimizer())
-        self._variables = []
 
     def free(self):
         pass  # the JuMP model is garbage-collected with this object
@@ -73,17 +72,11 @@ class JuliaCallOps:
     def constant(self, value):
         return value
 
-    def variable(self, index):
-        return self._variables[index]
-
     def apply(self, op, args):
         return self._jump.apply(self._jl.Symbol(op), self._any_vec(*args))
 
     def iterator(self, values):
         return self._jump.iterator(self._any_vec(*values))
-
-    def contiguous_variables(self, start, count):
-        return self._jump.contiguous_variables(self._model, start, count)
 
     def float_array(self, values):
         return self._jl.seval("Vector{Float64}")(values)
@@ -91,9 +84,7 @@ class JuliaCallOps:
     # -- Model building ----------------------------------------------------------
 
     def add_variables(self, count):
-        start = len(self._variables)
-        self._variables.extend(self._jump.add_variables(self._model, count))
-        return start
+        return self._jump.add_variables(self._model, count)
 
     def add_constraint(self, func, set_):
         if not self._jl.isa(set_, self._jl.MOI.AbstractScalarSet):
@@ -110,5 +101,5 @@ class JuliaCallOps:
         self._jump.optimize(self._model)
         return int(self._jl.Int(self._jl.JuMP.termination_status(self._model)))
 
-    def get_values(self, count):
-        return [float(self._jl.JuMP.value(v)) for v in self._variables[:count]]
+    def value(self, func):
+        return float(self._jump.value(func))

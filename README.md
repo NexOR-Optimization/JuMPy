@@ -24,7 +24,7 @@ flowchart LR
         genopt["GenOpt\nexpands into millions\nof constraints (fast)"]
         moi["MathOptInterface"]
         highs["HiGHS solver"]
-        result["Result vector"]
+        result["Native value queries"]
 
         genopt --> moi --> highs --> result
     end
@@ -168,7 +168,7 @@ expression such as `z + 0` when you want an affine row instead of a bound.
 | `m.iterator(range(n))` | An index set for constraint groups |
 | `m.parameter(values, name=)` | A data vector, symbolically indexable |
 | `m.optimize()` | Solve the model |
-| `m.value(var)` | Get the solved value of a variable |
+| `m.value(expr)` | Query the current native value of a variable or scalar expression |
 
 ### Expressions
 
@@ -199,6 +199,13 @@ x[10*i + j]   # symbolic arithmetic on the index
 costs[0]      # concrete: returns a float
 costs[i]      # symbolic: a getindex template node over the data
 ```
+
+Each variable array wraps its own native Julia array. Indices are local to that
+array, with Python's zero-based and negative integer indexing. Adding another
+array does not extend the first one's valid indices.
+
+After solving, `m.value(x[0])` and `m.value(2 * x[0] + 1)` query JuMP directly.
+There is no Python column-number mapping or copied solution cache.
 
 ## Architecture
 

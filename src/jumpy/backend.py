@@ -10,6 +10,7 @@ two implementations expose the same methods.
 from __future__ import annotations
 
 import ctypes
+import math
 import sys
 
 
@@ -79,6 +80,10 @@ def _init_lib(path):
 
     # Check the new ABI before starting Julia; an older build must be rebuilt.
     try:
+        lib.jumpy_variables.argtypes = [ctypes.c_void_p, ctypes.c_longlong]
+        lib.jumpy_variables.restype = ctypes.c_void_p
+        lib.jumpy_value.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        lib.jumpy_value.restype = ctypes.c_double
         lib.jumpy_apply.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_longlong]
         lib.jumpy_apply.restype = ctypes.c_void_p
         lib.jumpy_integer_constant.argtypes = [ctypes.c_void_p, ctypes.c_longlong]
@@ -123,32 +128,20 @@ def _init_lib(path):
     lib.jumpy_new_model.restype = c_void_p
     lib.jumpy_free_model.argtypes = [c_void_p]
     lib.jumpy_free_model.restype = c_int
-    lib.jumpy_add_variables.argtypes = [c_void_p, c_longlong]
-    lib.jumpy_add_variables.restype = c_longlong
     lib.jumpy_constant.argtypes = [c_void_p, c_double]
     lib.jumpy_constant.restype = c_void_p
-    lib.jumpy_variable.argtypes = [c_void_p, c_longlong]
-    lib.jumpy_variable.restype = c_void_p
     lib.jumpy_iterator.argtypes = [c_void_p, p_double, c_longlong]
     lib.jumpy_iterator.restype = c_void_p
-    lib.jumpy_contiguous_variables.argtypes = [c_void_p, c_longlong, c_longlong]
-    lib.jumpy_contiguous_variables.restype = c_void_p
     lib.jumpy_float_array.argtypes = [c_void_p, p_double, c_longlong]
     lib.jumpy_float_array.restype = c_void_p
     lib.jumpy_add_constraint.argtypes = [c_void_p, c_void_p, ctypes.c_uint64]
-    lib.jumpy_add_constraint.restype = c_longlong
+    lib.jumpy_add_constraint.restype = c_int
     lib.jumpy_set_objective_sense.argtypes = [c_void_p, c_int]
     lib.jumpy_set_objective_sense.restype = c_int
     lib.jumpy_set_objective_function.argtypes = [c_void_p, c_void_p]
     lib.jumpy_set_objective_function.restype = c_int
     lib.jumpy_optimize.argtypes = [c_void_p]
     lib.jumpy_optimize.restype = c_int
-    lib.jumpy_primal_status.argtypes = [c_void_p]
-    lib.jumpy_primal_status.restype = c_int
-    lib.jumpy_get_values.argtypes = [c_void_p, p_double, c_longlong]
-    lib.jumpy_get_values.restype = c_longlong
-    lib.jumpy_objective_value.argtypes = [c_void_p]
-    lib.jumpy_objective_value.restype = c_double
 
     _LIB = lib
     return lib
@@ -189,9 +182,6 @@ class JuliacOps:
             return self._node(self._lib.jumpy_integer_constant(self._m, value))
         return self._node(self._lib.jumpy_constant(self._m, value))
 
-    def variable(self, index):
-        return self._node(self._lib.jumpy_variable(self._m, index))
-
     def apply(self, op, args):
         argv = (ctypes.c_void_p * len(args))(*args)
         return self._node(
@@ -207,9 +197,6 @@ class JuliacOps:
         data = (ctypes.c_double * len(values))(*values)
         return self._node(self._lib.jumpy_iterator(self._m, data, len(values)))
 
-    def contiguous_variables(self, start, count):
-        return self._node(self._lib.jumpy_contiguous_variables(self._m, start, count))
-
     def float_array(self, values):
         data = (ctypes.c_double * len(values))(*values)
         return self._node(self._lib.jumpy_float_array(self._m, data, len(values)))
@@ -217,10 +204,7 @@ class JuliacOps:
     # -- Model building ----------------------------------------------------------
 
     def add_variables(self, count):
-        start = self._lib.jumpy_add_variables(self._m, count)
-        if start < 0:
-            raise RuntimeError("Failed to add variables")
-        return start
+        return self._node(self._lib.jumpy_variables(self._m, count))
 
     def _set_handle(self, set_):
         from jumpy._highs_moi import NativeSet
@@ -230,8 +214,7 @@ class JuliacOps:
         return set_.handle
 
     def add_constraint(self, func, set_):
-        ci = self._lib.jumpy_add_constraint(self._m, func, self._set_handle(set_))
-        if ci < 0:
+        if self._lib.jumpy_add_constraint(self._m, func, self._set_handle(set_)) != 0:
             raise RuntimeError("Failed to add constraint")
 
     def set_objective(self, sense, func):
@@ -243,9 +226,8 @@ class JuliacOps:
     def optimize(self):
         return self._lib.jumpy_optimize(self._m)
 
-    def get_values(self, count):
-        out = (ctypes.c_double * count)()
-        written = self._lib.jumpy_get_values(self._m, out, count)
-        if written != count:
-            raise RuntimeError(f"Expected {count} solution values, got {written}")
-        return list(out)
+    def value(self, func):
+        value = self._lib.jumpy_value(self._m, func)
+        if math.isnan(value):
+            raise RuntimeError("Failed to query value")
+        return value

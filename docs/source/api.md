@@ -69,6 +69,15 @@ Integer literals and integer iterator values retain their types. In particular,
 The compiled interface requires integer literals and integer-only iterators to fit in
 Julia's `Int64`; out-of-range values raise `OverflowError` before the C call.
 
+Variable arrays hold native Julia array references. Concrete indices are local
+to their array and follow Python's zero-based and negative-index conventions;
+out-of-range indices raise `IndexError`, even if the model has other arrays.
+
+After optimizing, `model.value(x)` or `model.value(2 * x + 1)` queries the
+current solution in JuMP directly, without a Python column mapping or solution
+cache. Querying variable values before solving raises a backend error.
+Expressions must belong to the queried model, and the model must still be open.
+
 Symbolic indexing creates native GenOpt expression templates.
 `model.constraint_group(con)` delegates to `model.constraint(con)`, which uses
 JuMP's constraint construction and GenOpt's bridge to expand iterator-based

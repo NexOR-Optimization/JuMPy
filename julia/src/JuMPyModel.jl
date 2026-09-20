@@ -18,10 +18,6 @@ add_variables(model, count) = JuMP.@variable(model, [1:count])
 apply(op::Symbol, args::Vector{Any}) = getfield(Base, op)(args...)
 iterator(values) = GenOpt.iterator(values)
 
-function contiguous_variables(model, offset, count)
-    return JuMP.all_variables(model)[(offset+1):(offset+count)]
-end
-
 function add_constraint(model, func, set)
     # build_constraint normalizes constants in-place, as in @constraint.
     constraint = JuMP.build_constraint(error, JuMP._MA.copy_if_mutable(func), set)
@@ -31,8 +27,6 @@ end
 set_objective_sense(model, sense) = JuMP.set_objective_sense(model, sense)
 set_objective_function(model, func) = JuMP.set_objective_function(model, func)
 optimize(model) = JuMP.optimize!(model)
-primal_status(model) = JuMP.primal_status(model)
-get_values(model, variables) = JuMP.value.(variables)
-objective_value(model) = JuMP.objective_value(model)
+value(func) = JuMP.value(func)
 
 end # module JuMPyModel

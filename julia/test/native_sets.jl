@@ -27,14 +27,15 @@
         for shift in (3.0, 4.0)
             model = J.jumpy_new_model()
             @test model != C_NULL
-            @test J.jumpy_add_variables(model, Clonglong(1)) == 0
-            x = variable(model, 0)
+            block = J.jumpy_variables(model, Clonglong(1))
+            @test block != C_NULL
+            x = variable(model, block, 1)
             f = apply(model, "+", x, constant(model, shift))
-            @test J.jumpy_add_constraint(model, f, id) >= 0
+            @test J.jumpy_add_constraint(model, f, id) == 0
             @test J._get_set(id).upper == 13.0
             @test set_objective(model, 1, x)
             @test J.jumpy_optimize(model) == 1
-            @test J.jumpy_objective_value(model) ≈ 13.0 - shift
+            @test value(model, x) ≈ 13.0 - shift
             @test J.jumpy_free_model(model) == 0
             GC.gc(true)
         end
@@ -52,35 +53,37 @@
         )
         for (constructor, objective_sense, optimum) in cases
             model = J.jumpy_new_model()
-            @test J.jumpy_add_variables(model, Clonglong(1)) == 0
-            x = variable(model, 0)
+            block = J.jumpy_variables(model, Clonglong(1))
+            @test block != C_NULL
+            x = variable(model, block, 1)
             id = constructor()
-            @test J.jumpy_add_constraint(model, x, id) >= 0
+            @test J.jumpy_add_constraint(model, x, id) == 0
             @test J.jumpy_free_set(id) == 0
             @test J.jumpy_add_constraint(model, x, id) == -1
             @test J.jumpy_add_constraint(model, x, typemax(UInt64)) == -1
             if constructor === J.jumpy_integer
-                @test add_constraint(model, x, MOI.LessThan(4.5)) >= 0
+                @test add_constraint(model, x, MOI.LessThan(4.5)) == 0
             end
             @test set_objective(model, objective_sense, x)
             GC.gc(true)
             @test J.jumpy_optimize(model) == 1
-            @test J.jumpy_objective_value(model) ≈ optimum
+            @test value(model, x) ≈ optimum
             @test J.jumpy_free_model(model) == 0
         end
     end
 
     @testset "native affine expression remains an affine row" begin
         model = J.jumpy_new_model()
-        @test J.jumpy_add_variables(model, Clonglong(1)) == 0
-        x = variable(model, 0)
-        @test add_constraint(model, x, MOI.GreaterThan(0.0)) >= 0
+        block = J.jumpy_variables(model, Clonglong(1))
+        @test block != C_NULL
+        x = variable(model, block, 1)
+        @test add_constraint(model, x, MOI.GreaterThan(0.0)) == 0
         id = J.jumpy_greater_than(1.0)
-        @test J.jumpy_add_constraint(model, apply(model, "+", x, constant(model, 0.0)), id) >= 0
+        @test J.jumpy_add_constraint(model, apply(model, "+", x, constant(model, 0.0)), id) == 0
         @test J.jumpy_free_set(id) == 0
         @test set_objective(model, 0, x)
         @test J.jumpy_optimize(model) == 1
-        @test J.jumpy_objective_value(model) ≈ 1.0
+        @test value(model, x) ≈ 1.0
         @test J.jumpy_free_model(model) == 0
     end
 end

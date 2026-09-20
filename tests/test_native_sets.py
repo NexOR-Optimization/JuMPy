@@ -18,8 +18,9 @@ class FakeLib:
         self.next_handle = 2**40
         self.fail_construction = False
         self.free_status = 0
-        self.constraint_status = 1
+        self.constraint_status = 0
         self.expression_ref = 456
+        self.value_result = 1.25
 
     def _set(self, name, *args):
         self.calls.append((name, *args))
@@ -74,6 +75,14 @@ class FakeLib:
     def jumpy_iterator(self, model, values, count):
         self.calls.append(("iterator", model, tuple(values[:count])))
         return self.expression_ref
+
+    def jumpy_variables(self, model, count):
+        self.calls.append(("variables", model, count))
+        return self.expression_ref
+
+    def jumpy_value(self, model, expr):
+        self.calls.append(("value", model, expr))
+        return self.value_result
 
 
 @pytest.fixture
@@ -187,6 +196,30 @@ def test_compiled_ops_report_native_expression_error(lib):
     ops.free()
 
 
+def test_compiled_variables_return_opaque_array_ref(lib):
+    ops = backend.JuliacOps(lib)
+    assert ops.add_variables(3) == lib.expression_ref
+    assert lib.calls == [("variables", 99, 3)]
+    ops.free()
+
+
+def test_compiled_value_queries_use_expression_ref(lib):
+    ops = backend.JuliacOps(lib)
+    assert ops.value(123) == 1.25
+    lib.value_result = 2.5
+    assert ops.value(123) == 2.5
+    assert lib.calls == [("value", 99, 123)] * 2
+    ops.free()
+
+
+def test_compiled_value_reports_native_error(lib):
+    ops = backend.JuliacOps(lib)
+    lib.value_result = float("nan")
+    with pytest.raises(RuntimeError, match="value"):
+        ops.value(123)
+    ops.free()
+
+
 @pytest.mark.parametrize(
     ("value", "constructor"),
     [(2, "integer_constant"), (2.0, "constant"), (-(2**63), "integer_constant"),
@@ -262,7 +295,7 @@ def test_explicit_constraint_forwards_same_native_set():
     x, y = model.variables(2)
     set_ = object()
     model.constraint(x + y, set_)
-    assert ops.constraints == [(("+", ("var", 0), ("var", 1)), set_)]
+    assert ops.constraints == [(("+", x.ref, y.ref), set_)]
     assert ops.constraints[0][1] is set_
 
 
@@ -292,7 +325,7 @@ def test_constraint_group_uses_the_generic_constraint_path():
 
 
 @pytest.mark.parametrize("explicit", [False, True])
-def test_bare_variable_stays_a_variable_index(explicit):
+def test_bare_variable_forwards_native_ref(explicit):
     ops = MockOps()
     model = Model(ops)
     x = model.variable()
@@ -302,7 +335,7 @@ def test_bare_variable_stays_a_variable_index(explicit):
         model.constraint(x, set_)
     else:
         model.constraint(comparison)
-    assert ops.constraints == [(("var", 0), set_)]
+    assert ops.constraints == [(x.ref, set_)]
 
 
 @pytest.mark.parametrize("value", [0, 0.0, 2, 2.0])

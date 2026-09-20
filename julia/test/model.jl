@@ -4,7 +4,8 @@ import MathOptInterface as MOI
 @testset "shared JuMP model operations" begin
     J = JuMPyHiGHS.JuMPyModel
     model = J.model(JuMPyHiGHS.Optimizer())
-    x, y = J.add_variables(model, 2)
+    variables = J.add_variables(model, 2)
+    x, y = variables
     @test model isa JuMP.Model
     @test x isa JuMP.VariableRef
     @test JuMP.owner_model(x) === model
@@ -33,7 +34,7 @@ import MathOptInterface as MOI
         @test J.apply(:+, Any[2.0, 3.0]) === 5.0
         @test J.apply(:-, Any[x]) isa JuMP.AffExpr
         @test J.apply(:/, Any[x, 2.0]) isa JuMP.AffExpr
-        @test J.contiguous_variables(model, 0, 2) == [x, y]
+        @test J.apply(:getindex, Any[variables, 1]) === x
     end
 
     @testset "JuMP constraint construction" begin

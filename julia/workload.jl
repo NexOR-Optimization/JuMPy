@@ -16,13 +16,13 @@ let J = JuMPyHiGHS
         return result
     end
     m = J.jumpy_new_model()
-    J.jumpy_add_variables(m, Clonglong(6))
-    x = J.jumpy_variable(m, Clonglong(0))
+    variables = J.jumpy_variables(m, Clonglong(3))
+    x = apply(m, "getindex", variables, J.jumpy_integer_constant(m, Clonglong(1)))
     # bounds and integrality: every set
     add(m, x, J.jumpy_greater_than(0.0))
     add(m, x, J.jumpy_less_than(10.0))
-    add(m, J.jumpy_variable(m, Clonglong(1)), J.jumpy_zero_one())
-    add(m, J.jumpy_variable(m, Clonglong(2)), J.jumpy_integer())
+    add(m, apply(m, "getindex", variables, J.jumpy_integer_constant(m, Clonglong(2))), J.jumpy_zero_one())
+    add(m, apply(m, "getindex", variables, J.jumpy_integer_constant(m, Clonglong(3))), J.jumpy_integer())
     # affine expressions with every operator Python emits
     one = J.jumpy_constant(m, 1.0)
     plus = apply(m, "+", x, one)
@@ -34,7 +34,7 @@ let J = JuMPyHiGHS
     # groups: iterator, variable block, data array, 1-D and 2-D
     values = Clonglong[0, 1, 2]
     i = GC.@preserve values J.jumpy_integer_iterator(m, pointer(values), Clonglong(3))
-    block = J.jumpy_contiguous_variables(m, Clonglong(3), Clonglong(3))
+    block = J.jumpy_variables(m, Clonglong(3))
     data = Cdouble[1.0, 2.0, 3.0]
     d = GC.@preserve data J.jumpy_float_array(m, pointer(data), Clonglong(3))
     i1 = apply(m, "+", i, J.jumpy_integer_constant(m, Clonglong(1)))
@@ -57,10 +57,8 @@ let J = JuMPyHiGHS
     J.jumpy_set_objective_sense(m, Cint(1))
     J.jumpy_set_objective_function(m, x)
     J.jumpy_optimize(m)
-    J.jumpy_primal_status(m)
-    out = zeros(Cdouble, 6)
-    GC.@preserve out J.jumpy_get_values(m, pointer(out), Clonglong(6))
-    J.jumpy_objective_value(m)
+    J.jumpy_value(m, x)
+    J.jumpy_value(m, plus)
     # every remaining operator Python can emit (nonlinear ones end in the
     # unsupported-constraint error path, which is also worth exercising)
     add(m, apply(m, "-", x), J.jumpy_less_than(1.0))

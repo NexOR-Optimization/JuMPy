@@ -36,6 +36,10 @@ handles, not duplicate set definitions. JuliaCall exposes the actual MOI module.
 
 See `src/JuMPyHiGHS.jl` for the full conventions.
 
+Rebuild existing compiled libraries for this ABI. The old column-index and
+bulk-solution entry points are removed; the Python loader rejects binaries
+without the native array and value-query entry points before starting Julia.
+
 A model is an opaque `void*` pointing at the Julia-side model object; native
 expressions are opaque `void*` nodes built with the operation entry points.
 Both are rooted on the Julia side (the GC cannot see references held by C):
@@ -46,14 +50,12 @@ nodes belong to the model that built them, and everything is freed by
 |---|---|
 | `jumpy_new_model() -> void*` | Create a JuMP model with HiGHS and the GenOpt bridge (NULL on error) |
 | `jumpy_free_model(m) -> int32` | release the model and its nodes |
-| `jumpy_add_variables(m, count) -> int64` | Add JuMP variables; returns the 0-based start index |
+| `jumpy_variables(m, count) -> void*` | Add JuMP variables and return their native array reference |
 | `jumpy_constant(m, value) -> void*` | a `Float64` node |
 | `jumpy_integer_constant(m, value) -> void*` | an `Int64` node, preserving integer exponents and indices |
-| `jumpy_variable(m, index) -> void*` | `JuMP.VariableRef` for the 0-based column `index` |
 | `jumpy_apply(m, op, args**, nargs) -> void*` | Apply the native Julia operator to JuMP/GenOpt arguments |
 | `jumpy_iterator(m, values*, len) -> void*` | `GenOpt.iterator` over `Float64` values |
 | `jumpy_integer_iterator(m, values*, len) -> void*` | `GenOpt.iterator` over `Int64` values, including integer index ranges |
-| `jumpy_contiguous_variables(m, offset, count) -> void*` | A 1-based-indexable vector of JuMP variables |
 | `jumpy_float_array(m, values*, len) -> void*` | a data vector, 1-based-indexable in templates |
 | `jumpy_less_than(rhs) -> uint64` | Construct and retain `MOI.LessThan(rhs)` |
 | `jumpy_greater_than(rhs) -> uint64` | Construct and retain `MOI.GreaterThan(rhs)` |
@@ -61,13 +63,18 @@ nodes belong to the model that built them, and everything is freed by
 | `jumpy_zero_one() -> uint64` | Construct and retain `MOI.ZeroOne()` |
 | `jumpy_integer() -> uint64` | Construct and retain `MOI.Integer()` |
 | `jumpy_free_set(id) -> int32` | Release a native set handle |
-| `jumpy_add_constraint(m, f, id) -> int64` | Build and add a JuMP constraint using the native set, including GenOpt templates |
+| `jumpy_add_constraint(m, f, id) -> int32` | Build and add a JuMP constraint using the native set, including GenOpt templates; 0 on success, -1 on error |
 | `jumpy_set_objective_sense(m, sense) -> int32` | Set the JuMP objective sense; 0 = min, 1 = max |
 | `jumpy_set_objective_function(m, f) -> int32` | Set the native JuMP objective expression |
 | `jumpy_optimize(m) -> int32` | `JuMP.optimize!`; returns the MOI termination status (`OPTIMAL == 1`) |
-| `jumpy_primal_status(m) -> int32` | The MOI result status (`FEASIBLE_POINT == 1`) |
-| `jumpy_get_values(m, out*, len) -> int64` | `JuMP.value` for the variables; copies into `out` |
-| `jumpy_objective_value(m) -> float64` | `JuMP.objective_value` |
+| `jumpy_value(m, expr) -> float64` | Query `JuMP.value` for a variable or scalar expression; NaN on error |
+
+Arrays and their indexed variables are ordinary native expression references.
+Python translates local zero-based indices to Julia's one-based `getindex`
+through `jumpy_apply`; no global column IDs or variable reconstruction are
+needed. Value queries use the expression reference directly, with no Python
+solution-vector cache. Constraint insertion returns only a success status,
+not a retained constraint ID.
 
 Native sets use checked `uint64` identity handles, not set-kind codes; constructors
 return `0` on error. Comparisons, variable bounds, and constraint groups all use

@@ -94,44 +94,42 @@ class Node:
 
 
 class Variable(Node):
-    """A single decision variable; keeps its column for solution lookup."""
+    """An opaque handle to a native JuMP variable."""
 
-    def __init__(self, ops, index: int, name: str | None = None):
-        super().__init__(ops, ops.variable(index))
-        self.index = index
+    def __init__(self, ops, ref, name: str | None = None):
+        super().__init__(ops, ref)
         self.name = name
 
     def __repr__(self) -> str:
-        return self.name or f"x[{self.index}]"
+        return self.name or "Variable()"
 
 
-class VariableVector:
+class VariableVector(Node):
     """
-    A block of decision variables returned by Model.variables().
+    A native Julia array of variables returned by Model.variables().
 
     Concrete indexing (x[0]) returns a Variable; symbolic indexing (x[i]
-    with an expression) builds a getindex template node over the contiguous
-    block.
+    with an expression) builds a GenOpt template over the same array.
     """
 
-    def __init__(self, ops, start: int, count: int, name: str | None = None):
-        self._ops = ops
-        self.start = start
+    def __init__(self, ops, ref, count: int, name: str | None = None):
+        super().__init__(ops, ref)
         self.count = count
         self.name = name
-        self._block = None  # Native JuMP variable array, built lazily.
 
     def __getitem__(self, index):
         if isinstance(index, int):
-            var_name = f"{self.name}[{index}]" if self.name else None
-            return Variable(self._ops, self.start + index, var_name)
-        if isinstance(index, Node):
-            if self._block is None:
-                self._block = self._ops.contiguous_variables(self.start, self.count)
-            block = Node(self._ops, self._block)
-            # 0-based Python index -> 1-based Julia index
-            return block._apply("getindex", [block, index + 1])
-        raise TypeError(f"Index must be int or Node, got {type(index).__name__}")
+            if index < 0:
+                index += self.count
+            if not 0 <= index < self.count:
+                raise IndexError("Variable array index out of range")
+        elif not isinstance(index, Node):
+            raise TypeError(f"Index must be int or Node, got {type(index).__name__}")
+        # 0-based Python array index -> 1-based Julia array index.
+        result = self._apply("getindex", [self, index + 1])
+        if isinstance(index, int):
+            return Variable(self._ops, result.ref, f"{self.name or 'x'}[{index}]")
+        return result
 
     def __len__(self) -> int:
         return self.count

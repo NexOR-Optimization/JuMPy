@@ -331,6 +331,56 @@ def test_native_quadratic_objective():
         model.close()
 
 
+def test_native_variable_arrays_keep_independent_local_indices():
+    model = jp.Model()
+    try:
+        x = model.variables(2, lower=0, upper=5)
+        y = model.variables(3, lower=10, upper=20)
+        model.constraint(x[0] + 0 == 2)
+        model.constraint(x[1] + 0 == 3)
+        i = model.iterator(range(3))
+        model.constraint(y[i] >= 10 + i)
+        model.objective = jp.minimize(sum(x) + sum(y))
+        model.optimize()
+        assert [model.value(v) for v in x] == pytest.approx([2, 3])
+        assert [model.value(v) for v in y] == pytest.approx([10, 11, 12])
+        assert model.value(y[-1]) == pytest.approx(12)
+        assert model.value(sum(x) + sum(y)) == pytest.approx(38)
+        with pytest.raises(IndexError):
+            x[2]
+    finally:
+        model.close()
+
+
+def test_native_value_queries_expressions_after_resolving():
+    model = jp.Model()
+    try:
+        x = model.variable(lower=1, upper=3)
+        expr = 2 * x + 3
+        for objective, expected in ((jp.minimize, 5), (jp.maximize, 9)):
+            model.objective = objective(x)
+            model.optimize()
+            assert model.value(expr) == pytest.approx(expected)
+        assert model.value((x - 2) ** 2) == pytest.approx(1)
+    finally:
+        model.close()
+
+
+def test_native_value_before_solving_reports_error():
+    model = jp.Model()
+    try:
+        x = model.variable(lower=0, upper=1)
+        if BACKEND == "juliacall":
+            from juliacall import JuliaError
+            error_type = JuliaError
+        else:
+            error_type = RuntimeError
+        with pytest.raises(error_type):
+            model.value(x)
+    finally:
+        model.close()
+
+
 @pytest.mark.parametrize("group", [False, True])
 @pytest.mark.parametrize("kind", ["quadratic", "nonlinear"])
 def test_unsupported_constraint_reports_native_error(group, kind):

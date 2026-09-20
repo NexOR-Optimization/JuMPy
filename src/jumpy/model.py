@@ -3,7 +3,7 @@ The Model class: top-level API for building optimization models in JuMPy.
 
 The model is built eagerly: every call performs the corresponding JuMP call
 through the backend's ops object (juliacall or the compiled library).
-optimize() calls JuMP.optimize! and retrieves the solution.
+optimize() calls JuMP.optimize!; value() queries native expressions directly.
 """
 
 from __future__ import annotations
@@ -48,9 +48,7 @@ class Model:
     def __init__(self, ops):
         """Internal implementation; public models select ops via their module."""
         self._ops = ops
-        self._num_vars = 0
         self._objective: Objective | None = None
-        self._solution: list[float] | None = None
 
     def close(self) -> None:
         """Release the backend model. The model must not be used afterwards."""
@@ -75,10 +73,14 @@ class Model:
         binary: bool = False,
         integer: bool = False,
     ) -> VariableVector:
-        """Add a block of native JuMP decision variables and their bounds."""
-        start = self._ops.add_variables(count)
+        """Add a native Julia array of JuMP variables and their bounds."""
+        if not isinstance(count, int):
+            raise TypeError("Variable count must be an integer")
+        if count < 0:
+            raise ValueError("Variable count must be nonnegative")
+        variables = VariableVector(self._ops, self._ops.add_variables(count), count, name)
         # Bounds and integrality are VariableIndex-in-set constraints, as in MOI.
-        # Reuse each set across the block instead of constructing it per variable.
+        # Reuse each set across the array instead of constructing it per variable.
         moi = self._ops.MOI
         sets = []
         if lower is not None:
@@ -89,11 +91,11 @@ class Model:
             sets.append(moi.ZeroOne())
         elif integer:
             sets.append(moi.Integer())
-        for k in range(count):
-            for set_ in sets:
-                self._ops.add_constraint(self._ops.variable(start + k), set_)
-        self._num_vars += count
-        return VariableVector(self._ops, start, count, name)
+        if sets:
+            for variable in variables:
+                for set_ in sets:
+                    self._ops.add_constraint(variable.ref, set_)
+        return variables
 
     def variable(
         self,
@@ -165,16 +167,15 @@ class Model:
     # -- Solve -----------------------------------------------------------------
 
     def optimize(self) -> None:
-        """JuMP.optimize!, then retrieve the solution."""
+        """Solve the native JuMP model."""
         status = self._ops.optimize()
         if status != OPTIMAL:
             raise RuntimeError(
                 f"Solve did not reach OPTIMAL (termination status {status})"
             )
-        self._solution = self._ops.get_values(self._num_vars)
 
-    def value(self, var: Variable) -> float:
-        """Get the solved value of a variable."""
-        if self._solution is None:
-            raise RuntimeError("Model has not been solved yet. Call optimize() first.")
-        return self._solution[var.index]
+    def value(self, expr: Node) -> float:
+        """Query JuMP for the value of a native variable or scalar expression."""
+        if self._ops is None:
+            raise RuntimeError("The model has been closed")
+        return self._ops.value(_native(self._ops, expr))
