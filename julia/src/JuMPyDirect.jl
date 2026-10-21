@@ -32,10 +32,12 @@ function _add_constraint(model, constraint::JuMP.ScalarConstraint{F,S}) where {F
 end
 
 function _add_constraint(model, constraint::GenOpt.IteratedConstraint)
+    T = JuMP.value_type(typeof(model))
+    S = MOI.Utilities.scalar_set_type(typeof(JuMP.moi_set(constraint)), T)
     indices = GenOpt.add_constraints(
         JuMP.backend(model),
         JuMP.moi_function(model, constraint),
-        JuMP.moi_set(constraint),
+        S(zero(T)),
     )
     model.is_model_dirty = true
     return indices

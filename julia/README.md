@@ -107,20 +107,21 @@ library, by calling `jl_init_with_image_handle(dlopen_handle)` (see
 
 ## Building
 
-The trimmed build is currently tested with Julia 1.13.0, a C compiler, and the
+The build uses Julia 1.13.2, a C compiler, and the
 [JuliaC.jl](https://github.com/JuliaLang/JuliaC.jl) frontend:
 
 ```bash
-julia --project=@juliac -e 'using Pkg; Pkg.add(PackageSpec(name="JuliaC", version="0.3.10"))'
+julia --project=@juliac -e 'using Pkg; Pkg.add(PackageSpec(name="JuliaC", version="0.3.12"))'
 ```
 
 This integration requires the patched development checkouts of JuMP and GenOpt.
 JuMP provides concrete model/reference types through `concrete_direct_model`;
 GenOpt provides direct generator expansion and concrete-reference-compatible
-symbolic indexing. The released packages recorded in the repository manifest
-do not provide these changes. Until they are released, develop the patched
-checkouts explicitly. JuliaCall needs the GenOpt changes, but can use released
-JuMP because it does not construct a concrete direct model.
+symbolic indexing. The compiled projects and manifests select JuMP's
+`bl/juliac` and GenOpt's `bl/juliac-safe` branches, with registered HiGHS
+1.26.1 or newer. The local setup below can instead use development checkouts.
+JuliaCall needs the GenOpt changes, but can use released JuMP because it does
+not construct a concrete direct model.
 
 From this directory, prepare a separate Julia environment so local development
 paths do not change the repository manifest:
@@ -144,7 +145,8 @@ JULIA_PKG_OFFLINE=true julia --project="$JUMPY_JULIA_PROJECT" -e '
 
 Offline mode requires the other dependencies and solver artifacts to be cached;
 omit `JULIA_PKG_OFFLINE=true` if they need downloading. Then build with that
-environment:
+environment. CI builds without trimming; the `--trim=unsafe-warn` flag below
+opts into experimental trimming:
 
 ```bash
 JULIA_CPU_TARGET=generic julia --project=@juliac -m JuliaC \
@@ -173,7 +175,7 @@ Notes:
 - The dispatch roots depend on the Julia/dependency versions. Regenerate them
   from the ordinary-Julia workload when those versions or the ABI change;
   instructions are in [`generate_trim_dispatch.jl`](generate_trim_dispatch.jl).
-  The checked roots use HiGHS 1.24.1 and MOI 1.51.1, as in the repository
+  The checked roots use HiGHS 1.26.1 and MOI 1.54.0, as in the repository
   manifest, plus the development changes above. The image-build entry
   script does not execute a solver workload because JLL initialization has not
   run at that point.

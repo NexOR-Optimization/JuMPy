@@ -16,15 +16,15 @@ jobs:
 
       - uses: julia-actions/setup-julia@v2
         with:
-          version: "1.12"
+          version: "1.13.2"
 
       - uses: julia-actions/cache@v2
 
       - name: Instantiate
-        run: julia --project=julia -e 'using Pkg; Pkg.instantiate()'
+        run: julia --project=julia/test -e 'using Pkg; Pkg.instantiate()'
 
       - name: Run entry-point tests
-        run: julia --project=julia julia/test/runtests.jl
+        run: julia --project=julia/test julia/test/runtests.jl
 
   build-lib:
     name: Build and test compiled library (${{ matrix.os }})
@@ -32,24 +32,38 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            library: libjumpy_highs.so
+          - os: macos-latest
+            library: libjumpy_highs.dylib
     steps:
       - uses: actions/checkout@v4
 
       - uses: julia-actions/setup-julia@v2
         with:
-          version: "1.12"
+          version: "1.13.2"
 
       - uses: julia-actions/cache@v2
 
+      - name: Instantiate compiled backend
+        run: julia --project=julia/test -e 'using Pkg; Pkg.instantiate()'
+
+      - name: Regenerate dispatch roots
+        run: |
+          mkdir -p julia/build
+          julia --project=julia/test --trace-dispatch=julia/build/workload.trace julia/workload.jl
+          julia --project=julia/test --trace-dispatch=julia/build/tests.trace julia/test/runtests.jl
+          julia --project=julia/test julia/generate_trim_dispatch.jl julia/build/workload.trace julia/build/tests.trace
+
       - name: Install JuliaC
-        run: julia --project=@juliac -e 'using Pkg; Pkg.add("JuliaC")'
+        run: julia --project=@juliac -e 'using Pkg; Pkg.add(PackageSpec(name="JuliaC", version="0.3.12"))'
 
       - name: Build shared library
         working-directory: julia
         run: >
           julia --project=@juliac -m JuliaC
-          --output-lib build/libjumpy_highs --project .
+          --output-lib build/libjumpy_highs --project test
           --compile-ccallable
           --jl-option handle-signals=no
           --bundle build
@@ -62,6 +76,9 @@ jobs:
 
       - name: Run tests against the compiled library
         run: uv run --group tests pytest
+        env:
+          JUMPY_BACKEND: juliac
+          JUMPY_LIB: ${{ github.workspace }}/julia/build/lib/${{ matrix.library }}
 
       - name: Upload bundle
         uses: actions/upload-artifact@v4

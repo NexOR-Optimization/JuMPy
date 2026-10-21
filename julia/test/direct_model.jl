@@ -87,6 +87,11 @@ end
     }
     @test length(rows) == 3
     @test length(J.add_constraint(model, x[i], MOI.LessThan(4.0))) == 3
+    equalities = J.add_constraint(model, x[i] - demand[i], MOI.EqualTo(0.0))
+    @test equalities isa Vector{
+        MOI.ConstraintIndex{MOI.ScalarAffineFunction{Float64},MOI.EqualTo{Float64}},
+    }
+    @test length(equalities) == 3
     J.set_objective_sense(model, MOI.MIN_SENSE)
     J.set_objective_function(model, sum(x))
     J.optimize(model)
