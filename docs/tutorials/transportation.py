@@ -34,7 +34,7 @@ linear program is
    \end{aligned}
 """
 
-import jumpy as jp
+import jumpy.highs as jp
 
 # Data
 # ----
@@ -80,13 +80,14 @@ def position(origin, destination):
 model = jp.Model()
 x = model.variables(n_origins * n_destinations, lower=0, name="x")
 
-# Missing routes are fixed to zero. The remaining routes form the objective.
+# Missing routes get an upper bound of zero, matching their lower bound.
+# The remaining routes form the objective.
 
 for origin in range(n_origins):
     for destination in range(n_destinations):
         index = position(origin, destination)
         if cost_values[index] == ".":
-            model.constraint(x[index] == 0)
+            model.constraint(x[index] <= 0)
 
 model.objective = jp.minimize(
     sum(

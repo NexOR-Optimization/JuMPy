@@ -2,41 +2,59 @@ module JuMPyHiGHS
 
 # C entry points for the JuMPy juliac backend.
 #
-# The ABI mirrors the MOI API one function per entry point, so that the
-# Python code building the model is the same for the juliacall and juliac
-# backends: `jumpy_scalar_nonlinear` is the compiled counterpart of
-# `jl.MOI.ScalarNonlinearFunction(...)`, `jumpy_add_constraint` of
-# `MOI.Utilities.normalize_and_add_constraint(...)`, and so on. Nothing here
-# is HiGHS-specific except the `Optimizer` constant below: compiling any
-# other MOI optimizer behind the same entry points is a one-line change.
-#
-# The optimizer is used raw: no `MOI.Bridges`, no
-# `MOI.Utilities.CachingOptimizer`. GenOpt is compiled in and
-# jumpy_add_group_constraint expands templates here. Whatever functions and
-# sets the optimizer does not support are reported as errors.
+# JuMP models and expressions stay in Julia. Opaque expression handles
+# let Python call JuMP's arithmetic and constraint-building methods, with
+# GenOpt expanding generated constraints directly. Nothing here is specific
+# to HiGHS except the `Optimizer` constant below.
 #
 # Conventions across the C ABI:
 #   - a model is an opaque pointer returned by jumpy_new_model; it stays
 #     valid until jumpy_free_model, after which it must not be used
-#   - MOI functions are opaque pointers built with jumpy_constant /
-#     jumpy_variable / jumpy_scalar_nonlinear; they belong to the model
+#   - expressions are opaque pointers built with jumpy_constant /
+#     jumpy_variables / jumpy_apply; they belong to the model
 #     that built them and are freed with it
-#   - variables are 0-based column indices in the order they were added
-#   - constraint sense: 0 = <=, 1 = >=, 2 = ==, 3 = binary, 4 = integer
+#   - variable arrays and individual variables use the same expression handles
+#   - sets are checked UInt64 handles, independent of models, valid until
+#     jumpy_free_set; zero is reserved for constructor errors
 #   - objective sense: 0 = min, 1 = max
 #   - entry points return -1 (NULL, NaN) on error, after printing to stderr
 #     (a Julia exception must never propagate across the C boundary)
 
 import GenOpt
 import HiGHS
+import JuMP
 import MathOptInterface as MOI
+
+include("JuMPyModel.jl")
+include("JuMPyDirect.jl")
 
 # The only solver-specific line in this package.
 const Optimizer = HiGHS.Optimizer
+const NativeModel = JuMP.ConcreteModel{Float64,Optimizer,Nothing}
+const NativeVariable = JuMP.variable_ref_type(NativeModel)
+const NativeAffine = JuMP.GenericAffExpr{Float64,NativeVariable}
+const NativeQuadratic = JuMP.GenericQuadExpr{Float64,NativeVariable}
+const NativeNonlinear = JuMP.GenericNonlinearExpr{NativeVariable}
+
+const NativeScalar = Union{
+    Int64,Float64,NativeVariable,NativeAffine,NativeQuadratic,NativeNonlinear,
+}
+const NativeTemplate = Union{
+    GenOpt.ExprTemplate{Int64,NativeVariable},
+    GenOpt.ExprTemplate{Float64,NativeVariable},
+    GenOpt.ExprTemplate{NativeVariable,NativeVariable},
+    GenOpt.ExprTemplate{NativeAffine,NativeVariable},
+    GenOpt.ExprTemplate{NativeQuadratic,NativeVariable},
+    GenOpt.ExprTemplate{NativeNonlinear,NativeVariable},
+    GenOpt.ExprTemplate{Int64,JuMP.VariableRef},
+    GenOpt.ExprTemplate{Float64,JuMP.VariableRef},
+}
+const NativeIterator = Union{GenOpt.IteratorValues{Int64},GenOpt.IteratorValues{Float64}}
+const NativeOperand = Union{NativeScalar,NativeTemplate,NativeIterator}
+const NativeNode = Union{NativeOperand,Vector{NativeVariable},Vector{Float64}}
 
 mutable struct ModelHandle
-    optimizer::Optimizer
-    variables::Vector{MOI.VariableIndex}
+    model::NativeModel
     # Roots the expression nodes handed out as pointers: the Julia GC
     # cannot see references held by the C caller.
     nodes::Vector{Base.RefValue{Any}}
@@ -51,7 +69,7 @@ function _get(model::Ptr{Cvoid})
     return unsafe_pointer_to_objref(model)::ModelHandle
 end
 
-# Expression nodes (Float64, MOI.VariableIndex, MOI functions) are boxed in
+# Expression nodes (constants, JuMP expressions, GenOpt templates) are boxed in
 # a Ref so that immutable values also get a stable pointer.
 function _box(handle::ModelHandle, value)::Ptr{Cvoid}
     node = Base.RefValue{Any}(value)
@@ -61,31 +79,16 @@ end
 
 function _unbox(node::Ptr{Cvoid})
     node == C_NULL && error("Expression pointer is NULL")
-    return (unsafe_pointer_to_objref(node)::Base.RefValue{Any})[]
+    value = (unsafe_pointer_to_objref(node)::Base.RefValue{Any})[]
+    value isa NativeNode || error("Unsupported native expression type")
+    return value::NativeNode
 end
 
-# The function nodes Python builds (see expressions.py). Asserting this
-# union at the ABI boundary makes dispatch static, which `--trim` needs.
-const FunctionNode = Union{Float64,MOI.VariableIndex,MOI.ScalarNonlinearFunction}
-# What _simplify can produce from a FunctionNode. Four types: exactly the
-# compiler's union-splitting limit, so calls on this union stay static.
-const AnyFunction = Union{
-    Float64,
-    MOI.VariableIndex,
-    MOI.ScalarAffineFunction{Float64},
-    MOI.ScalarNonlinearFunction,
-}
+include("native_dispatch.jl")
 
-# Report through the C runtime directly: ccalls resolve statically, so this
-# path survives `--trim` (both the Base and Core printing stacks dispatch
-# dynamically and get stripped).
+# Report without letting Julia exceptions cross the C ABI.
 function _print_error(@nospecialize(err))
-    # @nospecialize: one compiled instance taking Any, so the dynamic call
-    # from the catch blocks always finds code in the trimmed image.
-    ccall(:jl_safe_printf, Cvoid, (Cstring,), "JuMPyHiGHS error: ")
-    stream = ccall(:jl_stderr_stream, Ptr{Cvoid}, ())
-    ccall(:jl_static_show, Csize_t, (Ptr{Cvoid}, Any), stream, err)
-    ccall(:jl_safe_printf, Cvoid, (Cstring,), "\n")
+    Base.showerror_nostdio(err, "JuMPyHiGHS error")
     return
 end
 
@@ -100,13 +103,71 @@ macro _catch(default, expr)
     end
 end
 
+# -- Native scalar sets -------------------------------------------------------
+
+# No Julia object pointers leave this registry. A set can be reused across
+# models in this image, but never in another backend's Julia runtime.
+const NativeSet = Union{
+    MOI.LessThan{Float64}, MOI.GreaterThan{Float64}, MOI.EqualTo{Float64},
+    MOI.ZeroOne, MOI.Integer,
+}
+const SETS = Dict{UInt64,NativeSet}()
+const SET_LOCK = ReentrantLock()
+const NEXT_SET = Ref{UInt64}(1)
+
+function _get_set(id::UInt64)
+    Base.@lock SET_LOCK begin
+        haskey(SETS, id) || throw(ArgumentError("Invalid or released native MOI set"))
+        return SETS[id]
+    end
+end
+
+function _store_set(set::MOI.AbstractScalarSet)
+    Base.@lock SET_LOCK begin
+        id = NEXT_SET[]
+        id != 0 || error("Native MOI set handle space exhausted")
+        SETS[id] = set
+        NEXT_SET[] += UInt64(1)  # never reuse released handles
+        return id
+    end
+end
+
+Base.@ccallable function jumpy_less_than(rhs::Cdouble)::UInt64
+    @_catch UInt64(0) _store_set(MOI.LessThan(rhs))
+end
+
+Base.@ccallable function jumpy_greater_than(rhs::Cdouble)::UInt64
+    @_catch UInt64(0) _store_set(MOI.GreaterThan(rhs))
+end
+
+Base.@ccallable function jumpy_equal_to(rhs::Cdouble)::UInt64
+    @_catch UInt64(0) _store_set(MOI.EqualTo(rhs))
+end
+
+Base.@ccallable function jumpy_zero_one()::UInt64
+    @_catch UInt64(0) _store_set(MOI.ZeroOne())
+end
+
+Base.@ccallable function jumpy_integer()::UInt64
+    @_catch UInt64(0) _store_set(MOI.Integer())
+end
+
+Base.@ccallable function jumpy_free_set(id::UInt64)::Cint
+    @_catch Cint(-1) begin
+        Base.@lock SET_LOCK begin
+            haskey(SETS, id) || throw(ArgumentError("Invalid or released native MOI set"))
+            delete!(SETS, id)
+        end
+        Cint(0)
+    end
+end
+
 # -- Model lifecycle ----------------------------------------------------------
 
 Base.@ccallable function jumpy_new_model()::Ptr{Cvoid}
     @_catch C_NULL begin
-        optimizer = Optimizer()
-        MOI.set(optimizer, MOI.Silent(), true)
-        handle = ModelHandle(optimizer, MOI.VariableIndex[], Base.RefValue{Any}[])
+        model = JuMPyDirect.model(Optimizer())
+        handle = ModelHandle(model, Base.RefValue{Any}[])
         Base.@lock LOCK KEEP_ALIVE[handle] = nothing
         pointer_from_objref(handle)
     end
@@ -121,21 +182,19 @@ end
 
 # -- Variables ----------------------------------------------------------------
 
-# MOI.add_variables. Returns the 0-based index of the first added variable.
-# Bounds are constraints: pass a variable node to jumpy_add_constraint.
-Base.@ccallable function jumpy_add_variables(
+# Returns the actual JuMP variable array as an opaque expression handle.
+# Concrete and symbolic indexing both use jumpy_apply(:getindex, ...).
+Base.@ccallable function jumpy_variables(
     model::Ptr{Cvoid},
     count::Clonglong,
-)::Clonglong
-    @_catch Clonglong(-1) begin
+)::Ptr{Cvoid}
+    @_catch C_NULL begin
         handle = _get(model)
-        start = length(handle.variables)
-        append!(handle.variables, MOI.add_variables(handle.optimizer, count))
-        Clonglong(start)
+        _box(handle, JuMPyModel.add_variables(handle.model, count))
     end
 end
 
-# -- MOI function constructors --------------------------------------------------
+# -- Native expression constructors -------------------------------------------
 
 Base.@ccallable function jumpy_constant(
     model::Ptr{Cvoid},
@@ -144,19 +203,15 @@ Base.@ccallable function jumpy_constant(
     @_catch C_NULL _box(_get(model), value)
 end
 
-# MOI.VariableIndex of the 0-based column `index`.
-Base.@ccallable function jumpy_variable(
+Base.@ccallable function jumpy_integer_constant(
     model::Ptr{Cvoid},
-    index::Clonglong,
+    value::Clonglong,
 )::Ptr{Cvoid}
-    @_catch C_NULL begin
-        handle = _get(model)
-        _box(handle, handle.variables[index+1])
-    end
+    @_catch C_NULL _box(_get(model), value)
 end
 
-# MOI.ScalarNonlinearFunction(Symbol(head), Any[args...]).
-Base.@ccallable function jumpy_scalar_nonlinear(
+# Call the ordinary Julia operator on the actual expression objects.
+Base.@ccallable function jumpy_apply(
     model::Ptr{Cvoid},
     head::Cstring,
     args::Ptr{Ptr{Cvoid}},
@@ -164,16 +219,30 @@ Base.@ccallable function jumpy_scalar_nonlinear(
 )::Ptr{Cvoid}
     @_catch C_NULL begin
         handle = _get(model)
-        func = MOI.ScalarNonlinearFunction(
-            Symbol(unsafe_string(head)),
-            Any[_unbox(unsafe_load(args, k)) for k in 1:nargs],
-        )
+        head == C_NULL && error("Operator name is NULL")
+        op = Symbol(unsafe_string(head))
+        args == C_NULL && error("Operator arguments are NULL")
+        func = if nargs == 1
+            _dispatch_native(_unbox(unsafe_load(args, 1)), NativeNode) do arg
+                _apply_native(op, arg)
+            end
+        elseif nargs == 2
+            _dispatch_native(
+                _unbox(unsafe_load(args, 1)),
+                _unbox(unsafe_load(args, 2)),
+                NativeNode,
+                NativeNode,
+            ) do left, right
+                _apply_native(op, left, right)
+            end
+        else
+            error("Native operators require one or two arguments")
+        end
         _box(handle, func)
     end
 end
 
-# GenOpt.IteratorRef over the given values: a template node usable in
-# jumpy_scalar_nonlinear args, expanded by jumpy_add_group_constraint.
+# GenOpt's native iterator participates in its JuMP operator overloads.
 Base.@ccallable function jumpy_iterator(
     model::Ptr{Cvoid},
     values::Ptr{Cdouble},
@@ -181,21 +250,18 @@ Base.@ccallable function jumpy_iterator(
 )::Ptr{Cvoid}
     @_catch C_NULL begin
         handle = _get(model)
-        iterator = GenOpt.Iterator([unsafe_load(values, k) for k in 1:len])
-        _box(handle, GenOpt.IteratorRef(iterator))
+        _box(handle, JuMPyModel.iterator([unsafe_load(values, k) for k in 1:len]))
     end
 end
 
-# GenOpt.ContiguousArrayOfVariables: the block of `count` variables starting
-# at 0-based column `offset`, indexable (1-based) inside a template.
-Base.@ccallable function jumpy_contiguous_variables(
+Base.@ccallable function jumpy_integer_iterator(
     model::Ptr{Cvoid},
-    offset::Clonglong,
-    count::Clonglong,
+    values::Ptr{Clonglong},
+    len::Clonglong,
 )::Ptr{Cvoid}
     @_catch C_NULL begin
         handle = _get(model)
-        _box(handle, GenOpt.ContiguousArrayOfVariables(offset, (Int64(count),)))
+        _box(handle, JuMPyModel.iterator([unsafe_load(values, k) for k in 1:len]))
     end
 end
 
@@ -213,88 +279,25 @@ end
 
 # -- Constraints --------------------------------------------------------------
 
-# Simplify returns a ScalarAffineFunction when the expression is affine, so
-# optimizers without nonlinear support (like HiGHS) accept it. Never narrow
-# below ScalarAffineFunction: `x >= 0` as a constraint must stay a row, not
-# become a VariableIndex bound (same semantics as JuMP's @constraint). Only
-# a function that already is a VariableIndex — the bounds path — is a bound.
-function _simplify(func::MOI.ScalarNonlinearFunction)
-    f = MOI.Nonlinear.SymbolicAD.simplify(func)
-    if f isa MOI.VariableIndex || f isa Float64
-        return convert(MOI.ScalarAffineFunction{Float64}, f)
-    end
-    return f
-end
-_simplify(func) = func
-
-# One branch per set so that every `normalize_and_add_constraint` call has
-# a statically-known set type: returning the set from a helper would make a
-# 5-type union, past the compiler's union-splitting limit, and the dispatch
-# would go dynamic — which `--trim` strips.
-function _add(optimizer, func::AnyFunction, sense::Cint, rhs::Float64)::Clonglong
-    ci = if sense == 0
-        MOI.Utilities.normalize_and_add_constraint(optimizer, func, MOI.LessThan(rhs))
-    elseif sense == 1
-        MOI.Utilities.normalize_and_add_constraint(optimizer, func, MOI.GreaterThan(rhs))
-    elseif sense == 2
-        MOI.Utilities.normalize_and_add_constraint(optimizer, func, MOI.EqualTo(rhs))
-    elseif sense == 3
-        MOI.Utilities.normalize_and_add_constraint(optimizer, func, MOI.ZeroOne())
-    elseif sense == 4
-        MOI.Utilities.normalize_and_add_constraint(optimizer, func, MOI.Integer())
-    else
-        error("Invalid constraint sense: ", sense)
-    end
-    return Clonglong(ci.value::Int64)
-end
-
-# MOI.add_constraint(func, set) where set is
-# {0: LessThan, 1: GreaterThan, 2: EqualTo}(rhs) or {3: ZeroOne, 4: Integer}
-# (rhs ignored). Function constants are
-# normalized into the set. Returns the raw MOI constraint index value.
+# JuMP builds the constraints; the compiled adapter sends them to raw MOI.
+# Only a success/error status crosses the ABI; Julia owns the constraint.
 Base.@ccallable function jumpy_add_constraint(
     model::Ptr{Cvoid},
     func::Ptr{Cvoid},
-    sense::Cint,
-    rhs::Cdouble,
-)::Clonglong
-    @_catch Clonglong(-1) begin
+    set_id::UInt64,
+)::Cint
+    @_catch Cint(-1) begin
+        set = _get_set(set_id)
         handle = _get(model)
-        _add(handle.optimizer, _simplify(_unbox(func)::FunctionNode)::AnyFunction, sense, rhs)
-    end
-end
-
-# Expand a template containing GenOpt.IteratorRef nodes into one scalar
-# constraint `expanded(func) sense 0` per combination of iterator values —
-# the same expansion loop as GenOpt.FunctionGeneratorBridge, on the raw
-# optimizer. Returns the number of constraints added.
-Base.@ccallable function jumpy_add_group_constraint(
-    model::Ptr{Cvoid},
-    func::Ptr{Cvoid},
-    sense::Cint,
-)::Clonglong
-    @_catch Clonglong(-1) begin
-        handle = _get(model)
-        template, iterators = GenOpt.collect_iterator_refs(
-            _unbox(func)::MOI.ScalarNonlinearFunction,
-        )
-        # Linear enumeration of the product grid, first iterator fastest
-        # (the same order as CartesianIndices, whose arity would be a
-        # runtime value here — dynamic, which `--trim` cannot keep).
-        sizes = Int64[length(it) for it in iterators]
-        total = prod(sizes)
-        values = Vector{Float64}(undef, length(iterators))
-        for linear in 0:(total-1)
-            remainder = linear
-            for k in eachindex(iterators)
-                iterator = iterators[k]::GenOpt.Iterator{Float64}
-                values[k] = iterator.values[remainder%sizes[k]+1]
-                remainder = div(remainder, sizes[k])
-            end
-            expanded = GenOpt._expand(template, values)
-            _add(handle.optimizer, _simplify(expanded::FunctionNode)::AnyFunction, sense, 0.0)
+        expression = _unbox(func)
+        expression isa Union{NativeScalar,NativeTemplate} ||
+            error("Expected a scalar or generated constraint expression")
+        _dispatch_native(
+            expression, set, Union{NativeScalar,NativeTemplate}, NativeSet,
+        ) do f, s
+            JuMPyDirect.add_constraint(handle.model, f, s)
         end
-        Clonglong(total)
+        Cint(0)
     end
 end
 
@@ -308,7 +311,7 @@ Base.@ccallable function jumpy_set_objective_sense(
     @_catch Cint(-1) begin
         handle = _get(model)
         moi_sense = sense == 0 ? MOI.MIN_SENSE : MOI.MAX_SENSE
-        MOI.set(handle.optimizer, MOI.ObjectiveSense(), moi_sense)
+        JuMPyDirect.set_objective_sense(handle.model, moi_sense)
         Cint(0)
     end
 end
@@ -320,13 +323,11 @@ Base.@ccallable function jumpy_set_objective_function(
 )::Cint
     @_catch Cint(-1) begin
         handle = _get(model)
-        f = _simplify(_unbox(func)::FunctionNode)::AnyFunction
-        if f isa MOI.VariableIndex || f isa Float64
-            # HiGHS has no VariableIndex or constant objective; the affine
-            # one is equivalent.
-            f = convert(MOI.ScalarAffineFunction{Float64}, f)
+        expression = _unbox(func)
+        expression isa NativeScalar || error("Expected a scalar objective expression")
+        _dispatch_native(expression, NativeScalar) do f
+            JuMPyDirect.set_objective_function(handle.model, f)
         end
-        MOI.set(handle.optimizer, MOI.ObjectiveFunction{typeof(f)}(), f)
         Cint(0)
     end
 end
@@ -337,45 +338,23 @@ end
 Base.@ccallable function jumpy_optimize(model::Ptr{Cvoid})::Cint
     @_catch Cint(-1) begin
         handle = _get(model)
-        MOI.optimize!(handle.optimizer)
-        Cint(Integer(MOI.get(handle.optimizer, MOI.TerminationStatus())::MOI.TerminationStatusCode))
+        JuMPyDirect.optimize(handle.model)
+        Cint(Integer(MOI.get(JuMP.backend(handle.model), MOI.TerminationStatus())))
     end
 end
 
-# Returns Int(MOI.ResultStatusCode) of the primal; MOI.FEASIBLE_POINT is 1.
-Base.@ccallable function jumpy_primal_status(model::Ptr{Cvoid})::Cint
-    @_catch Cint(-1) begin
-        handle = _get(model)
-        Cint(Integer(MOI.get(handle.optimizer, MOI.PrimalStatus())::MOI.ResultStatusCode))
-    end
-end
-
-# Writes the primal values of the first min(len, num variables) variables
-# into `out`. Returns the number of values written.
-Base.@ccallable function jumpy_get_values(
+# Read the solution through the actual JuMP variable or expression.
+Base.@ccallable function jumpy_value(
     model::Ptr{Cvoid},
-    out::Ptr{Cdouble},
-    len::Clonglong,
-)::Clonglong
-    @_catch Clonglong(-1) begin
-        handle = _get(model)
-        n = min(len, length(handle.variables))
-        values = MOI.get(
-            handle.optimizer,
-            MOI.VariablePrimal(),
-            handle.variables[1:n],
-        )::Vector{Float64}
-        for k in 1:n
-            unsafe_store!(out, values[k], k)
-        end
-        Clonglong(n)
-    end
-end
-
-Base.@ccallable function jumpy_objective_value(model::Ptr{Cvoid})::Cdouble
+    func::Ptr{Cvoid},
+)::Cdouble
     @_catch Cdouble(NaN) begin
-        handle = _get(model)
-        Cdouble(MOI.get(handle.optimizer, MOI.ObjectiveValue())::Float64)
+        _get(model)
+        expression = _unbox(func)
+        expression isa NativeScalar || error("Expected a scalar value expression")
+        _dispatch_native(expression, NativeScalar) do f
+            Cdouble(JuMPyDirect.value(f))
+        end
     end
 end
 
