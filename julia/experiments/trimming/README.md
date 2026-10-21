@@ -44,7 +44,7 @@ MathOptInterface, and OrderedCollections. Its executable solves with both a
 `Nothing` optimize hook and a concrete closure hook.
 
 The full JuMPy C ABI does **not** yet pass. The initial `backend.jl` probe using
-those patches, the concrete `ModelImpl{Float64,HiGHS.Optimizer,Nothing}` alias,
+those patches, the concrete `ConcreteModel{Float64,HiGHS.Optimizer,Nothing}` alias,
 and the GenOpt integration changes reported 12 verifier errors and zero verifier
 warnings at these type-erased boundaries:
 

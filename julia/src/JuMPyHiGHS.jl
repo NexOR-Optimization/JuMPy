@@ -30,7 +30,7 @@ include("JuMPyDirect.jl")
 
 # The only solver-specific line in this package.
 const Optimizer = HiGHS.Optimizer
-const NativeModel = JuMP.ModelImpl{Float64,Optimizer,Nothing}
+const NativeModel = JuMP.ConcreteModel{Float64,Optimizer,Nothing}
 const NativeVariable = JuMP.variable_ref_type(NativeModel)
 const NativeAffine = JuMP.GenericAffExpr{Float64,NativeVariable}
 const NativeQuadratic = JuMP.GenericQuadExpr{Float64,NativeVariable}

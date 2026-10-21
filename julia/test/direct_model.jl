@@ -5,6 +5,8 @@ import MathOptInterface as MOI
 
 @testset "bridge-free concrete JuMP adapter" begin
     J = JuMPyHiGHS.JuMPyDirect
+    @test JuMPyHiGHS.NativeModel ===
+          JuMP.ConcreteModel{Float64,JuMPyHiGHS.Optimizer,Nothing}
     model = J.model(JuMPyHiGHS.Optimizer())
     @test isconcretetype(JuMPyHiGHS.NativeModel)
     @test typeof(model) === JuMPyHiGHS.NativeModel
