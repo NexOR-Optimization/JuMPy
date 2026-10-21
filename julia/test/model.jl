@@ -1,3 +1,5 @@
+using Test
+import JuMPyHiGHS
 import JuMP
 import MathOptInterface as MOI
 
@@ -7,6 +9,7 @@ import MathOptInterface as MOI
     variables = J.add_variables(model, 2)
     x, y = variables
     @test model isa JuMP.Model
+    @test JuMP.backend(model) isa MOI.Utilities.CachingOptimizer
     @test x isa JuMP.VariableRef
     @test JuMP.owner_model(x) === model
 
@@ -40,8 +43,12 @@ import MathOptInterface as MOI
     @testset "JuMP constraint construction" begin
         bound = J.add_constraint(model, x, MOI.GreaterThan(0.0))
         row = J.add_constraint(model, J.apply(:-, Any[x, 0.0]), MOI.GreaterThan(0.0))
-        @test JuMP.index(bound) isa MOI.ConstraintIndex{MOI.VariableIndex,MOI.GreaterThan{Float64}}
-        @test JuMP.index(row) isa MOI.ConstraintIndex{MOI.ScalarAffineFunction{Float64},MOI.GreaterThan{Float64}}
+        @test JuMP.index(bound) isa
+              MOI.ConstraintIndex{MOI.VariableIndex,MOI.GreaterThan{Float64}}
+        @test JuMP.index(row) isa MOI.ConstraintIndex{
+            MOI.ScalarAffineFunction{Float64},
+            MOI.GreaterThan{Float64},
+        }
         for (value, set) in ((0.0, MOI.LessThan(1.0)), (2.0, MOI.EqualTo(2.0)))
             con = J.add_constraint(model, value, set)
             @test JuMP.constraint_object(con).func isa JuMP.AffExpr
@@ -57,6 +64,24 @@ import MathOptInterface as MOI
             @test set == constructor(5.0)
         end
     end
+end
+
+@testset "cached JuliaCall model registers the GenOpt bridge" begin
+    J = JuMPyHiGHS.JuMPyModel
+    G = JuMPyHiGHS.GenOpt
+    model = J.model(JuMPyHiGHS.Optimizer())
+    x = J.add_variables(model, 3)
+    indexed = J.apply(:getindex, Any[x, J.iterator([1, 2, 3])])
+    constraint = J.add_constraint(model, indexed, MOI.LessThan(2.0))
+    @test JuMP.index(constraint) isa MOI.ConstraintIndex{
+        G.FunctionGenerator{MOI.ScalarAffineFunction{Float64}},
+        MOI.Nonpositives,
+    }
+    J.set_objective_sense(model, MOI.MAX_SENSE)
+    J.set_objective_function(model, sum(x))
+    J.optimize(model)
+    @test JuMP.termination_status(model) == MOI.OPTIMAL
+    @test J.value.(x) ≈ fill(2.0, 3)
 end
 
 @testset "native quadratic and integer-coefficient generators" begin
@@ -75,21 +100,26 @@ end
         G.FunctionGenerator{MOI.ScalarQuadraticFunction{Float64}},
         MOI.Nonpositives,
     }
-    @test MOI.get(storage, MOI.NumberOfConstraints{
-        MOI.ScalarQuadraticFunction{Float64}, MOI.LessThan{Float64},
-    }()) == 3
-    product = J.apply(:*, Any[
-        J.apply(:+, Any[indexed, 1]), J.apply(:-, Any[indexed, 2]),
-    ])
+    @test MOI.get(
+        storage,
+        MOI.NumberOfConstraints{
+            MOI.ScalarQuadraticFunction{Float64},
+            MOI.LessThan{Float64},
+        }(),
+    ) == 3
+    product = J.apply(:*, Any[J.apply(:+, Any[indexed, 1]), J.apply(:-, Any[indexed, 2])])
     J.add_constraint(model, product, MOI.LessThan(9.0))
-    @test MOI.get(storage, MOI.NumberOfConstraints{
-        MOI.ScalarQuadraticFunction{Float64}, MOI.LessThan{Float64},
-    }()) == 6
+    @test MOI.get(
+        storage,
+        MOI.NumberOfConstraints{
+            MOI.ScalarQuadraticFunction{Float64},
+            MOI.LessThan{Float64},
+        }(),
+    ) == 6
     for constructor in (MOI.LessThan, MOI.GreaterThan, MOI.EqualTo)
         affine = J.apply(:+, Any[indexed, 0])
         constraint = J.add_constraint(model, affine, constructor(1.0))
-        @test JuMP.index(constraint) isa MOI.ConstraintIndex{
-            G.FunctionGenerator{MOI.ScalarAffineFunction{Float64}},
-        }
+        @test JuMP.index(constraint) isa
+              MOI.ConstraintIndex{G.FunctionGenerator{MOI.ScalarAffineFunction{Float64}}}
     end
 end

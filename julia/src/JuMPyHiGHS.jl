@@ -4,7 +4,7 @@ module JuMPyHiGHS
 #
 # JuMP models and expressions stay in Julia. Opaque expression handles
 # let Python call JuMP's arithmetic and constraint-building methods, with
-# GenOpt's bridge handling generated constraints. Nothing here is specific
+# GenOpt expanding generated constraints directly. Nothing here is specific
 # to HiGHS except the `Optimizer` constant below.
 #
 # Conventions across the C ABI:
@@ -26,12 +26,35 @@ import JuMP
 import MathOptInterface as MOI
 
 include("JuMPyModel.jl")
+include("JuMPyDirect.jl")
 
 # The only solver-specific line in this package.
 const Optimizer = HiGHS.Optimizer
+const NativeModel = JuMP.ModelImpl{Float64,Optimizer,Nothing}
+const NativeVariable = JuMP.variable_ref_type(NativeModel)
+const NativeAffine = JuMP.GenericAffExpr{Float64,NativeVariable}
+const NativeQuadratic = JuMP.GenericQuadExpr{Float64,NativeVariable}
+const NativeNonlinear = JuMP.GenericNonlinearExpr{NativeVariable}
+
+const NativeScalar = Union{
+    Int64,Float64,NativeVariable,NativeAffine,NativeQuadratic,NativeNonlinear,
+}
+const NativeTemplate = Union{
+    GenOpt.ExprTemplate{Int64,NativeVariable},
+    GenOpt.ExprTemplate{Float64,NativeVariable},
+    GenOpt.ExprTemplate{NativeVariable,NativeVariable},
+    GenOpt.ExprTemplate{NativeAffine,NativeVariable},
+    GenOpt.ExprTemplate{NativeQuadratic,NativeVariable},
+    GenOpt.ExprTemplate{NativeNonlinear,NativeVariable},
+    GenOpt.ExprTemplate{Int64,JuMP.VariableRef},
+    GenOpt.ExprTemplate{Float64,JuMP.VariableRef},
+}
+const NativeIterator = Union{GenOpt.IteratorValues{Int64},GenOpt.IteratorValues{Float64}}
+const NativeOperand = Union{NativeScalar,NativeTemplate,NativeIterator}
+const NativeNode = Union{NativeOperand,Vector{NativeVariable},Vector{Float64}}
 
 mutable struct ModelHandle
-    model::JuMP.Model
+    model::NativeModel
     # Roots the expression nodes handed out as pointers: the Julia GC
     # cannot see references held by the C caller.
     nodes::Vector{Base.RefValue{Any}}
@@ -56,14 +79,16 @@ end
 
 function _unbox(node::Ptr{Cvoid})
     node == C_NULL && error("Expression pointer is NULL")
-    return (unsafe_pointer_to_objref(node)::Base.RefValue{Any})[]
+    value = (unsafe_pointer_to_objref(node)::Base.RefValue{Any})[]
+    value isa NativeNode || error("Unsupported native expression type")
+    return value::NativeNode
 end
+
+include("native_dispatch.jl")
 
 # Report without letting Julia exceptions cross the C ABI.
 function _print_error(@nospecialize(err))
-    print(stderr, "JuMPyHiGHS error: ")
-    showerror(stderr, err)
-    println(stderr)
+    Base.showerror_nostdio(err, "JuMPyHiGHS error")
     return
 end
 
@@ -82,7 +107,11 @@ end
 
 # No Julia object pointers leave this registry. A set can be reused across
 # models in this image, but never in another backend's Julia runtime.
-const SETS = Dict{UInt64,MOI.AbstractScalarSet}()
+const NativeSet = Union{
+    MOI.LessThan{Float64}, MOI.GreaterThan{Float64}, MOI.EqualTo{Float64},
+    MOI.ZeroOne, MOI.Integer,
+}
+const SETS = Dict{UInt64,NativeSet}()
 const SET_LOCK = ReentrantLock()
 const NEXT_SET = Ref{UInt64}(1)
 
@@ -137,7 +166,7 @@ end
 
 Base.@ccallable function jumpy_new_model()::Ptr{Cvoid}
     @_catch C_NULL begin
-        model = JuMPyModel.model(Optimizer())
+        model = JuMPyDirect.model(Optimizer())
         handle = ModelHandle(model, Base.RefValue{Any}[])
         Base.@lock LOCK KEEP_ALIVE[handle] = nothing
         pointer_from_objref(handle)
@@ -190,10 +219,25 @@ Base.@ccallable function jumpy_apply(
 )::Ptr{Cvoid}
     @_catch C_NULL begin
         handle = _get(model)
-        func = JuMPyModel.apply(
-            Symbol(unsafe_string(head)),
-            Any[_unbox(unsafe_load(args, k)) for k in 1:nargs],
-        )
+        head == C_NULL && error("Operator name is NULL")
+        op = Symbol(unsafe_string(head))
+        args == C_NULL && error("Operator arguments are NULL")
+        func = if nargs == 1
+            _dispatch_native(_unbox(unsafe_load(args, 1)), NativeNode) do arg
+                _apply_native(op, arg)
+            end
+        elseif nargs == 2
+            _dispatch_native(
+                _unbox(unsafe_load(args, 1)),
+                _unbox(unsafe_load(args, 2)),
+                NativeNode,
+                NativeNode,
+            ) do left, right
+                _apply_native(op, left, right)
+            end
+        else
+            error("Native operators require one or two arguments")
+        end
         _box(handle, func)
     end
 end
@@ -235,7 +279,7 @@ end
 
 # -- Constraints --------------------------------------------------------------
 
-# Scalar and generated constraints use the same JuMP construction path.
+# JuMP builds the constraints; the compiled adapter sends them to raw MOI.
 # Only a success/error status crosses the ABI; Julia owns the constraint.
 Base.@ccallable function jumpy_add_constraint(
     model::Ptr{Cvoid},
@@ -245,7 +289,14 @@ Base.@ccallable function jumpy_add_constraint(
     @_catch Cint(-1) begin
         set = _get_set(set_id)
         handle = _get(model)
-        JuMPyModel.add_constraint(handle.model, _unbox(func), set)
+        expression = _unbox(func)
+        expression isa Union{NativeScalar,NativeTemplate} ||
+            error("Expected a scalar or generated constraint expression")
+        _dispatch_native(
+            expression, set, Union{NativeScalar,NativeTemplate}, NativeSet,
+        ) do f, s
+            JuMPyDirect.add_constraint(handle.model, f, s)
+        end
         Cint(0)
     end
 end
@@ -260,7 +311,7 @@ Base.@ccallable function jumpy_set_objective_sense(
     @_catch Cint(-1) begin
         handle = _get(model)
         moi_sense = sense == 0 ? MOI.MIN_SENSE : MOI.MAX_SENSE
-        JuMPyModel.set_objective_sense(handle.model, moi_sense)
+        JuMPyDirect.set_objective_sense(handle.model, moi_sense)
         Cint(0)
     end
 end
@@ -272,7 +323,11 @@ Base.@ccallable function jumpy_set_objective_function(
 )::Cint
     @_catch Cint(-1) begin
         handle = _get(model)
-        JuMPyModel.set_objective_function(handle.model, _unbox(func))
+        expression = _unbox(func)
+        expression isa NativeScalar || error("Expected a scalar objective expression")
+        _dispatch_native(expression, NativeScalar) do f
+            JuMPyDirect.set_objective_function(handle.model, f)
+        end
         Cint(0)
     end
 end
@@ -283,8 +338,8 @@ end
 Base.@ccallable function jumpy_optimize(model::Ptr{Cvoid})::Cint
     @_catch Cint(-1) begin
         handle = _get(model)
-        JuMPyModel.optimize(handle.model)
-        Cint(Integer(JuMP.termination_status(handle.model)))
+        JuMPyDirect.optimize(handle.model)
+        Cint(Integer(MOI.get(JuMP.backend(handle.model), MOI.TerminationStatus())))
     end
 end
 
@@ -295,7 +350,11 @@ Base.@ccallable function jumpy_value(
 )::Cdouble
     @_catch Cdouble(NaN) begin
         _get(model)
-        Cdouble(JuMPyModel.value(_unbox(func)))
+        expression = _unbox(func)
+        expression isa NativeScalar || error("Expected a scalar value expression")
+        _dispatch_native(expression, NativeScalar) do f
+            Cdouble(JuMPyDirect.value(f))
+        end
     end
 end
 

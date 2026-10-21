@@ -4,6 +4,7 @@ import JuMPyHiGHS
 using Test
 
 include("model.jl")
+include("direct_model.jl")
 
 variable(m, block, i) = apply(m, "getindex", block, constant(m, i))
 value(m, func) = JuMPyHiGHS.jumpy_value(m, func)
@@ -42,7 +43,9 @@ include("native_sets.jl")
     first = J.jumpy_variables(model, Clonglong(2))
     second = J.jumpy_variables(model, Clonglong(1))
     empty = J.jumpy_variables(model, Clonglong(0))
-    @test J._unbox(first) isa Vector{JuMP.VariableRef}
+    @test JuMP.backend(J._get(model).model) isa J.Optimizer
+    @test JuMP.mode(J._get(model).model) == JuMP.DIRECT
+    @test J._unbox(first) isa Vector{J.NativeVariable}
     @test length(J._unbox(first)) == 2
     @test isempty(J._unbox(empty))
     x = variable(model, first, 1)
@@ -129,16 +132,16 @@ end
     block = J.jumpy_variables(m, Clonglong(1))
     @test block != C_NULL
     x = variable(m, block, 1)
-    @test J._unbox(x) isa JuMP.VariableRef
+    @test J._unbox(x) isa J.NativeVariable
     @test J._unbox(constant(m, 1)) === Int64(1)
     @test J._unbox(constant(m, 1.0)) === 1.0
     affine = apply(m, "*", constant(m, 1), x)
-    @test J._unbox(affine) isa JuMP.AffExpr
+    @test J._unbox(affine) isa J.NativeAffine
     @test JuMP.coefficient(J._unbox(affine), J._unbox(x)) === 1.0
     square = apply(m, "^", x, constant(m, 2))
-    @test J._unbox(square) isa JuMP.QuadExpr
-    @test J._unbox(apply(m, "*", x, x)) isa JuMP.QuadExpr
-    @test J._unbox(apply(m, "sin", x)) isa JuMP.NonlinearExpr
+    @test J._unbox(square) isa J.NativeQuadratic
+    @test J._unbox(apply(m, "*", x, x)) isa J.NativeQuadratic
+    @test J._unbox(apply(m, "sin", x)) isa J.NativeNonlinear
     objective = apply(m, "+", apply(m, "-", square, apply(m, "*", constant(m, 4), x)), constant(m, 4))
     @test set_objective(m, 0, objective)
     GC.gc(true)
@@ -165,7 +168,7 @@ end
     @test i != C_NULL && x != C_NULL && d != C_NULL
     i1 = apply(m, "+", i, constant(m, 1))  # 0-based -> 1-based
     template = apply(m, "-", apply(m, "getindex", x, i1), apply(m, "getindex", d, i1))
-    @test JuMPyHiGHS._unbox(template) isa JuMPyHiGHS.GenOpt.ExprTemplate{JuMP.AffExpr}
+    @test JuMPyHiGHS._unbox(template) isa JuMPyHiGHS.GenOpt.ExprTemplate{JuMPyHiGHS.NativeAffine}
     set = JuMPyHiGHS.jumpy_greater_than(0.0)
     status = JuMPyHiGHS.jumpy_add_constraint(m, template, set)
     @test JuMPyHiGHS.jumpy_free_set(set) == 0
@@ -174,7 +177,7 @@ end
     # GenOpt's JuMP build_constraint shifts the set into the expression;
     # its function-generator type records the resulting affine row.
     direct = apply(m, "getindex", x, i1)
-    @test JuMPyHiGHS._unbox(direct) isa JuMPyHiGHS.GenOpt.ExprTemplate{JuMP.VariableRef}
+    @test JuMPyHiGHS._unbox(direct) isa JuMPyHiGHS.GenOpt.ExprTemplate{JuMPyHiGHS.NativeVariable}
     generator = JuMPyHiGHS.GenOpt.ExprGenerator(JuMPyHiGHS._unbox(direct))
     @test JuMP.moi_function(generator) isa JuMPyHiGHS.GenOpt.FunctionGenerator{MOI.VariableIndex}
     # Integer literals remain integer until JuMP/GenOpt promotes coefficients.
@@ -185,7 +188,7 @@ end
     scaled = apply(m, "*", constant(m, 2), direct)
     @test add_constraint(m, scaled, MOI.LessThan(8.0)) == 0
     quadratic = apply(m, "*", direct, direct)
-    @test JuMPyHiGHS._unbox(quadratic) isa JuMPyHiGHS.GenOpt.ExprTemplate{JuMP.QuadExpr}
+    @test JuMPyHiGHS._unbox(quadratic) isa JuMPyHiGHS.GenOpt.ExprTemplate{JuMPyHiGHS.NativeQuadratic}
     set = JuMPyHiGHS.jumpy_greater_than(1.0)
     @test JuMPyHiGHS.jumpy_add_constraint(m, direct, set) == 0
     @test JuMPyHiGHS.jumpy_free_set(set) == 0

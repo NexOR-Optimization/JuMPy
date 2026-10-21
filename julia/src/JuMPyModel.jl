@@ -1,21 +1,28 @@
 module JuMPyModel
 
 # Shared source, loaded separately in the JuliaCall and JuliaC runtimes.
-# JuMP and GenOpt own expression promotion, coefficient types, and bridges.
+# JuMP and GenOpt own expression promotion and coefficient types. JuliaCall
+# uses the ordinary cached/bridged JuMP model; the compiled backend uses the
+# separate direct adapter in JuMPyDirect.jl.
 import GenOpt
 import JuMP
 import MathOptInterface as MOI
 
 function model(optimizer)
-    backend = MOI.Bridges.full_bridge_optimizer(optimizer, Float64)
-    MOI.Bridges.add_bridge(backend, GenOpt.FunctionGeneratorBridge{Float64})
-    result = JuMP.direct_model(backend)
+    result = JuMP.Model(() -> optimizer)
+    JuMP.add_bridge(result, GenOpt.FunctionGeneratorBridge)
     JuMP.set_silent(result)
     return result
 end
 
 add_variables(model, count) = JuMP.@variable(model, [1:count])
-apply(op::Symbol, args::Vector{Any}) = getfield(Base, op)(args...)
+# Keep references to the native functions: a trimmed image need not retain
+# Base bindings looked up only by a runtime Symbol.
+const _OPERATORS = Dict{Symbol,Function}(
+    :+ => +, :- => -, :* => *, :/ => /, :^ => ^, :getindex => getindex,
+    :sin => sin, :cos => cos, :exp => exp, :log => log, :sqrt => sqrt, :abs => abs,
+)
+apply(op::Symbol, args::Vector{Any}) = _OPERATORS[op](args...)
 iterator(values) = GenOpt.iterator(values)
 
 function add_constraint(model, func, set)

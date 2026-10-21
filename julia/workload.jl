@@ -1,8 +1,10 @@
 using JuMPyHiGHS
 
-# -- Build-time workload --------------------------------------------------------
+# -- Ordinary-Julia tracing workload --------------------------------------------
 
-# Precompile representative model-building and solution paths.
+# Run this in ordinary Julia to trace model-building and solution paths.
+# Image generation does not initialize the solver JLL, so this is deliberately
+# not included by juliac_entry.jl.
 let J = JuMPyHiGHS
     function apply(m, head::String, args::Ptr{Cvoid}...)
         argv = collect(Ptr{Cvoid}, args)
@@ -59,12 +61,22 @@ let J = JuMPyHiGHS
     J.jumpy_optimize(m)
     J.jumpy_value(m, x)
     J.jumpy_value(m, plus)
+    # Nonlinear expressions can be evaluated at a linear model's solution,
+    # even though HiGHS does not accept nonlinear constraints/objectives.
+    for head in ("sin", "cos", "exp", "log", "sqrt", "abs")
+        nonlinear = apply(m, head, x)
+        nested = apply(m, "+", nonlinear, apply(m, head, plus))
+        @assert isfinite(J.jumpy_value(m, nonlinear))
+        @assert isfinite(J.jumpy_value(m, nested))
+    end
     # every remaining operator Python can emit (nonlinear ones end in the
     # unsupported-constraint error path, which is also worth exercising)
     add(m, apply(m, "-", x), J.jumpy_less_than(1.0))
     add(m, apply(m, "^", x, J.jumpy_constant(m, 2.0)), J.jumpy_less_than(9.0))
     for f in ("sin", "cos", "exp", "log", "sqrt", "abs")
         add(m, apply(m, f, x), J.jumpy_less_than(1.0))
+        generated = apply(m, f, apply(m, "getindex", block, i1))
+        @assert add(m, generated, J.jumpy_less_than(1.0)) == -1
     end
     # Errors remain contained within the C entry points.
     J.jumpy_optimize(C_NULL)

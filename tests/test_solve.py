@@ -11,6 +11,7 @@ The whole module is skipped when the selected backend is not available.
 """
 
 import importlib.util
+import math
 import operator
 import os
 import subprocess
@@ -362,6 +363,23 @@ def test_native_value_queries_expressions_after_resolving():
             model.optimize()
             assert model.value(expr) == pytest.approx(expected)
         assert model.value((x - 2) ** 2) == pytest.approx(1)
+    finally:
+        model.close()
+
+
+@pytest.mark.parametrize("name", ["sin", "cos", "exp", "log", "sqrt", "jp_abs"])
+def test_native_value_queries_nonlinear_expressions(name):
+    """Evaluating an expression does not require nonlinear solver support."""
+    model = jp.Model()
+    try:
+        x = model.variable()
+        model.constraint(x == 2.0)
+        function = getattr(jp, name)
+        numeric = abs if name == "jp_abs" else getattr(math, name)
+        expression = function(x) + function(x + 1)
+        model.optimize()
+        assert model.value(function(x)) == pytest.approx(numeric(2.0))
+        assert model.value(expression) == pytest.approx(numeric(2.0) + numeric(3.0))
     finally:
         model.close()
 
