@@ -105,6 +105,12 @@ The consumer must initialize the Julia runtime once after loading the
 library, by calling `jl_init_with_image_handle(dlopen_handle)` (see
 `_load_lib` in `src/jumpy/backend.py`).
 
+## Archived experiments
+
+Historical shared-library and trimming probes are preserved as-is on the
+`bl/experiments` branch under `julia/experiments/`. They are not part of the
+maintained backend or its CI.
+
 ## Building
 
 The build uses Julia 1.13.2, a C compiler, and the
