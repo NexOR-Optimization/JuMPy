@@ -34,7 +34,7 @@ linear program is
    \end{aligned}
 """
 
-import jumpy as jp
+import jumpy.highs as jp
 
 # Data
 # ----

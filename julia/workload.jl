@@ -70,4 +70,21 @@ let J = JuMPyHiGHS
     # error paths (print through jl_static_show)
     J.jumpy_optimize(C_NULL)
     J.jumpy_free_model(m)
+
+    # Native set construction/consumption uses the same shared Julia source.
+    m = J.jumpy_new_model()
+    J.jumpy_add_variables(m, Clonglong(5))
+    for sense in Cint(0):Cint(4)
+        set = J.jumpy_scalar_set(sense, 2.0)
+        node = J.jumpy_variable(m, Clonglong(sense))
+        J.jumpy_add_constraint_set(m, node, set)
+        if sense <= 2
+            J.jumpy_add_constraint_set(m, snf(m, "+", node, J.jumpy_constant(m, 1.0)), set)
+        end
+        J.jumpy_free_set(set)
+    end
+    J.jumpy_scalar_set(Cint(5), 0.0)
+    J.jumpy_free_set(UInt64(0))
+    J.jumpy_add_constraint_set(m, J.jumpy_variable(m, Clonglong(0)), UInt64(0))
+    J.jumpy_free_model(m)
 end

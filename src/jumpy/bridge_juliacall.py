@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from jumpy import backend
 from jumpy.backend import _SENSE_CODES
 
 _JL = None
@@ -17,6 +18,11 @@ _JL = None
 
 def _julia():
     global _JL
+    if backend._LIB is not None:
+        raise RuntimeError(
+            "Compiled HiGHS is already initialized. Use one JuMPy backend per process; "
+            "restart Python to switch to jumpy.juliacall."
+        )
     if _JL is not None:
         return _JL
     try:
@@ -115,6 +121,13 @@ class JuliaCallOps:
     def add_constraint(self, func, sense, rhs):
         self._moi.normalize_and_add_constraint(
             self._optimizer, self._simplify(func), _SENSE_CODES[sense], float(rhs),
+        )
+
+    def add_constraint_set(self, func, set_):
+        if not self._jl.isa(set_, self._jl.MOI.AbstractScalarSet):
+            raise TypeError("Expected a native MOI scalar set from jumpy.juliacall")
+        self._jl.MOI.Utilities.normalize_and_add_constraint(
+            self._optimizer, self._simplify(func), set_,
         )
 
     def add_constraint_group(self, func, sense, linear):

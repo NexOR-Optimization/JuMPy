@@ -66,6 +66,12 @@ import MathOptInterface as MOI
         @test constant.constant == 5.0
         @test isempty(constant.terms)
 
+        # SymbolicAD may represent a simplified zero as Bool(false).
+        zero_row = constructors.simplify(constructors.scalar_nonlinear(:+, Any[0.0]))
+        @test zero_row isa MOI.ScalarAffineFunction{Float64}
+        @test zero_row.constant == 0.0
+        @test isempty(zero_row.terms)
+
         # The common helper must not inherit the compiled ABI's restricted
         # function union: JuliaCall can also use quadratic MOI functions.
         quadratic = constructors.simplify(

@@ -8,7 +8,6 @@ optimize() is just MOI.optimize! plus solution retrieval.
 
 from __future__ import annotations
 
-from jumpy.backend import get_ops
 from jumpy.expressions import (
     Constraint,
     Node,
@@ -45,15 +44,9 @@ class Model:
         m.optimize()
     """
 
-    def __init__(self, backend: str = "juliac"):
-        """
-        Create a new model.
-
-        Args:
-            backend: "juliac" (default, no Julia needed) or "juliacall"
-                     (uses juliacall, installs Julia lazily if needed).
-        """
-        self._ops = get_ops(backend)
+    def __init__(self, ops):
+        """Internal implementation; public models select ops via their module."""
+        self._ops = ops
         self._num_vars = 0
         self._objective: Objective | None = None
         self._solution: list[float] | None = None
@@ -131,9 +124,33 @@ class Model:
 
     # -- Constraints -----------------------------------------------------------
 
-    def constraint(self, con: Constraint) -> None:
-        """Add a single constraint (MOI.add_constraint)."""
-        self._ops.add_constraint(con.func.moi, con.sense, 0.0)
+    def constraint(self, func, set_=None) -> None:
+        """Add ``constraint(x <= 1)`` or ``constraint(x, jp.MOI.LessThan(1))``.
+
+        In the explicit-set form, a bare variable remains an MOI variable
+        constraint (including bounds and integrality). Expressions are
+        simplified and their constants normalized into the set.
+        """
+        if self._ops is None:
+            raise RuntimeError("The model has been closed")
+        if set_ is None:
+            if not isinstance(func, Constraint):
+                raise TypeError("Expected a comparison constraint, or a function and an MOI set")
+            self._check_function(func.func)
+            self._ops.add_constraint(func.func.moi, func.sense, 0.0)
+        else:
+            if isinstance(func, (int, float)):
+                func = Node(self._ops, self._ops.scalar_nonlinear(
+                    "+", [self._ops.constant(float(func))],
+                ))
+            self._check_function(func)
+            self._ops.add_constraint_set(func.moi, set_)
+
+    def _check_function(self, func):
+        if not isinstance(func, Node):
+            raise TypeError("Constraint functions must be scalar expressions or numbers")
+        if func._ops is not self._ops:
+            raise ValueError("The constraint expression belongs to a different model")
 
     def constraint_group(self, con: Constraint) -> None:
         """

@@ -20,6 +20,8 @@ Numeric = (int, float)
 def _moi(ops, value):
     """The MOI object of a Node or a numeric literal."""
     if isinstance(value, Node):
+        if value._ops is not ops:
+            raise ValueError("Cannot combine expressions from different models")
         return value.moi
     if isinstance(value, Numeric):
         return ops.constant(float(value))

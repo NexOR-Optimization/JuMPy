@@ -22,6 +22,8 @@ module JuMPyHiGHS
 #     jumpy_variable / jumpy_scalar_nonlinear; they belong to the model
 #     that built them and are freed with it
 #   - variables are 0-based column indices in the order they were added
+#   - sets are checked UInt64 handles, independent of models, valid until
+#     jumpy_free_set; zero is reserved for constructor errors
 #   - constraint sense: 0 = <=, 1 = >=, 2 = ==, 3 = binary, 4 = integer
 #   - objective sense: 0 = min, 1 = max
 #   - entry points return -1 (NULL, NaN) on error, after printing to stderr
@@ -99,6 +101,49 @@ macro _catch(default, expr)
             _print_error(err)
             $(esc(default))
         end
+    end
+end
+
+# -- Native scalar sets -------------------------------------------------------
+
+# No Julia object pointers leave this registry. A set can be reused across
+# models in this image, but never in another backend's Julia runtime.
+const ScalarSet = Union{
+    MOI.LessThan{Float64}, MOI.GreaterThan{Float64}, MOI.EqualTo{Float64},
+    MOI.ZeroOne, MOI.Integer,
+}
+const SETS = Dict{UInt64,ScalarSet}()
+const SET_LOCK = ReentrantLock()
+const NEXT_SET = Ref{UInt64}(1)
+
+function _get_set(id::UInt64)::ScalarSet
+    Base.@lock SET_LOCK begin
+        haskey(SETS, id) || throw(ArgumentError("Invalid or released native MOI set"))
+        return SETS[id]
+    end
+end
+
+# Sense tags match jumpy_add_constraint; rhs is ignored for integrality sets.
+Base.@ccallable function jumpy_scalar_set(sense::Cint, rhs::Cdouble)::UInt64
+    @_catch UInt64(0) begin
+        set = JuMPyMOI.scalar_set(sense, rhs)
+        Base.@lock SET_LOCK begin
+            id = NEXT_SET[]
+            id != 0 || error("Native MOI set handle space exhausted")
+            SETS[id] = set
+            NEXT_SET[] += UInt64(1)  # never reuse released handles
+            id
+        end
+    end
+end
+
+Base.@ccallable function jumpy_free_set(id::UInt64)::Cint
+    @_catch Cint(-1) begin
+        Base.@lock SET_LOCK begin
+            haskey(SETS, id) || throw(ArgumentError("Invalid or released native MOI set"))
+            delete!(SETS, id)
+        end
+        Cint(0)
     end
 end
 
@@ -235,6 +280,35 @@ Base.@ccallable function jumpy_add_constraint(
     @_catch Clonglong(-1) begin
         handle = _get(model)
         _add(handle.optimizer, _simplify(_unbox(func)::FunctionNode)::AnyFunction, sense, rhs)
+    end
+end
+
+# Keep each concrete set visible to inference; the native object is consumed
+# directly, without reconstructing it from a Python schema or sense/rhs pair.
+function _add_set(optimizer, func::AnyFunction, set::ScalarSet)::Clonglong
+    ci = if set isa MOI.LessThan{Float64}
+        MOI.Utilities.normalize_and_add_constraint(optimizer, func, set)
+    elseif set isa MOI.GreaterThan{Float64}
+        MOI.Utilities.normalize_and_add_constraint(optimizer, func, set)
+    elseif set isa MOI.EqualTo{Float64}
+        MOI.Utilities.normalize_and_add_constraint(optimizer, func, set)
+    elseif set isa MOI.ZeroOne
+        MOI.Utilities.normalize_and_add_constraint(optimizer, func, set)
+    else
+        MOI.Utilities.normalize_and_add_constraint(optimizer, func, set::MOI.Integer)
+    end
+    return Clonglong(ci.value::Int64)
+end
+
+Base.@ccallable function jumpy_add_constraint_set(
+    model::Ptr{Cvoid},
+    func::Ptr{Cvoid},
+    set_id::UInt64,
+)::Clonglong
+    @_catch Clonglong(-1) begin
+        set = _get_set(set_id)
+        handle = _get(model)
+        _add_set(handle.optimizer, _simplify(_unbox(func)::FunctionNode)::AnyFunction, set)
     end
 end
 

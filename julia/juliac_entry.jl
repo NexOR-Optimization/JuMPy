@@ -19,6 +19,7 @@ import MathOptInterface as MOI
 # image if the target specialization was compiled. Declare every
 # combination the ABI can produce as an entry point.
 for F in (
+        Float64,
         MOI.VariableIndex,
         MOI.ScalarAffineFunction{Float64},
         MOI.ScalarNonlinearFunction,
@@ -35,6 +36,7 @@ for F in (
         MOI.Utilities.normalize_and_add_constraint,
         (JuMPyHiGHS.Optimizer, F, S),
     )
+    Base.Experimental.entrypoint(JuMPyHiGHS._add_set, (JuMPyHiGHS.Optimizer, F, S))
 end
 for F in (MOI.ScalarAffineFunction{Float64}, MOI.ScalarNonlinearFunction)
     Base.Experimental.entrypoint(

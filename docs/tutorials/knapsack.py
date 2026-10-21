@@ -31,7 +31,7 @@ where :math:`C` is the capacity and item :math:`i` has profit :math:`c_i` and
 weight :math:`w_i`.
 """
 
-import jumpy as jp
+import jumpy.highs as jp
 
 # Data
 # ----
@@ -52,9 +52,13 @@ model = jp.Model()
 x = model.variables(n, binary=True, name="x")
 
 # JuMPy expressions use ordinary Python arithmetic. Here, ``sum`` constructs
-# the capacity constraint and objective one term at a time.
+# the capacity constraint and objective one term at a time. An explicit native
+# MOI set expresses the upper bound; comparison syntax ``expression <= capacity``
+# is also supported.
 
-model.constraint(sum(weight[i] * x[i] for i in range(n)) <= capacity)
+model.constraint(
+    sum(weight[i] * x[i] for i in range(n)), jp.MOI.LessThan(capacity)
+)
 model.objective = jp.maximize(sum(profit[i] * x[i] for i in range(n)))
 
 # Solution
