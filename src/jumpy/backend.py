@@ -1,7 +1,7 @@
 """
-Backend selection and the compiled-library (juliac) MOI ops.
+The compiled-library (juliac) JuMP operations.
 
-An "ops" object maps each MOI call either to the compiled shared library
+An "ops" object maps each Julia call either to the compiled shared library
 (JuliacOps below, via ctypes) or to Julia through juliacall
 (jumpy.bridge_juliacall.JuliaCallOps). Models call the ops directly; the
 two implementations expose the same methods.
@@ -10,6 +10,7 @@ two implementations expose the same methods.
 from __future__ import annotations
 
 import ctypes
+import math
 import sys
 
 
@@ -79,14 +80,28 @@ def _init_lib(path):
 
     # Check the new ABI before starting Julia; an older build must be rebuilt.
     try:
-        lib.jumpy_scalar_set.argtypes = [ctypes.c_int, ctypes.c_double]
-        lib.jumpy_scalar_set.restype = ctypes.c_uint64
+        lib.jumpy_variables.argtypes = [ctypes.c_void_p, ctypes.c_longlong]
+        lib.jumpy_variables.restype = ctypes.c_void_p
+        lib.jumpy_value.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        lib.jumpy_value.restype = ctypes.c_double
+        lib.jumpy_apply.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_longlong]
+        lib.jumpy_apply.restype = ctypes.c_void_p
+        lib.jumpy_integer_constant.argtypes = [ctypes.c_void_p, ctypes.c_longlong]
+        lib.jumpy_integer_constant.restype = ctypes.c_void_p
+        lib.jumpy_integer_iterator.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_longlong), ctypes.c_longlong]
+        lib.jumpy_integer_iterator.restype = ctypes.c_void_p
+        for name in ("jumpy_less_than", "jumpy_greater_than", "jumpy_equal_to"):
+            constructor = getattr(lib, name)
+            constructor.argtypes = [ctypes.c_double]
+            constructor.restype = ctypes.c_uint64
+        for name in ("jumpy_zero_one", "jumpy_integer"):
+            constructor = getattr(lib, name)
+            constructor.argtypes = []
+            constructor.restype = ctypes.c_uint64
         lib.jumpy_free_set.argtypes = [ctypes.c_uint64]
         lib.jumpy_free_set.restype = ctypes.c_int
-        lib.jumpy_add_constraint_set.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint64]
-        lib.jumpy_add_constraint_set.restype = ctypes.c_longlong
     except AttributeError:
-        raise RuntimeError("Rebuild the JuMPy library: this build has no native-set constructor ABI") from None
+        raise RuntimeError("Rebuild the JuMPy library: this build lacks the native JuMP API") from None
 
     lib.jl_is_initialized.argtypes = []
     lib.jl_is_initialized.restype = ctypes.c_int
@@ -104,64 +119,45 @@ def _init_lib(path):
     c_double = ctypes.c_double
     c_void_p = ctypes.c_void_p
     p_double = ctypes.POINTER(c_double)
-    p_void = ctypes.POINTER(c_void_p)
 
     # A model is an opaque pointer to a Julia object, valid until
-    # jumpy_free_model. MOI functions are opaque pointers built with the
+    # jumpy_free_model. JuMP expressions are opaque pointers built with the
     # constructor entry points; they belong to the model and are freed
     # with it.
     lib.jumpy_new_model.argtypes = []
     lib.jumpy_new_model.restype = c_void_p
     lib.jumpy_free_model.argtypes = [c_void_p]
     lib.jumpy_free_model.restype = c_int
-    lib.jumpy_add_variables.argtypes = [c_void_p, c_longlong]
-    lib.jumpy_add_variables.restype = c_longlong
     lib.jumpy_constant.argtypes = [c_void_p, c_double]
     lib.jumpy_constant.restype = c_void_p
-    lib.jumpy_variable.argtypes = [c_void_p, c_longlong]
-    lib.jumpy_variable.restype = c_void_p
-    lib.jumpy_scalar_nonlinear.argtypes = [c_void_p, ctypes.c_char_p, p_void, c_longlong]
-    lib.jumpy_scalar_nonlinear.restype = c_void_p
     lib.jumpy_iterator.argtypes = [c_void_p, p_double, c_longlong]
     lib.jumpy_iterator.restype = c_void_p
-    lib.jumpy_contiguous_variables.argtypes = [c_void_p, c_longlong, c_longlong]
-    lib.jumpy_contiguous_variables.restype = c_void_p
     lib.jumpy_float_array.argtypes = [c_void_p, p_double, c_longlong]
     lib.jumpy_float_array.restype = c_void_p
-    lib.jumpy_add_constraint.argtypes = [c_void_p, c_void_p, c_int, c_double]
-    lib.jumpy_add_constraint.restype = c_longlong
-    lib.jumpy_add_group_constraint.argtypes = [c_void_p, c_void_p, c_int]
-    lib.jumpy_add_group_constraint.restype = c_longlong
+    lib.jumpy_add_constraint.argtypes = [c_void_p, c_void_p, ctypes.c_uint64]
+    lib.jumpy_add_constraint.restype = c_int
     lib.jumpy_set_objective_sense.argtypes = [c_void_p, c_int]
     lib.jumpy_set_objective_sense.restype = c_int
     lib.jumpy_set_objective_function.argtypes = [c_void_p, c_void_p]
     lib.jumpy_set_objective_function.restype = c_int
     lib.jumpy_optimize.argtypes = [c_void_p]
     lib.jumpy_optimize.restype = c_int
-    lib.jumpy_primal_status.argtypes = [c_void_p]
-    lib.jumpy_primal_status.restype = c_int
-    lib.jumpy_get_values.argtypes = [c_void_p, p_double, c_longlong]
-    lib.jumpy_get_values.restype = c_longlong
-    lib.jumpy_objective_value.argtypes = [c_void_p]
-    lib.jumpy_objective_value.restype = c_double
 
     _LIB = lib
     return lib
 
 
-# Set codes of jumpy_add_constraint: {0: LessThan, 1: GreaterThan,
-# 2: EqualTo}(rhs), {3: ZeroOne, 4: Integer} (rhs ignored).
-_SENSE_CODES = {"<=": 0, ">=": 1, "==": 2, "binary": 3, "integer": 4}
-
-
 class JuliacOps:
     """
-    The compiled-library implementation of the MOI ops. Each method is one
-    C call into the entry point wrapping the same MOI function the
+    The compiled-library implementation of the JuMP operations. Each method is one
+    C call into the entry point wrapping the same Julia function the
     juliacall ops call.
     """
 
     def __init__(self, lib):
+        from jumpy._highs_moi import MOI
+
+        self.MOI = MOI
         self._lib = lib
         self._m = lib.jumpy_new_model()
         if not self._m:  # NULL
@@ -174,29 +170,32 @@ class JuliacOps:
 
     def _node(self, node):
         if not node:  # NULL
-            raise RuntimeError("Failed to build MOI function")
+            raise RuntimeError("Failed to build Julia expression")
         return node
 
-    # -- MOI functions ---------------------------------------------------------
+    # -- Native Julia objects -------------------------------------------------
 
     def constant(self, value):
+        if isinstance(value, int):
+            if not -(2**63) <= value < 2**63:
+                raise OverflowError("Integer literals must fit in a Julia Int64")
+            return self._node(self._lib.jumpy_integer_constant(self._m, value))
         return self._node(self._lib.jumpy_constant(self._m, value))
 
-    def variable(self, index):
-        return self._node(self._lib.jumpy_variable(self._m, index))
-
-    def scalar_nonlinear(self, head, args):
+    def apply(self, op, args):
         argv = (ctypes.c_void_p * len(args))(*args)
         return self._node(
-            self._lib.jumpy_scalar_nonlinear(self._m, head.encode(), argv, len(args))
+            self._lib.jumpy_apply(self._m, op.encode(), argv, len(args))
         )
 
     def iterator(self, values):
+        if all(isinstance(value, int) for value in values):
+            if any(not -(2**63) <= value < 2**63 for value in values):
+                raise OverflowError("Integer iterator values must fit in a Julia Int64")
+            data = (ctypes.c_longlong * len(values))(*values)
+            return self._node(self._lib.jumpy_integer_iterator(self._m, data, len(values)))
         data = (ctypes.c_double * len(values))(*values)
         return self._node(self._lib.jumpy_iterator(self._m, data, len(values)))
-
-    def contiguous_variables(self, start, count):
-        return self._node(self._lib.jumpy_contiguous_variables(self._m, start, count))
 
     def float_array(self, values):
         data = (ctypes.c_double * len(values))(*values)
@@ -205,29 +204,18 @@ class JuliacOps:
     # -- Model building ----------------------------------------------------------
 
     def add_variables(self, count):
-        start = self._lib.jumpy_add_variables(self._m, count)
-        if start < 0:
-            raise RuntimeError("Failed to add variables")
-        return start
+        return self._node(self._lib.jumpy_variables(self._m, count))
 
-    def add_constraint(self, func, sense, rhs):
-        ci = self._lib.jumpy_add_constraint(self._m, func, _SENSE_CODES[sense], rhs)
-        if ci < 0:
-            raise RuntimeError("Failed to add constraint")
-
-    def add_constraint_set(self, func, set_):
+    def _set_handle(self, set_):
         from jumpy._highs_moi import NativeSet
 
         if not isinstance(set_, NativeSet) or set_._lib is not self._lib:
             raise TypeError("Expected an MOI set created by jumpy.highs")
-        ci = self._lib.jumpy_add_constraint_set(self._m, func, set_.handle)
-        if ci < 0:
-            raise RuntimeError("Failed to add the native-set constraint")
+        return set_.handle
 
-    def add_constraint_group(self, func, sense, linear):
-        n = self._lib.jumpy_add_group_constraint(self._m, func, _SENSE_CODES[sense])
-        if n < 0:
-            raise RuntimeError("Failed to add constraint group")
+    def add_constraint(self, func, set_):
+        if self._lib.jumpy_add_constraint(self._m, func, self._set_handle(set_)) != 0:
+            raise RuntimeError("Failed to add constraint")
 
     def set_objective(self, sense, func):
         if self._lib.jumpy_set_objective_sense(self._m, 0 if sense == "min" else 1) != 0:
@@ -238,9 +226,8 @@ class JuliacOps:
     def optimize(self):
         return self._lib.jumpy_optimize(self._m)
 
-    def get_values(self, count):
-        out = (ctypes.c_double * count)()
-        written = self._lib.jumpy_get_values(self._m, out, count)
-        if written != count:
-            raise RuntimeError(f"Expected {count} solution values, got {written}")
-        return list(out)
+    def value(self, func):
+        value = self._lib.jumpy_value(self._m, func)
+        if math.isnan(value):
+            raise RuntimeError("Failed to query value")
+        return value

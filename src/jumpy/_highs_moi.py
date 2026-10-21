@@ -46,29 +46,29 @@ class _ScalarSets:
     """MOI constructor bindings for the sets compiled with HiGHS."""
 
     @staticmethod
-    def _new(sense, rhs=0.0):
+    def _new(constructor, *args):
         lib = backend._load_lib()
-        return NativeSet(lib, lib.jumpy_scalar_set(sense, float(rhs)))
+        return NativeSet(lib, getattr(lib, constructor)(*args))
 
     def LessThan(self, upper):
         """Construct a native MOI.LessThan{Float64}."""
-        return self._new(0, upper)
+        return self._new("jumpy_less_than", float(upper))
 
     def GreaterThan(self, lower):
         """Construct a native MOI.GreaterThan{Float64}."""
-        return self._new(1, lower)
+        return self._new("jumpy_greater_than", float(lower))
 
     def EqualTo(self, value):
         """Construct a native MOI.EqualTo{Float64}."""
-        return self._new(2, value)
+        return self._new("jumpy_equal_to", float(value))
 
     def ZeroOne(self):
         """Construct a native MOI.ZeroOne."""
-        return self._new(3)
+        return self._new("jumpy_zero_one")
 
     def Integer(self):
         """Construct a native MOI.Integer."""
-        return self._new(4)
+        return self._new("jumpy_integer")
 
     def __getattr__(self, name):
         raise AttributeError(

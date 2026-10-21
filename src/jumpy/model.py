@@ -1,14 +1,15 @@
 """
 The Model class: top-level API for building optimization models in JuMPy.
 
-The model is built eagerly: every call performs the corresponding MOI call
+The model is built eagerly: every call performs the corresponding JuMP call
 through the backend's ops object (juliacall or the compiled library).
-optimize() is just MOI.optimize! plus solution retrieval.
+optimize() calls JuMP.optimize!; value() queries native expressions directly.
 """
 
 from __future__ import annotations
 
 from jumpy.expressions import (
+    _native,
     Constraint,
     Node,
     Objective,
@@ -47,9 +48,7 @@ class Model:
     def __init__(self, ops):
         """Internal implementation; public models select ops via their module."""
         self._ops = ops
-        self._num_vars = 0
         self._objective: Objective | None = None
-        self._solution: list[float] | None = None
 
     def close(self) -> None:
         """Release the backend model. The model must not be used afterwards."""
@@ -74,24 +73,29 @@ class Model:
         binary: bool = False,
         integer: bool = False,
     ) -> VariableVector:
-        """Add a block of decision variables (MOI.add_variables + bounds)."""
-        start = self._ops.add_variables(count)
+        """Add a native Julia array of JuMP variables and their bounds."""
+        if not isinstance(count, int):
+            raise TypeError("Variable count must be an integer")
+        if count < 0:
+            raise ValueError("Variable count must be nonnegative")
+        variables = VariableVector(self._ops, self._ops.add_variables(count), count, name)
         # Bounds and integrality are VariableIndex-in-set constraints, as in MOI.
-        for k in range(count):
-            if lower is not None:
-                self._ops.add_constraint(
-                    self._ops.variable(start + k), ">=", float(lower),
-                )
-            if upper is not None:
-                self._ops.add_constraint(
-                    self._ops.variable(start + k), "<=", float(upper),
-                )
-            if binary:
-                self._ops.add_constraint(self._ops.variable(start + k), "binary", 0.0)
-            elif integer:
-                self._ops.add_constraint(self._ops.variable(start + k), "integer", 0.0)
-        self._num_vars += count
-        return VariableVector(self._ops, start, count, name)
+        # Reuse each set across the array instead of constructing it per variable.
+        moi = self._ops.MOI
+        sets = []
+        if lower is not None:
+            sets.append(moi.GreaterThan(float(lower)))
+        if upper is not None:
+            sets.append(moi.LessThan(float(upper)))
+        if binary:
+            sets.append(moi.ZeroOne())
+        elif integer:
+            sets.append(moi.Integer())
+        if sets:
+            for variable in variables:
+                for set_ in sets:
+                    self._ops.add_constraint(variable.ref, set_)
+        return variables
 
     def variable(
         self,
@@ -116,7 +120,7 @@ class Model:
         Used in expressions, it is a symbolic placeholder that GenOpt
         expands over its values when the group constraint is added.
         """
-        return Node(self._ops, self._ops.iterator([float(v) for v in values]))
+        return Node(self._ops, self._ops.iterator(list(values)))
 
     def parameter(self, values, name: str | None = None) -> Parameter:
         """A vector of constant data, symbolically indexable in templates."""
@@ -125,32 +129,18 @@ class Model:
     # -- Constraints -----------------------------------------------------------
 
     def constraint(self, func, set_=None) -> None:
-        """Add ``constraint(x <= 1)`` or ``constraint(x, jp.MOI.LessThan(1))``.
+        """Add ``constraint(x <= 1)`` or ``constraint(x, jp.MOI.LessThan(1.0))``.
 
-        In the explicit-set form, a bare variable remains an MOI variable
-        constraint (including bounds and integrality). Expressions are
-        simplified and their constants normalized into the set.
+        Comparison syntax forwards the same function and native set to the
+        explicit form. Julia handles simplification and constant normalization.
         """
         if self._ops is None:
             raise RuntimeError("The model has been closed")
         if set_ is None:
             if not isinstance(func, Constraint):
                 raise TypeError("Expected a comparison constraint, or a function and an MOI set")
-            self._check_function(func.func)
-            self._ops.add_constraint(func.func.moi, func.sense, 0.0)
-        else:
-            if isinstance(func, (int, float)):
-                func = Node(self._ops, self._ops.scalar_nonlinear(
-                    "+", [self._ops.constant(float(func))],
-                ))
-            self._check_function(func)
-            self._ops.add_constraint_set(func.moi, set_)
-
-    def _check_function(self, func):
-        if not isinstance(func, Node):
-            raise TypeError("Constraint functions must be scalar expressions or numbers")
-        if func._ops is not self._ops:
-            raise ValueError("The constraint expression belongs to a different model")
+            return self.constraint(func.func, func.set)
+        self._ops.add_constraint(_native(self._ops, func), set_)
 
     def constraint_group(self, con: Constraint) -> None:
         """
@@ -161,7 +151,7 @@ class Model:
             i = m.iterator(range(99))
             m.constraint_group(x[i] + x[i + 1] <= 10)
         """
-        self._ops.add_constraint_group(con.func.moi, con.sense, con.func.linear)
+        return self.constraint(con)
 
     # -- Objective -------------------------------------------------------------
 
@@ -172,21 +162,20 @@ class Model:
     @objective.setter
     def objective(self, obj: Objective) -> None:
         self._objective = obj
-        self._ops.set_objective(obj.sense, obj.func.moi)
+        self._ops.set_objective(obj.sense, _native(self._ops, obj.func))
 
     # -- Solve -----------------------------------------------------------------
 
     def optimize(self) -> None:
-        """MOI.optimize!, then retrieve the solution."""
+        """Solve the native JuMP model."""
         status = self._ops.optimize()
         if status != OPTIMAL:
             raise RuntimeError(
                 f"Solve did not reach OPTIMAL (termination status {status})"
             )
-        self._solution = self._ops.get_values(self._num_vars)
 
-    def value(self, var: Variable) -> float:
-        """Get the solved value of a variable."""
-        if self._solution is None:
-            raise RuntimeError("Model has not been solved yet. Call optimize() first.")
-        return self._solution[var.index]
+    def value(self, expr: Node) -> float:
+        """Query JuMP for the value of a native variable or scalar expression."""
+        if self._ops is None:
+            raise RuntimeError("The model has been closed")
+        return self._ops.value(_native(self._ops, expr))
