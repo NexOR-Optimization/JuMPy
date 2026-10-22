@@ -51,6 +51,12 @@ its bridges determining which constraints it supports.
 Use floating-point bounds such as `1.0` for HiGHS sets; comparison operators
 convert numeric bounds to floats automatically.
 
+Symbolic comparisons create constraints, not Python booleans. Using them in
+`if`, membership tests such as `x in [y]`, or chained comparisons such as
+`0 <= x <= 1` raises `TypeError`. Add the two bounds separately, and use
+identity checks such as `any(x is variable for variable in variables)` when
+checking whether a particular Python variable object is in a collection.
+
 Compiled sets are released automatically. A saved set can be reused across
 models of the same interface, even after a model closes. For explicit lifetime
 control, call its `close()` method or use it as a context manager; a closed set
