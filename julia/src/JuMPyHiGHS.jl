@@ -206,6 +206,28 @@ Base.@ccallable function jumpy_integer_constant(
     @_catch C_NULL _box(_get(model), value)
 end
 
+Base.@ccallable function jumpy_sum(
+    model::Ptr{Cvoid},
+    terms::Ptr{Ptr{Cvoid}},
+    nterms::Clonglong,
+)::Ptr{Cvoid}
+    @_catch C_NULL begin
+        handle = _get(model)
+        nterms >= 0 || error("Number of sum terms must be nonnegative")
+        nterms == 0 || terms != C_NULL || error("Sum terms are NULL")
+        values = Any[]
+        sizehint!(values, nterms)
+        for i = 1:nterms
+            value = _unbox(unsafe_load(terms, i))
+            value isa NativeScalar || error("Expected scalar sum terms")
+            push!(values, value)
+        end
+        expression = JuMPyModel.sum_terms(handle.model, values)
+        expression isa NativeScalar || error("Expected a scalar sum expression")
+        _box(handle, expression)
+    end
+end
+
 # Call the ordinary Julia operator on the actual expression objects.
 Base.@ccallable function jumpy_apply(
     model::Ptr{Cvoid},

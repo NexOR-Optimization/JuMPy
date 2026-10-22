@@ -79,6 +79,18 @@ cannot be reused.
 
 ## Expressions
 
+For long sums, use `model.sum(terms)` instead of Python's `sum(terms)`. Terms
+are passed to Julia together, where JuMP accumulates them without repeatedly
+copying the growing expression:
+
+```python
+model.objective = jp.maximize(model.sum(c * x[i] for i, c in enumerate(costs)))
+```
+
+The iterable may contain numeric constants, variables, and scalar affine,
+quadratic, or nonlinear expressions. An empty iterable produces zero. The
+result is a normal native expression and its input expressions are unchanged.
+
 Python operators call JuMP's native arithmetic and keep only opaque references
 to the resulting expressions. JuMP determines whether an expression is affine,
 quadratic, or nonlinear. HiGHS supports convex quadratic objectives such as

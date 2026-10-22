@@ -98,6 +98,9 @@ class JuliaCallOps:
         )
         self._jump.set_objective_function(self._model, func)
 
+    def sum_terms(self, terms):
+        return self._jump.sum_terms(self._model, self._any_vec(*terms))
+
     def optimize(self):
         self._jump.optimize(self._model)
         return self.termination_status()

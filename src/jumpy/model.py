@@ -157,6 +157,18 @@ class Model:
 
     # -- Objective -------------------------------------------------------------
 
+    def sum(self, terms) -> Node:
+        """Sum native expressions without repeatedly copying the growing sum.
+
+        Numeric constants are accepted, and an empty iterable returns zero.
+        """
+        if self._ops is None:
+            raise RuntimeError("The model has been closed")
+        return Node(
+            self._ops,
+            self._ops.sum_terms([_native(self._ops, term) for term in terms]),
+        )
+
     @property
     def objective(self) -> Objective | None:
         return self._objective

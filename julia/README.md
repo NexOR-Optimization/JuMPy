@@ -44,7 +44,8 @@ See `src/JuMPyHiGHS.jl` for the full conventions.
 
 Rebuild existing compiled libraries for this ABI. The old column-index and
 bulk-solution entry points are removed; the Python loader rejects binaries
-without the native array and value-query entry points before starting Julia.
+without the native array, value-query, and summation entry points before
+starting Julia.
 
 A model is an opaque `void*` pointing at the Julia-side model object; native
 expressions are opaque `void*` nodes built with the operation entry points.
@@ -60,6 +61,7 @@ nodes belong to the model that built them, and everything is freed by
 | `jumpy_constant(m, value) -> void*` | a `Float64` node |
 | `jumpy_integer_constant(m, value) -> void*` | an `Int64` node, preserving integer exponents and indices |
 | `jumpy_apply(m, op, args**, nargs) -> void*` | Apply the native Julia operator to JuMP/GenOpt arguments |
+| `jumpy_sum(m, terms**, nterms) -> void*` | Accumulate native scalar terms using JuMP; an empty array produces zero |
 | `jumpy_iterator(m, values*, len) -> void*` | `GenOpt.iterator` over `Float64` values |
 | `jumpy_integer_iterator(m, values*, len) -> void*` | `GenOpt.iterator` over `Int64` values, including integer index ranges |
 | `jumpy_float_array(m, values*, len) -> void*` | a data vector, 1-based-indexable in templates |

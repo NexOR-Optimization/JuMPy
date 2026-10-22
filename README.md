@@ -167,12 +167,23 @@ expression such as `z + 0` when you want an affine row instead of a bound.
 | `m.objective = jp.maximize(expr)` | Set a maximization objective |
 | `m.iterator(range(n))` | An index set for constraint groups |
 | `m.parameter(values, name=)` | A data vector, symbolically indexable |
+| `m.sum(terms)` | Accumulate scalar expressions efficiently in Julia |
 | `m.optimize()` | Solve the model |
 | `m.set_time_limit_sec(seconds)` | Set a positive finite solve time limit in seconds; `None` clears it |
 | `m.unset_time_limit_sec()` | Clear the solve time limit |
 | `m.value(expr)` | Query the current native value of a variable or scalar expression |
 
 ### Expressions
+
+Use `m.sum(terms)` for long sums instead of Python's `sum()`. JuMP accumulates
+the terms without repeatedly copying the growing expression:
+
+```python
+m.objective = jp.maximize(m.sum(c * x[i] for i, c in enumerate(costs)))
+```
+
+Numeric terms and scalar affine, quadratic, and nonlinear expressions are
+supported; an empty iterable produces zero. JuMP determines the result type.
 
 Variables and iterators support standard arithmetic (`+`, `-`, `*`, `/`, `**`) and comparisons (`<=`, `>=`, `==`). Nonlinear functions are available as:
 

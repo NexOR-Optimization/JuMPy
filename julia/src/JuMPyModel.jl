@@ -35,6 +35,10 @@ const _OPERATORS = Dict{Symbol,Function}(
 apply(op::Symbol, args::Vector{Any}) = _OPERATORS[op](args...)
 iterator(values) = GenOpt.iterator(values)
 
+# Let JuMP accumulate into mutable expressions instead of repeatedly copying
+# the growing expression across the Python boundary.
+sum_terms(model, terms::Vector{Any}) = JuMP.@expression(model, sum(term for term in terms))
+
 function add_constraint(model, func, set)
     # build_constraint normalizes constants in-place, as in @constraint.
     constraint = JuMP.build_constraint(error, JuMP._MA.copy_if_mutable(func), set)
