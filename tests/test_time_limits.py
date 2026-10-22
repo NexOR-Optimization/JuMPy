@@ -53,7 +53,7 @@ def test_compiled_time_limit_encodes_none_as_nan_and_checks_errors():
     lib = SimpleNamespace(
         jumpy_new_model=lambda: 99,
         jumpy_free_model=lambda model: 0,
-        jumpy_set_time_limit=lambda *args: calls.append(args) or 0,
+        jumpy_set_time_limit_sec=lambda *args: calls.append(args) or 0,
     )
     ops = backend.JuliacOps(lib)
     try:
@@ -61,7 +61,7 @@ def test_compiled_time_limit_encodes_none_as_nan_and_checks_errors():
         ops.set_time_limit_sec(None)
         assert calls[0] == (99, 4.0)
         assert calls[1][0] == 99 and math.isnan(calls[1][1])
-        lib.jumpy_set_time_limit = lambda *args: -1
+        lib.jumpy_set_time_limit_sec = lambda *args: -1
         with pytest.raises(RuntimeError, match="Failed to set time limit"):
             ops.set_time_limit_sec(1.0)
     finally:

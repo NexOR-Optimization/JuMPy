@@ -334,7 +334,7 @@ end
 
 # -- Solve and solution retrieval ----------------------------------------------
 
-Base.@ccallable function jumpy_set_time_limit(model::Ptr{Cvoid}, seconds::Cdouble)::Cint
+Base.@ccallable function jumpy_set_time_limit_sec(model::Ptr{Cvoid}, seconds::Cdouble)::Cint
     @_catch Cint(-1) begin
         JuMPyModel.set_time_limit_sec(_get(model).model, seconds)
         Cint(0)

@@ -37,17 +37,17 @@ end
     model = J.jumpy_new_model()
     try
         backend = JuMP.backend(J._get(model).model)
-        @test J.jumpy_set_time_limit(model, 5.0) == 0
+        @test J.jumpy_set_time_limit_sec(model, 5.0) == 0
         @test MOI.get(backend, MOI.TimeLimitSec()) == 5.0
-        @test J.jumpy_set_time_limit(model, 0.0) == 0
+        @test J.jumpy_set_time_limit_sec(model, 0.0) == 0
         @test MOI.get(backend, MOI.TimeLimitSec()) == 0.0
-        @test J.jumpy_set_time_limit(model, NaN) == 0
+        @test J.jumpy_set_time_limit_sec(model, NaN) == 0
         @test MOI.get(backend, MOI.TimeLimitSec()) === nothing
         redirect_stderr(devnull) do
             for seconds in (-1.0, Inf, -Inf)
-                @test J.jumpy_set_time_limit(model, seconds) == -1
+                @test J.jumpy_set_time_limit_sec(model, seconds) == -1
             end
-            @test J.jumpy_set_time_limit(C_NULL, 1.0) == -1
+            @test J.jumpy_set_time_limit_sec(C_NULL, 1.0) == -1
         end
     finally
         @test J.jumpy_free_model(model) == 0
