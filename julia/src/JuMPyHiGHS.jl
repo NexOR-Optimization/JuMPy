@@ -358,4 +358,20 @@ Base.@ccallable function jumpy_value(model::Ptr{Cvoid}, func::Ptr{Cvoid})::Cdoub
     end
 end
 
+Base.@ccallable function jumpy_objective_value(model::Ptr{Cvoid})::Cdouble
+    @_catch Cdouble(NaN) Cdouble(JuMPyDirect.objective_value(_get(model).model))
+end
+
+Base.@ccallable function jumpy_has_values(model::Ptr{Cvoid})::Cint
+    @_catch Cint(-1) Cint(JuMPyDirect.has_values(_get(model).model))
+end
+
+Base.@ccallable function jumpy_has_duals(model::Ptr{Cvoid})::Cint
+    @_catch Cint(-1) Cint(JuMPyDirect.has_duals(_get(model).model))
+end
+
+Base.@ccallable function jumpy_termination_status(model::Ptr{Cvoid})::Cint
+    @_catch Cint(-1) Cint(Integer(JuMPyDirect.termination_status(_get(model).model)))
+end
+
 end # module JuMPyHiGHS

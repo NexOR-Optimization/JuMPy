@@ -75,6 +75,10 @@ nodes belong to the model that built them, and everything is freed by
 | `jumpy_optimize(m) -> int32` | Optimize the raw MOI backend; returns the termination status (`OPTIMAL == 1`) |
 | `jumpy_set_time_limit_sec(m, seconds) -> int32` | Set a finite nonnegative time limit; NaN clears it; 0 on success, -1 on error |
 | `jumpy_value(m, expr) -> float64` | Evaluate the native expression using MOI variable values; NaN on error |
+| `jumpy_objective_value(m) -> float64` | Query the solver objective value; NaN on error |
+| `jumpy_has_values(m) -> int32` | Query primal result availability; 0 or 1, -1 on error |
+| `jumpy_has_duals(m) -> int32` | Query dual result availability; 0 or 1, -1 on error |
+| `jumpy_termination_status(m) -> int32` | Query the MOI termination status without solving; -1 on error |
 
 Arrays and their indexed variables are ordinary native expression references.
 Python translates local zero-based indices to Julia's one-based `getindex`

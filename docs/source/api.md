@@ -99,6 +99,29 @@ current solution in JuMP directly, without a Python column mapping or solution
 cache. Querying variable values before solving raises a backend error.
 Expressions must belong to the queried model, and the model must still be open.
 
+## Solve results
+
+`model.optimize()` returns the native MOI termination status code (`1` means
+`OPTIMAL`) and raises if the solve does not reach optimality, as before.
+Use `model.optimize(require_optimal=False)` to inspect nonoptimal termination
+without rejecting an available incumbent:
+
+```python
+status = model.optimize(require_optimal=False)
+if model.has_values():
+    print(model.objective_value())
+    print(model.value(x))
+```
+
+`model.termination_status()` queries the current status without solving.
+`model.has_values()` and `model.has_duals()` query primal and dual result
+availability; MIPs normally have no dual solution. `model.objective_value()`
+reads the solver's objective value rather than reconstructing it in Python.
+Result queries are not cached. Modifying the model invalidates its previous
+result, and querying an unavailable objective value raises a backend error.
+
+## Constraint groups
+
 Symbolic indexing creates native GenOpt expression templates.
 `model.constraint_group(con)` delegates to `model.constraint(con)`, which uses
 JuMP's constraint construction and GenOpt's bridge to expand iterator-based

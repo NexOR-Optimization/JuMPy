@@ -100,7 +100,19 @@ class JuliaCallOps:
 
     def optimize(self):
         self._jump.optimize(self._model)
-        return int(self._jl.Int(self._jl.JuMP.termination_status(self._model)))
+        return self.termination_status()
+
+    def termination_status(self):
+        return int(self._jl.Int(self._jump.termination_status(self._model)))
+
+    def has_values(self):
+        return bool(self._jump.has_values(self._model))
+
+    def has_duals(self):
+        return bool(self._jump.has_duals(self._model))
+
+    def objective_value(self):
+        return float(self._jump.objective_value(self._model))
 
     def set_time_limit_sec(self, seconds):
         self._jump.set_time_limit_sec(self._model, math.nan if seconds is None else seconds)
