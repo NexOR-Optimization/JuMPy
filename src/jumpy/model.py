@@ -8,6 +8,8 @@ optimize() calls JuMP.optimize!; value() queries native expressions directly.
 
 from __future__ import annotations
 
+import math
+
 from jumpy.expressions import (
     _native,
     Constraint,
@@ -165,6 +167,20 @@ class Model:
         self._ops.set_objective(obj.sense, _native(self._ops, obj.func))
 
     # -- Solve -----------------------------------------------------------------
+
+    def set_time_limit_sec(self, seconds: float | None) -> None:
+        """Set a positive finite solve time limit in seconds, or clear it with None."""
+        if self._ops is None:
+            raise RuntimeError("The model has been closed")
+        if seconds is not None:
+            seconds = float(seconds)
+            if not math.isfinite(seconds) or seconds <= 0:
+                raise ValueError("The time limit must be positive and finite, or None")
+        self._ops.set_time_limit_sec(seconds)
+
+    def unset_time_limit_sec(self) -> None:
+        """Clear the model's solve time limit."""
+        self.set_time_limit_sec(None)
 
     def optimize(self) -> None:
         """Solve the native JuMP model."""

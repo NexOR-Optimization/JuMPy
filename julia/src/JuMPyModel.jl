@@ -46,4 +46,15 @@ set_objective_function(model, func) = JuMP.set_objective_function(model, func)
 optimize(model) = JuMP.optimize!(model)
 value(func) = JuMP.value(func)
 
+function set_time_limit_sec(model, seconds::Float64)
+    if isnan(seconds)
+        JuMP.unset_time_limit_sec(model)
+    else
+        isfinite(seconds) && seconds >= 0 ||
+            throw(ArgumentError("Time limit must be a finite nonnegative number"))
+        JuMP.set_time_limit_sec(model, seconds)
+    end
+    return
+end
+
 end # module JuMPyModel

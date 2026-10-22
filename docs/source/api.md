@@ -19,6 +19,21 @@ process; native objects cannot cross between their Julia runtimes.
 .. autofunction:: jumpy.maximize
 ```
 
+## Solve time limits
+
+`model.set_time_limit_sec(seconds)` sets a positive finite limit in seconds for
+either backend. `model.unset_time_limit_sec()` clears it before the next solve;
+`model.set_time_limit_sec(None)` is equivalent:
+
+```python
+model.set_time_limit_sec(60.0)
+model.optimize()
+model.unset_time_limit_sec()
+```
+
+`optimize()` still requires an optimal solve and raises if, for example, the
+time limit is reached. Setting a limit does not change its result handling.
+
 ## Function-in-set constraints
 
 Comparison syntax and explicit MOI sets are both supported:

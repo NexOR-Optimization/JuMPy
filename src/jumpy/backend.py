@@ -100,6 +100,8 @@ def _init_lib(path):
             constructor.restype = ctypes.c_uint64
         lib.jumpy_free_set.argtypes = [ctypes.c_uint64]
         lib.jumpy_free_set.restype = ctypes.c_int
+        lib.jumpy_set_time_limit_sec.argtypes = [ctypes.c_void_p, ctypes.c_double]
+        lib.jumpy_set_time_limit_sec.restype = ctypes.c_int
     except AttributeError:
         raise RuntimeError("Rebuild the JuMPy library: this build lacks the native JuMP API") from None
 
@@ -225,6 +227,12 @@ class JuliacOps:
 
     def optimize(self):
         return self._lib.jumpy_optimize(self._m)
+
+    def set_time_limit_sec(self, seconds):
+        if self._lib.jumpy_set_time_limit_sec(
+            self._m, math.nan if seconds is None else seconds
+        ) != 0:
+            raise RuntimeError("Failed to set time limit")
 
     def value(self, func):
         value = self._lib.jumpy_value(self._m, func)

@@ -21,6 +21,8 @@ let J = JuMPyHiGHS
         return result
     end
     m = J.jumpy_new_model()
+    @assert J.jumpy_set_time_limit_sec(m, 10.0) == 0
+    @assert J.jumpy_set_time_limit_sec(m, NaN) == 0
     variables = J.jumpy_variables(m, Clonglong(3))
     x = apply(m, "getindex", variables, J.jumpy_integer_constant(m, Clonglong(1)))
     # bounds and integrality: every set

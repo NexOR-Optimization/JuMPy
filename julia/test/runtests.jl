@@ -5,6 +5,7 @@ using Test
 
 include("model.jl")
 include("direct_model.jl")
+include("time_limits.jl")
 
 variable(m, block, i) = apply(m, "getindex", block, constant(m, i))
 value(m, func) = JuMPyHiGHS.jumpy_value(m, func)

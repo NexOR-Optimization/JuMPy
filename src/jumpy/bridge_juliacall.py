@@ -8,6 +8,7 @@ library (jumpy.backend.JuliacOps).
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from jumpy import backend
@@ -100,6 +101,9 @@ class JuliaCallOps:
     def optimize(self):
         self._jump.optimize(self._model)
         return int(self._jl.Int(self._jl.JuMP.termination_status(self._model)))
+
+    def set_time_limit_sec(self, seconds):
+        self._jump.set_time_limit_sec(self._model, math.nan if seconds is None else seconds)
 
     def value(self, func):
         return float(self._jump.value(func))

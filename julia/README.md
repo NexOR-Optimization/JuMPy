@@ -73,6 +73,7 @@ nodes belong to the model that built them, and everything is freed by
 | `jumpy_set_objective_sense(m, sense) -> int32` | Set the JuMP objective sense; 0 = min, 1 = max |
 | `jumpy_set_objective_function(m, f) -> int32` | Set the native JuMP objective expression |
 | `jumpy_optimize(m) -> int32` | Optimize the raw MOI backend; returns the termination status (`OPTIMAL == 1`) |
+| `jumpy_set_time_limit_sec(m, seconds) -> int32` | Set a finite nonnegative time limit; NaN clears it; 0 on success, -1 on error |
 | `jumpy_value(m, expr) -> float64` | Evaluate the native expression using MOI variable values; NaN on error |
 
 Arrays and their indexed variables are ordinary native expression references.
@@ -88,6 +89,11 @@ these native sets. A set can be reused across models in the same image and remai
 after a model closes, until the set is released. The Python wrapper releases
 sets automatically and also supports `close()` and context managers. Handles
 cannot be passed to JuliaCall or another image.
+
+Python exposes `model.set_time_limit_sec(seconds)` and
+`model.unset_time_limit_sec()` for setting and clearing time limits. Both use
+the `jumpy_set_time_limit_sec` transport in the compiled backend; NaN is
+an internal clearing sentinel, not a public argument.
 
 The shared expression operations and JuliaCall model implementation live in
 [`src/JuMPyModel.jl`](src/JuMPyModel.jl). It is a
