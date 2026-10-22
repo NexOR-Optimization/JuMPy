@@ -20,9 +20,6 @@ from jumpy.expressions import (
     VariableVector,
 )
 
-# MOI.OPTIMAL in MOI.TerminationStatusCode.
-OPTIMAL = 1
-
 
 def minimize(func: Node) -> Objective:
     return Objective("min", func)
@@ -185,19 +182,10 @@ class Model:
         """Clear the model's solve time limit."""
         self.set_time_limit_sec(None)
 
-    def optimize(self, *, require_optimal: bool = True) -> int:
-        """Solve and return the native MOI termination status code.
-
-        Set ``require_optimal=False`` to inspect a nonoptimal solve using
-        ``has_values()`` before querying its best available solution.
-        """
+    def optimize(self) -> int:
+        """Solve and return the native MOI termination status code."""
         self._require_open()
-        status = self._ops.optimize()
-        if require_optimal and status != OPTIMAL:
-            raise RuntimeError(
-                f"Solve did not reach OPTIMAL (termination status {status})"
-            )
-        return status
+        return self._ops.optimize()
 
     def termination_status(self) -> int:
         """Return the native MOI termination status code reported by JuMP."""

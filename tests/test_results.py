@@ -32,12 +32,10 @@ def test_nonoptimal_status_does_not_discard_available_values():
     model = Model(ops)
     assert model.optimize() == 1
     ops.status = 12  # MOI.TIME_LIMIT
-    with pytest.raises(RuntimeError, match="termination status 12"):
-        model.optimize()
-    assert model.optimize(require_optimal=False) == 12
+    assert model.optimize() == 12
     assert model.has_values()
     assert model.objective_value() == 2.5
-    assert ops.optimize_calls == 3
+    assert ops.optimize_calls == 2
 
 
 @pytest.mark.parametrize(

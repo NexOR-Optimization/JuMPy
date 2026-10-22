@@ -31,8 +31,8 @@ model.optimize()
 model.unset_time_limit_sec()
 ```
 
-`optimize()` still requires an optimal solve and raises if, for example, the
-time limit is reached. Setting a limit does not change its result handling.
+If the limit is reached, `optimize()` returns the termination status normally.
+Use `model.has_values()` to check whether a solution is available.
 
 ## Function-in-set constraints
 
@@ -102,12 +102,11 @@ Expressions must belong to the queried model, and the model must still be open.
 ## Solve results
 
 `model.optimize()` returns the native MOI termination status code (`1` means
-`OPTIMAL`) and raises if the solve does not reach optimality, as before.
-Use `model.optimize(require_optimal=False)` to inspect nonoptimal termination
-without rejecting an available incumbent:
+`OPTIMAL`), including nonoptimal termination such as a time limit or
+infeasibility. Check solution availability before querying values:
 
 ```python
-status = model.optimize(require_optimal=False)
+status = model.optimize()
 if model.has_values():
     print(model.objective_value())
     print(model.value(x))

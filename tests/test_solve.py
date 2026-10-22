@@ -557,7 +557,7 @@ def test_native_nonoptimal_solve_reports_status_without_claiming_solution():
     try:
         x = model.variable(lower=1, upper=0)
         model.objective = jp.minimize(x)
-        assert model.optimize(require_optimal=False) == 2  # MOI.INFEASIBLE
+        assert model.optimize() == 2  # MOI.INFEASIBLE
         assert model.termination_status() == 2
         assert not model.has_values()
         with pytest.raises(_native_result_error()):
