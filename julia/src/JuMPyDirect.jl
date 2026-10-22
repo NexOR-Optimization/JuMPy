@@ -76,6 +76,18 @@ function optimize(model)
     return
 end
 
+function set_time_limit(model, seconds::Float64)
+    value = if isnan(seconds)
+        nothing
+    else
+        isfinite(seconds) && seconds >= 0 ||
+            throw(ArgumentError("Time limit must be a finite nonnegative number"))
+        seconds
+    end
+    MOI.set(JuMP.backend(model), MOI.TimeLimitSec(), value)
+    return
+end
+
 function _variable_value(variable::JuMP.AbstractVariableRef)
     model = JuMP.owner_model(variable)
     model.is_model_dirty && throw(JuMP.OptimizeNotCalled())

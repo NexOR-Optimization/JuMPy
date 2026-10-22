@@ -73,6 +73,7 @@ nodes belong to the model that built them, and everything is freed by
 | `jumpy_set_objective_sense(m, sense) -> int32` | Set the JuMP objective sense; 0 = min, 1 = max |
 | `jumpy_set_objective_function(m, f) -> int32` | Set the native JuMP objective expression |
 | `jumpy_optimize(m) -> int32` | Optimize the raw MOI backend; returns the termination status (`OPTIMAL == 1`) |
+| `jumpy_set_time_limit(m, seconds) -> int32` | Set a finite nonnegative time limit; NaN clears it; 0 on success, -1 on error |
 | `jumpy_value(m, expr) -> float64` | Evaluate the native expression using MOI variable values; NaN on error |
 
 Arrays and their indexed variables are ordinary native expression references.

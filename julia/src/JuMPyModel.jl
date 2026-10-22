@@ -19,8 +19,18 @@ add_variables(model, count) = JuMP.@variable(model, [1:count])
 # Keep references to the native functions: a trimmed image need not retain
 # Base bindings looked up only by a runtime Symbol.
 const _OPERATORS = Dict{Symbol,Function}(
-    :+ => +, :- => -, :* => *, :/ => /, :^ => ^, :getindex => getindex,
-    :sin => sin, :cos => cos, :exp => exp, :log => log, :sqrt => sqrt, :abs => abs,
+    :+ => +,
+    :- => -,
+    :* => *,
+    :/ => /,
+    :^ => ^,
+    :getindex => getindex,
+    :sin => sin,
+    :cos => cos,
+    :exp => exp,
+    :log => log,
+    :sqrt => sqrt,
+    :abs => abs,
 )
 apply(op::Symbol, args::Vector{Any}) = _OPERATORS[op](args...)
 iterator(values) = GenOpt.iterator(values)
@@ -35,5 +45,16 @@ set_objective_sense(model, sense) = JuMP.set_objective_sense(model, sense)
 set_objective_function(model, func) = JuMP.set_objective_function(model, func)
 optimize(model) = JuMP.optimize!(model)
 value(func) = JuMP.value(func)
+
+function set_time_limit(model, seconds::Float64)
+    if isnan(seconds)
+        JuMP.unset_time_limit_sec(model)
+    else
+        isfinite(seconds) && seconds >= 0 ||
+            throw(ArgumentError("Time limit must be a finite nonnegative number"))
+        JuMP.set_time_limit_sec(model, seconds)
+    end
+    return
+end
 
 end # module JuMPyModel

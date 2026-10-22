@@ -54,7 +54,7 @@ def test_jumpy_lib_directory_errors():
 
 @pytest.mark.parametrize(
     "missing", ["jumpy_apply", "jumpy_integer_constant", "jumpy_integer_iterator",
-                "jumpy_variables", "jumpy_value"],
+                "jumpy_variables", "jumpy_value", "jumpy_set_time_limit"],
 )
 def test_old_abi_is_rejected_before_julia_initialization(monkeypatch, missing):
     def unexpected_init(*args):
@@ -67,6 +67,7 @@ def test_old_abi_is_rejected_before_julia_initialization(monkeypatch, missing):
             "jumpy_variables", "jumpy_value",
             "jumpy_less_than", "jumpy_greater_than", "jumpy_equal_to",
             "jumpy_zero_one", "jumpy_integer", "jumpy_free_set",
+            "jumpy_set_time_limit",
         )
         if name != missing
     }

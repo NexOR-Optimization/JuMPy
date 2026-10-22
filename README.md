@@ -168,6 +168,7 @@ expression such as `z + 0` when you want an affine row instead of a bound.
 | `m.iterator(range(n))` | An index set for constraint groups |
 | `m.parameter(values, name=)` | A data vector, symbolically indexable |
 | `m.optimize()` | Solve the model |
+| `m.set_time_limit(seconds)` | Set a positive finite solve time limit; `None` clears it |
 | `m.value(expr)` | Query the current native value of a variable or scalar expression |
 
 ### Expressions
