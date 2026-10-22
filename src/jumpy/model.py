@@ -168,7 +168,7 @@ class Model:
 
     # -- Solve -----------------------------------------------------------------
 
-    def set_time_limit(self, seconds: float | None) -> None:
+    def set_time_limit_sec(self, seconds: float | None) -> None:
         """Set a positive finite solve time limit in seconds, or clear it with None."""
         if self._ops is None:
             raise RuntimeError("The model has been closed")
@@ -176,7 +176,11 @@ class Model:
             seconds = float(seconds)
             if not math.isfinite(seconds) or seconds <= 0:
                 raise ValueError("The time limit must be positive and finite, or None")
-        self._ops.set_time_limit(seconds)
+        self._ops.set_time_limit_sec(seconds)
+
+    def unset_time_limit_sec(self) -> None:
+        """Clear the model's solve time limit."""
+        self.set_time_limit_sec(None)
 
     def optimize(self) -> None:
         """Solve the native JuMP model."""

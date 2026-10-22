@@ -21,13 +21,14 @@ process; native objects cannot cross between their Julia runtimes.
 
 ## Solve time limits
 
-`model.set_time_limit(seconds)` sets a positive finite limit in seconds for
-either backend. Pass `None` to clear it before the next solve:
+`model.set_time_limit_sec(seconds)` sets a positive finite limit in seconds for
+either backend. `model.unset_time_limit_sec()` clears it before the next solve;
+`model.set_time_limit_sec(None)` is equivalent:
 
 ```python
-model.set_time_limit(60.0)
+model.set_time_limit_sec(60.0)
 model.optimize()
-model.set_time_limit(None)
+model.unset_time_limit_sec()
 ```
 
 `optimize()` still requires an optimal solve and raises if, for example, the

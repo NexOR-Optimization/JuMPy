@@ -46,7 +46,7 @@ set_objective_function(model, func) = JuMP.set_objective_function(model, func)
 optimize(model) = JuMP.optimize!(model)
 value(func) = JuMP.value(func)
 
-function set_time_limit(model, seconds::Float64)
+function set_time_limit_sec(model, seconds::Float64)
     if isnan(seconds)
         JuMP.unset_time_limit_sec(model)
     else

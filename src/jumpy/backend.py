@@ -228,7 +228,7 @@ class JuliacOps:
     def optimize(self):
         return self._lib.jumpy_optimize(self._m)
 
-    def set_time_limit(self, seconds):
+    def set_time_limit_sec(self, seconds):
         if self._lib.jumpy_set_time_limit(
             self._m, math.nan if seconds is None else seconds
         ) != 0:

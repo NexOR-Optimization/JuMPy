@@ -90,6 +90,11 @@ after a model closes, until the set is released. The Python wrapper releases
 sets automatically and also supports `close()` and context managers. Handles
 cannot be passed to JuliaCall or another image.
 
+Python exposes `model.set_time_limit_sec(seconds)` and
+`model.unset_time_limit_sec()` for setting and clearing time limits. Both use
+the existing `jumpy_set_time_limit` transport in the compiled backend; NaN is
+an internal clearing sentinel, not a public argument.
+
 The shared expression operations and JuliaCall model implementation live in
 [`src/JuMPyModel.jl`](src/JuMPyModel.jl). It is a
 solver-independent Julia module shared with the JuliaCall backend, and is
