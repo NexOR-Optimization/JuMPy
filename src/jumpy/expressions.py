@@ -182,6 +182,12 @@ class Constraint:
     def __repr__(self) -> str:
         return f"<constraint: f(x) in {self.set}>"
 
+    def __bool__(self):
+        raise TypeError(
+            "A symbolic constraint has no truth value. Add it with model.constraint(); "
+            "do not use symbolic comparisons in Python conditions or membership tests."
+        )
+
 
 class Objective:
     """An optimization objective (minimize or maximize)."""

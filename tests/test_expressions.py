@@ -86,6 +86,28 @@ def test_reflected_numeric_comparison(compare, constructor):
     assert con.set == (constructor, 10.0)
 
 
+@pytest.mark.parametrize("compare", [operator.le, operator.ge, operator.eq])
+def test_symbolic_comparisons_have_no_truth_value(compare):
+    x = Variable(MockOps(), ("var", 0))
+    with pytest.raises(TypeError, match="no truth value"):
+        bool(compare(x, 1))
+
+
+def test_symbolic_membership_cannot_silently_compare_distinct_variables():
+    ops = MockOps()
+    x, y = Variable(ops, ("var", 0)), Variable(ops, ("var", 1))
+    with pytest.raises(TypeError, match="membership tests"):
+        x in [y]
+    # Python checks identity first, so callers can explicitly use identity.
+    assert any(x is variable for variable in [y, x])
+
+
+def test_chained_symbolic_comparisons_are_rejected():
+    x = Variable(MockOps(), ("var", 0))
+    with pytest.raises(TypeError, match="no truth value"):
+        0 <= x <= 1
+
+
 def test_variable_vector_concrete_indexing():
     ops = MockOps()
     ref = ops.add_variables(3)
