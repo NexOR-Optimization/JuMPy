@@ -36,8 +36,26 @@ const NativeAffine = JuMP.GenericAffExpr{Float64,NativeVariable}
 const NativeQuadratic = JuMP.GenericQuadExpr{Float64,NativeVariable}
 const NativeNonlinear = JuMP.GenericNonlinearExpr{NativeVariable}
 
-const NativeScalar =
-    Union{Int64,Float64,NativeVariable,NativeAffine,NativeQuadratic,NativeNonlinear}
+const NativeLazySum = Union{
+    GenOpt.LazySum{Int64,NativeVariable},
+    GenOpt.LazySum{Float64,NativeVariable},
+    GenOpt.LazySum{NativeVariable,NativeVariable},
+    GenOpt.LazySum{NativeAffine,NativeVariable},
+    GenOpt.LazySum{NativeQuadratic,NativeVariable},
+    GenOpt.LazySum{NativeNonlinear,NativeVariable},
+    GenOpt.LazySum{Int64,JuMP.VariableRef},
+    GenOpt.LazySum{Float64,JuMP.VariableRef},
+}
+const NativeScalar = Union{
+    Int64,
+    Float64,
+    NativeVariable,
+    NativeAffine,
+    NativeQuadratic,
+    NativeNonlinear,
+    JuMP.NonlinearExpr,
+    NativeLazySum,
+}
 const NativeTemplate = Union{
     GenOpt.ExprTemplate{Int64,NativeVariable},
     GenOpt.ExprTemplate{Float64,NativeVariable},
@@ -204,28 +222,6 @@ Base.@ccallable function jumpy_integer_constant(
     value::Clonglong,
 )::Ptr{Cvoid}
     @_catch C_NULL _box(_get(model), value)
-end
-
-Base.@ccallable function jumpy_sum(
-    model::Ptr{Cvoid},
-    terms::Ptr{Ptr{Cvoid}},
-    nterms::Clonglong,
-)::Ptr{Cvoid}
-    @_catch C_NULL begin
-        handle = _get(model)
-        nterms >= 0 || error("Number of sum terms must be nonnegative")
-        nterms == 0 || terms != C_NULL || error("Sum terms are NULL")
-        values = Any[]
-        sizehint!(values, nterms)
-        for i = 1:nterms
-            value = _unbox(unsafe_load(terms, i))
-            value isa NativeScalar || error("Expected scalar sum terms")
-            push!(values, value)
-        end
-        expression = JuMPyModel.sum_terms(handle.model, values)
-        expression isa NativeScalar || error("Expected a scalar sum expression")
-        _box(handle, expression)
-    end
 end
 
 # Call the ordinary Julia operator on the actual expression objects.

@@ -54,6 +54,7 @@ function _apply_native(op::Symbol, arg::NativeNode)
     op === :log && return log(arg)
     op === :sqrt && return sqrt(arg)
     op === :abs && return abs(arg)
+    op === :lazy_sum && return JuMPyModel.lazy_sum(arg)
     return error("Unsupported native unary operator")
 end
 

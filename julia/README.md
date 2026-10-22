@@ -18,6 +18,9 @@ produce errors.
 JuliaCall instead creates a regular JuMP model with caching and bridges,
 including GenOpt's `FunctionGeneratorBridge`. Both frontends use the same
 native JuMP/GenOpt expressions; their solver plumbing is intentionally different.
+JuliaCall accepts a native Julia MOI optimizer instance via
+`jp.Model(optimizer=...)`, with HiGHS used by default. The optimizer argument
+is an instance, not a factory.
 
 In Python, select this backend with `import jumpy.highs as jp`, then construct
 `jp.Model()` without a backend argument. `import jumpy.juliacall as jp` selects
@@ -44,7 +47,7 @@ See `src/JuMPyHiGHS.jl` for the full conventions.
 
 Rebuild existing compiled libraries for this ABI. The old column-index and
 bulk-solution entry points are removed; the Python loader rejects binaries
-without the native array, value-query, and summation entry points before
+without the native array and value-query entry points before
 starting Julia.
 
 A model is an opaque `void*` pointing at the Julia-side model object; native
@@ -61,7 +64,6 @@ nodes belong to the model that built them, and everything is freed by
 | `jumpy_constant(m, value) -> void*` | a `Float64` node |
 | `jumpy_integer_constant(m, value) -> void*` | an `Int64` node, preserving integer exponents and indices |
 | `jumpy_apply(m, op, args**, nargs) -> void*` | Apply the native Julia operator to JuMP/GenOpt arguments |
-| `jumpy_sum(m, terms**, nterms) -> void*` | Accumulate native scalar terms using JuMP; an empty array produces zero |
 | `jumpy_iterator(m, values*, len) -> void*` | `GenOpt.iterator` over `Float64` values |
 | `jumpy_integer_iterator(m, values*, len) -> void*` | `GenOpt.iterator` over `Int64` values, including integer index ranges |
 | `jumpy_float_array(m, values*, len) -> void*` | a data vector, 1-based-indexable in templates |
@@ -88,6 +90,12 @@ through `jumpy_apply`; no global column IDs or variable reconstruction are
 needed. Value queries use the expression reference directly, with no Python
 solution-vector cache. Constraint insertion returns only a success status,
 not a retained constraint ID.
+
+`model.lazy_sum(template)` uses `jumpy_apply` with the `lazy_sum` operation to
+create a native GenOpt `LazySum`. Its template and iterators remain intact for
+structure-aware solvers such as ExaModels through JuliaCall. HiGHS does not
+currently support lazy-sum objectives; use Python's built-in `sum()` for
+ordinary explicit sums with HiGHS.
 
 Native sets use checked `uint64` identity handles, not set-kind codes; constructors
 return `0` on error. Comparisons, variable bounds, and constraint groups all use

@@ -11,11 +11,14 @@ import MathOptInterface as MOI
 function model(optimizer)
     result = JuMP.Model(() -> optimizer)
     JuMP.add_bridge(result, GenOpt.FunctionGeneratorBridge)
-    JuMP.set_silent(result)
+    if MOI.supports(optimizer, MOI.Silent())
+        JuMP.set_silent(result)
+    end
     return result
 end
 
 add_variables(model, count) = JuMP.@variable(model, [1:count])
+lazy_sum(template::GenOpt.ExprTemplate) = GenOpt.LazySum(template)
 # Keep references to the native functions: a trimmed image need not retain
 # Base bindings looked up only by a runtime Symbol.
 const _OPERATORS = Dict{Symbol,Function}(
@@ -31,13 +34,10 @@ const _OPERATORS = Dict{Symbol,Function}(
     :log => log,
     :sqrt => sqrt,
     :abs => abs,
+    :lazy_sum => lazy_sum,
 )
 apply(op::Symbol, args::Vector{Any}) = _OPERATORS[op](args...)
 iterator(values) = GenOpt.iterator(values)
-
-# Let JuMP accumulate into mutable expressions instead of repeatedly copying
-# the growing expression across the Python boundary.
-sum_terms(model, terms::Vector{Any}) = JuMP.@expression(model, sum(term for term in terms))
 
 function add_constraint(model, func, set)
     # build_constraint normalizes constants in-place, as in @constraint.

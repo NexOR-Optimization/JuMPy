@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from jumpy import backend
+from jumpy import backend, bridge_juliacall
 
 
 def _fresh_load(jumpy_lib):
@@ -56,7 +56,7 @@ def test_jumpy_lib_directory_errors():
     "missing", ["jumpy_apply", "jumpy_integer_constant", "jumpy_integer_iterator",
                 "jumpy_variables", "jumpy_value", "jumpy_objective_value",
                 "jumpy_has_values", "jumpy_has_duals", "jumpy_termination_status",
-                "jumpy_sum", "jumpy_set_time_limit_sec"],
+                "jumpy_set_time_limit_sec"],
 )
 def test_old_abi_is_rejected_before_julia_initialization(monkeypatch, missing):
     def unexpected_init(*args):
@@ -68,7 +68,6 @@ def test_old_abi_is_rejected_before_julia_initialization(monkeypatch, missing):
             "jumpy_apply", "jumpy_integer_constant", "jumpy_integer_iterator",
             "jumpy_variables", "jumpy_value", "jumpy_objective_value",
             "jumpy_has_values", "jumpy_has_duals", "jumpy_termination_status",
-            "jumpy_sum",
             "jumpy_less_than", "jumpy_greater_than", "jumpy_equal_to",
             "jumpy_zero_one", "jumpy_integer", "jumpy_free_set",
             "jumpy_set_time_limit_sec",
@@ -79,3 +78,30 @@ def test_old_abi_is_rejected_before_julia_initialization(monkeypatch, missing):
     monkeypatch.setattr(backend.ctypes, "CDLL", lambda *args, **kwargs: lib)
     with pytest.raises(RuntimeError, match="Rebuild.*native JuMP API"):
         backend._init_lib("old-library.so")
+
+
+@pytest.mark.parametrize("custom", [False, True])
+def test_juliacall_passes_optimizer_instance_to_shared_model(monkeypatch, custom):
+    native_optimizer, native_model = object(), object()
+    defaults, selected = [], []
+    jl = SimpleNamespace(
+        MOI=object(),
+        HiGHS=SimpleNamespace(
+            Optimizer=lambda: defaults.append(True) or native_optimizer,
+        ),
+        JuMPyModel=SimpleNamespace(
+            model=lambda optimizer: selected.append(optimizer) or native_model,
+        ),
+        seval=lambda code: object(),
+    )
+    monkeypatch.setattr(bridge_juliacall, "_julia", lambda: jl)
+
+    from jumpy import juliacall
+
+    model = juliacall.Model(optimizer=native_optimizer) if custom else juliacall.Model()
+    try:
+        assert model._ops._model is native_model
+        assert selected == [native_optimizer]
+        assert defaults == ([] if custom else [True])
+    finally:
+        model.close()

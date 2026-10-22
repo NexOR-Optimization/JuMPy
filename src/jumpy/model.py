@@ -157,16 +157,16 @@ class Model:
 
     # -- Objective -------------------------------------------------------------
 
-    def sum(self, terms) -> Node:
-        """Sum native expressions without repeatedly copying the growing sum.
+    def lazy_sum(self, template) -> Node:
+        """Sum a GenOpt template without expanding its symbolic iterators.
 
-        Numeric constants are accepted, and an empty iterable returns zero.
+        For example, ``model.lazy_sum(cost[i] * x[i])`` retains the repeated
+        expression's structure instead of consuming a Python iterable.
         """
-        if self._ops is None:
-            raise RuntimeError("The model has been closed")
+        self._require_open()
         return Node(
             self._ops,
-            self._ops.sum_terms([_native(self._ops, term) for term in terms]),
+            self._ops.apply("lazy_sum", [_native(self._ops, template)]),
         )
 
     @property

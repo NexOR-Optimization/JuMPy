@@ -7,6 +7,10 @@ Choose `import jumpy.highs as jp` for compiled HiGHS, or
 backend argument and the same expression helpers. Use one interface per
 process; native objects cannot cross between their Julia runtimes.
 
+JuliaCall's `jp.Model(optimizer=...)` optionally accepts a native Julia MOI
+optimizer instance instead of the default HiGHS optimizer. Pass an already
+constructed instance, not a factory; Julia handles optimizer compatibility.
+
 ```{eval-rst}
 .. autoclass:: jumpy.highs.Model
    :members:
@@ -79,17 +83,26 @@ cannot be reused.
 
 ## Expressions
 
-For long sums, use `model.sum(terms)` instead of Python's `sum(terms)`. Terms
-are passed to Julia together, where JuMP accumulates them without repeatedly
-copying the growing expression:
+`model.lazy_sum(template)` creates a native GenOpt `LazySum`, preserving its
+expression template and iterators for solvers such as ExaModels. With ExaModels
+and MadNLP installed in the JuliaCall environment:
 
 ```python
-model.objective = jp.maximize(model.sum(c * x[i] for i, c in enumerate(costs)))
+import jumpy.juliacall as jp
+from juliacall import Main as jl
+
+jl.seval("using ExaModels, MadNLP")
+model = jp.Model(optimizer=jl.ExaModels.Optimizer(jl.MadNLP.madnlp))
+x = model.variables(3, lower=0)
+cost = model.parameter([2, 3, 4])
+i = model.iterator(range(3))
+model.objective = jp.minimize(model.lazy_sum(cost[i] * x[i]))
 ```
 
-The iterable may contain numeric constants, variables, and scalar affine,
-quadratic, or nonlinear expressions. An empty iterable produces zero. The
-result is a normal native expression and its input expressions are unchanged.
+The argument is one symbolic template, not a Python iterable or generator.
+HiGHS does not currently support lazy-sum objectives; use Python's built-in
+`sum()` for ordinary explicit sums with HiGHS.
+Direct `model.value(lazy_sum_expression)` queries are not currently supported.
 
 Python operators call JuMP's native arithmetic and keep only opaque references
 to the resulting expressions. JuMP determines whether an expression is affine,

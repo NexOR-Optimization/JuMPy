@@ -1,7 +1,6 @@
-"""Native summation, independently of result/constraint-reference APIs."""
+"""Lazy summation retains a native template instead of expanding its terms."""
 
 import importlib.util
-import math
 import os
 from types import SimpleNamespace
 
@@ -12,64 +11,75 @@ from jumpy.model import Model
 from mock_ops import MockOps
 
 
-def test_sum_forwards_native_terms_once_and_accepts_empty_iterables():
+def test_lazy_sum_forwards_one_template_once():
     ops = MockOps()
     model = Model(ops)
-    x, y = model.variables(2)
-    terms = [x, 2 * y, 3]
-    result = model.sum(term for term in terms)
-    assert result.ref == ("sum", x.ref, terms[1].ref, 3)
-    assert ops.sum_calls == [[x.ref, terms[1].ref, 3]]
-    assert model.sum([]).ref == ("sum",)
+    x = model.variables(3)
+    cost = model.parameter([2, 3, 4])
+    i = model.iterator(range(3))
+    template = cost[i] * x[i]
+    calls = []
+    ops.apply = lambda op, args: calls.append((op, args)) or (op, *args)
+
+    result = model.lazy_sum(template)
+
+    assert result.ref == ("lazy_sum", template.ref)
+    assert result._ops is ops
+    assert calls == [("lazy_sum", [template.ref])]
 
 
-def test_sum_rejects_foreign_invalid_and_closed_inputs():
+def test_lazy_sum_rejects_foreign_invalid_and_closed_inputs():
     ops = MockOps()
     model, other = Model(ops), Model(MockOps())
+    foreign = other.variable()
+    calls = []
+    ops.apply = lambda op, args: calls.append((op, args))
+
     with pytest.raises(ValueError, match="different models"):
-        model.sum([model.variable(), other.variable()])
-    with pytest.raises(TypeError, match="expression"):
-        model.sum([object()])
-    assert ops.sum_calls == []
+        model.lazy_sum(foreign)
+    for invalid in (object(), [], iter(())):
+        with pytest.raises(TypeError, match="expression"):
+            model.lazy_sum(invalid)
+    assert calls == []
     model.close()
     with pytest.raises(RuntimeError, match="closed"):
-        model.sum([])
+        model.lazy_sum(foreign)
 
 
-@pytest.mark.parametrize("terms", [[], [111, 222]])
-def test_compiled_sum_forwards_handles_and_checks_null(terms):
+def test_compiled_lazy_sum_uses_generic_apply_and_checks_null():
     calls = []
-    def native(model, values, count):
-        calls.append((model, tuple(values[:count])))
+
+    def native(model, op, values, count):
+        calls.append((model, op, tuple(values[:count])))
         return lib.result
     lib = SimpleNamespace(
         jumpy_new_model=lambda: 99, jumpy_free_model=lambda _: 0,
-        jumpy_sum=native, result=456,
+        jumpy_apply=native, result=456,
     )
     ops = backend.JuliacOps(lib)
     try:
-        assert ops.sum_terms(terms) == 456
-        assert calls == [(99, tuple(terms))]
+        assert ops.apply("lazy_sum", [111]) == 456
+        assert calls == [(99, b"lazy_sum", (111,))]
         lib.result = 0
         with pytest.raises(RuntimeError, match="Failed"):
-            ops.sum_terms(terms)
+            ops.apply("lazy_sum", [111])
     finally:
         ops.free()
 
 
-def test_juliacall_sum_forwards_shared_helper():
+def test_juliacall_lazy_sum_uses_shared_generic_apply():
     calls = []
     ops = bridge_juliacall.JuliaCallOps.__new__(bridge_juliacall.JuliaCallOps)
-    ops._model = object()
+    ops._jl = SimpleNamespace(Symbol=lambda name: ("Symbol", name))
     ops._any_vec = lambda *args: list(args)
     ops._jump = SimpleNamespace(
-        sum_terms=lambda model, terms: calls.append((model, terms)) or "sum",
+        apply=lambda op, args: calls.append((op, args)) or "lazy sum",
     )
-    assert ops.sum_terms(["x", "y"]) == "sum"
-    assert calls == [(ops._model, ["x", "y"])]
+    assert ops.apply("lazy_sum", ["template"]) == "lazy sum"
+    assert calls == [(("Symbol", "lazy_sum"), ["template"])]
 
 
-def test_native_sum_expression_values_and_quadratic_objective():
+def _interface():
     if os.environ.get("JUMPY_BACKEND", "juliac") == "juliacall":
         if importlib.util.find_spec("juliacall") is None:
             pytest.skip("JuliaCall is not installed")
@@ -78,21 +88,65 @@ def test_native_sum_expression_values_and_quadratic_objective():
         if backend.find_lib() is None:
             pytest.skip("The compiled backend is not available")
         import jumpy.highs as jp
+    return jp
+
+
+def test_native_lazy_sum_preserves_template_and_highs_rejects_objective(monkeypatch):
+    jp = _interface()
     model = jp.Model()
     try:
-        x, y = model.variables(2, lower=0, upper=5)
-        empty, numeric = model.sum([]), model.sum([2, 3.5])
-        affine = model.sum([x, 2 * y, 3])
-        doubled = model.sum([affine, affine])
-        quadratic = model.sum([(x - 2) ** 2, (y - 3) ** 2])
-        nonlinear = model.sum([jp.sin(x), y])
-        model.objective = jp.minimize(quadratic)
-        model.optimize()
-        assert model.value(x) == pytest.approx(2, abs=1e-6)
-        assert model.value(y) == pytest.approx(3, abs=1e-6)
-        for expr, expected in [(empty, 0), (numeric, 5.5), (affine, 11),
-                               (doubled, 22), (quadratic, 0),
-                               (nonlinear, math.sin(2) + 3)]:
-            assert model.value(expr) == pytest.approx(expected, abs=2e-6)
+        x = model.variables(3, lower=0)
+        cost = model.parameter([2, 3, 4])
+        i = model.iterator(range(3))
+        template = cost[i] * x[i]
+        calls = []
+        native_apply = model._ops.apply
+
+        def apply(op, args):
+            calls.append((op, args))
+            return native_apply(op, args)
+
+        monkeypatch.setattr(model._ops, "apply", apply)
+        total = model.lazy_sum(template)
+        assert len(calls) == 1
+        assert calls[0][0] == "lazy_sum"
+        assert len(calls[0][1]) == 1
+        assert calls[0][1][0] is template.ref
+        if os.environ.get("JUMPY_BACKEND", "juliac") == "juliacall":
+            jl = model._ops._jl
+            assert jl.isa(total.ref, jl.GenOpt.LazySum)
+            func = jl.JuMP.moi_function(total.ref)
+            assert jl.isa(func, jl.GenOpt.SumGenerator)
+            assert int(jl.length(func.iterators)) == 1
+            assert int(jl.seval("s -> length(only(s.iterators))")(func)) == 3
+        # A native LazySum needs solver support or a suitable expansion bridge.
+        # HiGHS cannot accept the SumGenerator objective directly.
+        with pytest.raises(Exception):
+            model.objective = jp.minimize(total)
+            model.optimize()
+    finally:
+        model.close()
+
+
+def test_examodels_receives_one_objective_template():
+    if os.environ.get("JUMPY_BACKEND", "juliac") != "juliacall":
+        pytest.skip("A custom optimizer requires JuliaCall")
+    jp = _interface()
+    jl = bridge_juliacall._julia()
+    if not jl.seval('Base.find_package("ExaModels") !== nothing'):
+        pytest.skip("ExaModels is not installed in the JuliaCall environment")
+    jl.seval("import ExaModels")
+    optimizer = jl.ExaModels.Optimizer(jl.nothing)
+    model = jp.Model(optimizer=optimizer)
+    try:
+        x = model.variables(4)
+        cost = model.parameter([2, 3, 4, 5])
+        i = model.iterator(range(4))
+        model.objective = jp.minimize(model.lazy_sum(cost[i] * x[i]))
+        jl.seval("m -> MOI.Utilities.attach_optimizer(JuMP.backend(m))")(
+            model._ops._model,
+        )
+        assert int(jl.length(optimizer.objs)) == 1
+        assert int(jl.seval("o -> length(only(o.objs).data)")(optimizer)) == 4
     finally:
         model.close()

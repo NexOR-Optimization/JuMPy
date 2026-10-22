@@ -4,14 +4,21 @@
 # Use --trim=unsafe-warn: dependency internals still contain dynamic dispatch.
 let J = JuMPyHiGHS, D = JuMPyHiGHS.JuMPyDirect, MOI = MathOptInterface
     V = J.NativeVariable
-    scalar_types = (Float64, Int64, V, J.NativeAffine, J.NativeQuadratic, J.NativeNonlinear)
+    base_scalar_types =
+        (Float64, Int64, V, J.NativeAffine, J.NativeQuadratic, J.NativeNonlinear)
+    scalar_types =
+        (base_scalar_types..., JuMP.NonlinearExpr, Base.uniontypes(J.NativeLazySum)...)
     template_types = (
-        (GenOpt.ExprTemplate{E,V} for E in scalar_types)...,
+        (GenOpt.ExprTemplate{E,V} for E in base_scalar_types)...,
         GenOpt.ExprTemplate{Int64,JuMP.VariableRef},
         GenOpt.ExprTemplate{Float64,JuMP.VariableRef},
     )
     node_types = (scalar_types..., template_types..., GenOpt.IteratorValues)
     set_types = Base.uniontypes(J.NativeSet)
+
+    for T in template_types
+        Base.Experimental.entrypoint(J.JuMPyModel.lazy_sum, (T,))
+    end
 
     # JuMPyModel.apply resolves Base operators by name and unboxes Any values.
     for op in (+, -, *, /, ^), A in node_types, B in node_types

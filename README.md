@@ -61,6 +61,9 @@ Both expose the same modeling helpers and `Model()`, without a `backend`
 argument. `jumpy.Model` is no longer exported. Use one interface per process;
 the two Julia runtimes do not share objects.
 
+JuliaCall also accepts `jp.Model(optimizer=...)` to use a native Julia MOI
+optimizer instance instead of HiGHS; pass an instance, not an optimizer factory.
+
 ## Quick start
 
 ```python
@@ -167,7 +170,7 @@ expression such as `z + 0` when you want an affine row instead of a bound.
 | `m.objective = jp.maximize(expr)` | Set a maximization objective |
 | `m.iterator(range(n))` | An index set for constraint groups |
 | `m.parameter(values, name=)` | A data vector, symbolically indexable |
-| `m.sum(terms)` | Accumulate scalar expressions efficiently in Julia |
+| `m.lazy_sum(template)` | Retain a symbolic sum's template and iterators in GenOpt |
 | `m.optimize()` | Solve the model |
 | `m.set_time_limit_sec(seconds)` | Set a positive finite solve time limit in seconds; `None` clears it |
 | `m.unset_time_limit_sec()` | Clear the solve time limit |
@@ -175,15 +178,26 @@ expression such as `z + 0` when you want an affine row instead of a bound.
 
 ### Expressions
 
-Use `m.sum(terms)` for long sums instead of Python's `sum()`. JuMP accumulates
-the terms without repeatedly copying the growing expression:
+`m.lazy_sum(template)` retains a repeated expression as a native GenOpt
+`LazySum`. Solvers such as ExaModels can consume its structure without
+expanding all terms first. For example, with ExaModels and MadNLP
+installed in the JuliaCall environment:
 
 ```python
-m.objective = jp.maximize(m.sum(c * x[i] for i, c in enumerate(costs)))
+import jumpy.juliacall as jp
+from juliacall import Main as jl
+
+jl.seval("using ExaModels, MadNLP")
+m = jp.Model(optimizer=jl.ExaModels.Optimizer(jl.MadNLP.madnlp))
+x = m.variables(3, lower=0)
+cost = m.parameter([2, 3, 4])
+i = m.iterator(range(3))
+m.objective = jp.minimize(m.lazy_sum(cost[i] * x[i]))
 ```
 
-Numeric terms and scalar affine, quadratic, and nonlinear expressions are
-supported; an empty iterable produces zero. JuMP determines the result type.
+This accepts a symbolic template, not a Python iterable or generator. HiGHS
+does not currently support lazy-sum objectives. Python's built-in `sum()`
+remains available for ordinary explicit sums with HiGHS.
 
 Variables and iterators support standard arithmetic (`+`, `-`, `*`, `/`, `**`) and comparisons (`<=`, `>=`, `==`). Nonlinear functions are available as:
 

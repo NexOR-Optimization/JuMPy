@@ -17,7 +17,6 @@ class MockOps:
         self.primal_available = True
         self.dual_available = True
         self.objective_result = 2.5
-        self.sum_calls = []
         self.MOI = SimpleNamespace(
             LessThan=lambda upper: ("LessThan", upper),
             GreaterThan=lambda lower: ("GreaterThan", lower),
@@ -61,10 +60,6 @@ class MockOps:
 
     def objective_value(self):
         return self.objective_result
-
-    def sum_terms(self, terms):
-        self.sum_calls.append(terms)
-        return ("sum", *terms)
 
     def value(self, func):
         self.value_calls.append(func)

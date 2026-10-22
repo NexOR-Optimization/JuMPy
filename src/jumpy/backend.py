@@ -96,8 +96,6 @@ def _init_lib(path):
             query = getattr(lib, name)
             query.argtypes = [ctypes.c_void_p]
             query.restype = ctypes.c_int
-        lib.jumpy_sum.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_longlong]
-        lib.jumpy_sum.restype = ctypes.c_void_p
         for name in ("jumpy_less_than", "jumpy_greater_than", "jumpy_equal_to"):
             constructor = getattr(lib, name)
             constructor.argtypes = [ctypes.c_double]
@@ -232,10 +230,6 @@ class JuliacOps:
             raise RuntimeError("Failed to set objective sense")
         if self._lib.jumpy_set_objective_function(self._m, func) != 0:
             raise RuntimeError("Failed to set objective function")
-
-    def sum_terms(self, terms):
-        terms = (ctypes.c_void_p * len(terms))(*terms)
-        return self._node(self._lib.jumpy_sum(self._m, terms, len(terms)))
 
     def optimize(self):
         status = self._lib.jumpy_optimize(self._m)

@@ -23,9 +23,9 @@ end
 
 function _add_constraint(model, constraint::JuMP.ScalarConstraint{F,S}) where {F,S}
     backend = JuMP.backend(model)
-    M = JuMP.moi_function_type(F)
-    MOI.supports_constraint(backend, M, S) || throw(MOI.UnsupportedConstraint{M,S}())
     func = JuMP.moi_function(model, constraint)
+    M = typeof(func)
+    MOI.supports_constraint(backend, M, S) || throw(MOI.UnsupportedConstraint{M,S}())
     index = MOI.add_constraint(backend, func, JuMP.moi_set(constraint))
     model.is_model_dirty = true
     return index
@@ -56,16 +56,13 @@ _objective_function(model, func::Real) =
     MOI.ScalarAffineFunction(MOI.ScalarAffineTerm{Float64}[], Float64(func))
 _objective_function(model, func::JuMP.AbstractJuMPScalar) = JuMP.moi_function(model, func)
 
-_objective_type(::Type{<:Union{Real,JuMP.AbstractVariableRef}}) =
-    MOI.ScalarAffineFunction{Float64}
-_objective_type(::Type{F}) where {F<:JuMP.AbstractJuMPScalar} = JuMP.moi_function_type(F)
-
 function set_objective_function(model, func)
     func isa Real || JuMP.check_belongs_to_model(func, model)
-    attr = MOI.ObjectiveFunction{_objective_type(typeof(func))}()
+    moi_func = _objective_function(model, func)
+    attr = MOI.ObjectiveFunction{typeof(moi_func)}()
     backend = JuMP.backend(model)
     MOI.supports(backend, attr) || throw(MOI.UnsupportedAttribute(attr))
-    MOI.set(backend, attr, _objective_function(model, func))
+    MOI.set(backend, attr, moi_func)
     model.is_model_dirty = true
     return
 end

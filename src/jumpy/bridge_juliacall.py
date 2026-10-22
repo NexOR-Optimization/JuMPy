@@ -56,14 +56,16 @@ def _julia():
 
 
 class JuliaCallOps:
-    def __init__(self):
+    def __init__(self, optimizer=None):
         jl = _julia()
         self._jl = jl
         self.MOI = jl.MOI
         self._jump = jl.JuMPyModel
         # jl.Any[...] is broken in PythonCall with Julia 1.12+
         self._any_vec = jl.seval("(args...) -> Any[args...]")
-        self._model = self._jump.model(jl.HiGHS.Optimizer())
+        if optimizer is None:
+            optimizer = jl.HiGHS.Optimizer()
+        self._model = self._jump.model(optimizer)
 
     def free(self):
         pass  # the JuMP model is garbage-collected with this object
@@ -97,9 +99,6 @@ class JuliaCallOps:
             self._model, self.MOI.MIN_SENSE if sense == "min" else self.MOI.MAX_SENSE
         )
         self._jump.set_objective_function(self._model, func)
-
-    def sum_terms(self, terms):
-        return self._jump.sum_terms(self._model, self._any_vec(*terms))
 
     def optimize(self):
         self._jump.optimize(self._model)
