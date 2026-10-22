@@ -169,6 +169,33 @@ Symbolic indexing creates native GenOpt expression templates.
 JuMP's constraint construction and GenOpt's bridge to expand iterator-based
 constraints. There is no separate Python group insertion or classification path.
 
+## Constraint references and duals
+
+`model.constraint(...)` and `model.constraint_group(...)` return opaque
+`jp.ConstraintRef` objects owned by the model. Retain a scalar constraint's
+reference to query its dual:
+
+```python
+model = jp.Model()
+x = model.variable(lower=0)
+capacity = model.constraint(x + 0 <= 2)
+model.objective = jp.maximize(x)
+model.optimize()
+assert model.has_duals()
+assert model.dual(capacity) == -1.0
+```
+
+These are raw MOI duals, not objective-sense-adjusted shadow prices. A `<=` row
+has a nonpositive dual even under maximization; negate its dual for a
+maximization capacity shadow price. Duals describe the continuous problem, and
+MIPs normally have no dual solution: solve a separate continuous relaxation
+when marginal capacity prices are needed.
+
+References cannot be queried through another or a closed model. Querying before
+solving or without a dual solution raises a backend error. After modifications,
+dual availability follows the same JuMP semantics as other result queries above.
+A generated constraint group has no single scalar dual and is rejected.
+
 ```{eval-rst}
 .. autoclass:: jumpy.Variable
    :members:
@@ -184,6 +211,8 @@ constraints. There is no separate Python group insertion or classification path.
 
 .. autoclass:: jumpy.Constraint
    :members:
+
+.. autoclass:: jumpy.ConstraintRef
 
 .. autoclass:: jumpy.Objective
    :members:

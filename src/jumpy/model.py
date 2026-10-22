@@ -13,6 +13,7 @@ import math
 from jumpy.expressions import (
     _native,
     Constraint,
+    ConstraintRef,
     Node,
     Objective,
     Parameter,
@@ -131,7 +132,7 @@ class Model:
 
     # -- Constraints -----------------------------------------------------------
 
-    def constraint(self, func, set_=None) -> None:
+    def constraint(self, func, set_=None) -> ConstraintRef:
         """Add ``constraint(x <= 1)`` or ``constraint(x, jp.MOI.LessThan(1.0))``.
 
         Comparison syntax forwards the same function and native set to the
@@ -142,9 +143,11 @@ class Model:
             if not isinstance(func, Constraint):
                 raise TypeError("Expected a comparison constraint, or a function and an MOI set")
             return self.constraint(func.func, func.set)
-        self._ops.add_constraint(_native(self._ops, func), set_)
+        return ConstraintRef(
+            self._ops, self._ops.add_constraint(_native(self._ops, func), set_)
+        )
 
-    def constraint_group(self, con: Constraint) -> None:
+    def constraint_group(self, con: Constraint) -> ConstraintRef:
         """
         Add a constraint group: one constraint per combination of the
         values of the iterators appearing in the template.
@@ -218,6 +221,18 @@ class Model:
         """Query the solver's current objective value."""
         self._require_open()
         return self._ops.objective_value()
+
+    def dual(self, constraint: ConstraintRef) -> float:
+        """Query a scalar constraint's raw MOI dual, not a shadow price.
+
+        MIPs normally have no duals; solve a continuous relaxation separately.
+        """
+        self._require_open()
+        if not isinstance(constraint, ConstraintRef):
+            raise TypeError("Expected a constraint reference returned by model.constraint()")
+        if constraint._ops is not self._ops:
+            raise ValueError("Cannot query a constraint from a different model")
+        return self._ops.dual(constraint.ref)
 
     def value(self, expr: Node) -> float:
         """Query JuMP for the value of a native variable or scalar expression."""

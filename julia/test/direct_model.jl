@@ -147,7 +147,7 @@ end
     @test y != C_NULL
     for (variable, value) in ((x, 2.0), (y, 3.0))
         set = J.jumpy_equal_to(value)
-        @test J.jumpy_add_constraint(model, variable, set) == 0
+        @test J.jumpy_add_constraint(model, variable, set) != C_NULL
         @test J.jumpy_free_set(set) == 0
     end
     affine = apply_native("*", integer(2), x)
@@ -200,10 +200,10 @@ end
         @test apply_native("getindex", block) == C_NULL
         @test apply_native("*", block, integer(2)) == C_NULL
         @test apply_native("+", unsupported, x) == C_NULL
-        @test J.jumpy_add_constraint(model, unsupported, set) == -1
+        @test J.jumpy_add_constraint(model, unsupported, set) == C_NULL
         @test J.jumpy_set_objective_function(model, unsupported) == -1
         @test isnan(J.jumpy_value(model, unsupported))
-        @test J.jumpy_add_constraint(model, block, set) == -1
+        @test J.jumpy_add_constraint(model, block, set) == C_NULL
         @test J.jumpy_set_objective_function(model, block) == -1
         @test isnan(J.jumpy_value(model, block))
     end
@@ -304,7 +304,7 @@ end
     rows = apply_native("-", scaled, demands)
     @test J._unbox(rows) isa J.GenOpt.ExprTemplate{J.NativeAffine}
     set = J.jumpy_greater_than(0.0)
-    @test J.jumpy_add_constraint(model, rows, set) == 0
+    @test J.jumpy_add_constraint(model, rows, set) != C_NULL
     @test J.jumpy_free_set(set) == 0
     backend = JuMP.backend(J._get(model).model)
     @test MOI.get(

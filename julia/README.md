@@ -76,7 +76,7 @@ nodes belong to the model that built them, and everything is freed by
 | `jumpy_zero_one() -> uint64` | Construct and retain `MOI.ZeroOne()` |
 | `jumpy_integer() -> uint64` | Construct and retain `MOI.Integer()` |
 | `jumpy_free_set(id) -> int32` | Release a native set handle |
-| `jumpy_add_constraint(m, f, id) -> int32` | Build and add a JuMP constraint using the native set, including GenOpt templates; 0 on success, -1 on error |
+| `jumpy_add_constraint(m, f, id) -> void*` | Add a scalar constraint or generated group and return its rooted reference; NULL on error |
 | `jumpy_set_objective_sense(m, sense) -> int32` | Set the JuMP objective sense; 0 = min, 1 = max |
 | `jumpy_set_objective_function(m, f) -> int32` | Set the native JuMP objective expression |
 | `jumpy_optimize(m) -> int32` | Optimize the raw MOI backend; returns the termination status (`OPTIMAL == 1`) |
@@ -86,13 +86,16 @@ nodes belong to the model that built them, and everything is freed by
 | `jumpy_has_values(m) -> int32` | Query primal result availability; 0 or 1, -1 on error |
 | `jumpy_has_duals(m) -> int32` | Query dual result availability; 0 or 1, -1 on error |
 | `jumpy_termination_status(m) -> int32` | Query the MOI termination status without solving; -1 on error |
+| `jumpy_dual(m, constraint) -> float64` | Query a scalar constraint's raw MOI dual; NaN on error |
 
 Arrays and their indexed variables are ordinary native expression references.
 Python translates local zero-based indices to Julia's one-based `getindex`
 through `jumpy_apply`; no global column IDs or variable reconstruction are
 needed. Value queries use the expression reference directly, with no Python
-solution-vector cache. Constraint insertion returns only a success status,
-not a retained constraint ID.
+solution-vector cache. Constraint references are rooted with the model, just
+like expression nodes, and become invalid when it is freed. Scalar dual queries
+reject foreign references, expression pointers, and generated constraint groups.
+They require a current dual solution and use MOI's raw sign convention.
 
 `model.lazy_sum(template)` uses `jumpy_apply` with the `lazy_sum` operation to
 create a native GenOpt `LazySum`. Its template and iterators remain intact for

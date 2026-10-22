@@ -13,6 +13,8 @@ class MockOps:
         self.value_calls = []
         self.value_result = 1.25
         self.optimize_calls = 0
+        self.dual_result = -3.0
+        self.dual_calls = []
         self.status = 1
         self.primal_available = True
         self.dual_available = True
@@ -44,6 +46,7 @@ class MockOps:
 
     def add_constraint(self, func, set_):
         self.constraints.append((func, set_))
+        return ("constraint", len(self.constraints))
 
     def optimize(self):
         self.optimize_calls += 1
@@ -60,6 +63,10 @@ class MockOps:
 
     def objective_value(self):
         return self.objective_result
+
+    def dual(self, constraint):
+        self.dual_calls.append(constraint)
+        return self.dual_result
 
     def value(self, func):
         self.value_calls.append(func)

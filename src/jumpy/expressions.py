@@ -189,6 +189,14 @@ class Constraint:
         )
 
 
+class ConstraintRef:
+    """An opaque reference to an added scalar constraint or constraint group."""
+
+    def __init__(self, ops, ref):
+        self._ops = ops
+        self.ref = ref
+
+
 class Objective:
     """An optimization objective (minimize or maximize)."""
 

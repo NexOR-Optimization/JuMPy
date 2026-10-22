@@ -179,9 +179,9 @@ expression such as `z + 0` when you want an affine row instead of a bound.
 | `m = jp.direct_model(optimizer)` | Create a direct JuliaCall model from an optimizer instance |
 | `m.variables(n, lower=, upper=, name=, binary=, integer=)` | Add `n` variables, returns a `VariableVector` |
 | `m.variable(lower=, upper=, name=, binary=, integer=)` | Add a single variable |
-| `m.constraint_group(template)` | Add a constraint group (iterators are discovered from the template) |
-| `m.constraint(con)` | Add a scalar constraint or iterator-based group |
-| `m.constraint(func, jp.MOI.LessThan(rhs))` | Add a scalar function-in-set constraint |
+| `m.constraint_group(template)` | Add a constraint group and return its opaque reference |
+| `m.constraint(con)` | Add a scalar constraint or iterator-based group and return its reference |
+| `m.constraint(func, jp.MOI.LessThan(rhs))` | Add a scalar function-in-set constraint and return its reference |
 | `m.objective = jp.minimize(expr)` | Set a minimization objective |
 | `m.objective = jp.maximize(expr)` | Set a maximization objective |
 | `m.iterator(range(n))` | An index set for constraint groups |
@@ -191,6 +191,13 @@ expression such as `z + 0` when you want an affine row instead of a bound.
 | `m.set_time_limit_sec(seconds)` | Set a positive finite solve time limit in seconds; `None` clears it |
 | `m.unset_time_limit_sec()` | Clear the solve time limit |
 | `m.value(expr)` | Query the current native value of a variable or scalar expression |
+| `m.dual(constraint)` | Query a scalar constraint's raw MOI dual when a dual solution exists |
+
+Keep the reference returned by `m.constraint(...)` to query its dual after an
+LP solve. Duals follow MOI's sign convention: a `<=` row has a nonpositive dual
+even for maximization, so negate it for a maximization capacity shadow price.
+MIPs normally have no duals; solve a continuous relaxation separately. Constraint
+groups return references too, but a group has no single scalar dual.
 
 ### Expressions
 
