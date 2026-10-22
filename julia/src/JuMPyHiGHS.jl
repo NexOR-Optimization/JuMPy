@@ -36,8 +36,9 @@ const NativeAffine = JuMP.GenericAffExpr{Float64,NativeVariable}
 const NativeQuadratic = JuMP.GenericQuadExpr{Float64,NativeVariable}
 const NativeNonlinear = JuMP.GenericNonlinearExpr{NativeVariable}
 
-const NativeScalar =
-    Union{Int64,Float64,NativeVariable,NativeAffine,NativeQuadratic,NativeNonlinear}
+const NativeScalar = Union{
+    Int64,Float64,NativeVariable,NativeAffine,NativeQuadratic,NativeNonlinear,
+}
 const NativeTemplate = Union{
     GenOpt.ExprTemplate{Int64,NativeVariable},
     GenOpt.ExprTemplate{Float64,NativeVariable},
@@ -107,11 +108,8 @@ end
 # No Julia object pointers leave this registry. A set can be reused across
 # models in this image, but never in another backend's Julia runtime.
 const NativeSet = Union{
-    MOI.LessThan{Float64},
-    MOI.GreaterThan{Float64},
-    MOI.EqualTo{Float64},
-    MOI.ZeroOne,
-    MOI.Integer,
+    MOI.LessThan{Float64}, MOI.GreaterThan{Float64}, MOI.EqualTo{Float64},
+    MOI.ZeroOne, MOI.Integer,
 }
 const SETS = Dict{UInt64,NativeSet}()
 const SET_LOCK = ReentrantLock()
@@ -186,7 +184,10 @@ end
 
 # Returns the actual JuMP variable array as an opaque expression handle.
 # Concrete and symbolic indexing both use jumpy_apply(:getindex, ...).
-Base.@ccallable function jumpy_variables(model::Ptr{Cvoid}, count::Clonglong)::Ptr{Cvoid}
+Base.@ccallable function jumpy_variables(
+    model::Ptr{Cvoid},
+    count::Clonglong,
+)::Ptr{Cvoid}
     @_catch C_NULL begin
         handle = _get(model)
         _box(handle, JuMPyModel.add_variables(handle.model, count))
@@ -195,7 +196,10 @@ end
 
 # -- Native expression constructors -------------------------------------------
 
-Base.@ccallable function jumpy_constant(model::Ptr{Cvoid}, value::Cdouble)::Ptr{Cvoid}
+Base.@ccallable function jumpy_constant(
+    model::Ptr{Cvoid},
+    value::Cdouble,
+)::Ptr{Cvoid}
     @_catch C_NULL _box(_get(model), value)
 end
 
@@ -246,7 +250,7 @@ Base.@ccallable function jumpy_iterator(
 )::Ptr{Cvoid}
     @_catch C_NULL begin
         handle = _get(model)
-        _box(handle, JuMPyModel.iterator([unsafe_load(values, k) for k = 1:len]))
+        _box(handle, JuMPyModel.iterator([unsafe_load(values, k) for k in 1:len]))
     end
 end
 
@@ -257,7 +261,7 @@ Base.@ccallable function jumpy_integer_iterator(
 )::Ptr{Cvoid}
     @_catch C_NULL begin
         handle = _get(model)
-        _box(handle, JuMPyModel.iterator([unsafe_load(values, k) for k = 1:len]))
+        _box(handle, JuMPyModel.iterator([unsafe_load(values, k) for k in 1:len]))
     end
 end
 
@@ -269,7 +273,7 @@ Base.@ccallable function jumpy_float_array(
 )::Ptr{Cvoid}
     @_catch C_NULL begin
         handle = _get(model)
-        _box(handle, [unsafe_load(values, k) for k = 1:len])
+        _box(handle, [unsafe_load(values, k) for k in 1:len])
     end
 end
 
@@ -289,10 +293,7 @@ Base.@ccallable function jumpy_add_constraint(
         expression isa Union{NativeScalar,NativeTemplate} ||
             error("Expected a scalar or generated constraint expression")
         _dispatch_native(
-            expression,
-            set,
-            Union{NativeScalar,NativeTemplate},
-            NativeSet,
+            expression, set, Union{NativeScalar,NativeTemplate}, NativeSet,
         ) do f, s
             JuMPyDirect.add_constraint(handle.model, f, s)
         end
@@ -303,7 +304,10 @@ end
 # -- Objective ----------------------------------------------------------------
 
 # MOI.set(MOI.ObjectiveSense()); 0 = min, 1 = max.
-Base.@ccallable function jumpy_set_objective_sense(model::Ptr{Cvoid}, sense::Cint)::Cint
+Base.@ccallable function jumpy_set_objective_sense(
+    model::Ptr{Cvoid},
+    sense::Cint,
+)::Cint
     @_catch Cint(-1) begin
         handle = _get(model)
         moi_sense = sense == 0 ? MOI.MIN_SENSE : MOI.MAX_SENSE
@@ -347,7 +351,10 @@ Base.@ccallable function jumpy_optimize(model::Ptr{Cvoid})::Cint
 end
 
 # Read the solution through the actual JuMP variable or expression.
-Base.@ccallable function jumpy_value(model::Ptr{Cvoid}, func::Ptr{Cvoid})::Cdouble
+Base.@ccallable function jumpy_value(
+    model::Ptr{Cvoid},
+    func::Ptr{Cvoid},
+)::Cdouble
     @_catch Cdouble(NaN) begin
         _get(model)
         expression = _unbox(func)
