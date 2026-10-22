@@ -7,11 +7,13 @@
 @generated function _dispatch_native(f::F, value, ::Type{U}) where {F,U}
     body = :(error("Unsupported native expression type"))
     for T in reverse(Base.uniontypes(U))
-        body = :(if value isa $T
-            f(value::$T)
-        else
-            $body
-        end)
+        body = :(
+            if value isa $T
+                f(value::$T)
+            else
+                $body
+            end
+        )
     end
     return body
 end
@@ -21,17 +23,21 @@ end
     for A in reverse(Base.uniontypes(L))
         right_body = :(error("Unsupported native expression type"))
         for B in reverse(Base.uniontypes(R))
-            right_body = :(if right isa $B
-                f(left::$A, right::$B)
-            else
-                $right_body
-            end)
+            right_body = :(
+                if right isa $B
+                    f(left::$A, right::$B)
+                else
+                    $right_body
+                end
+            )
         end
-        body = :(if left isa $A
-            $right_body
-        else
-            $body
-        end)
+        body = :(
+            if left isa $A
+                $right_body
+            else
+                $body
+            end
+        )
     end
     # Keep the checked branches at the C entry point: safe verification can
     # otherwise leave this dispatcher call unresolved for large type unions.

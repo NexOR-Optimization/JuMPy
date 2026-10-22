@@ -90,7 +90,7 @@ end
     @test add_constraint(m, f, MOI.GreaterThan(10.0)) == 0
     @test set_objective(m, 0, f)
     @test JuMPyHiGHS.jumpy_optimize(m) == 1  # MOI.OPTIMAL
-    out = [value(m, variable(m, block, k)) for k in 1:2]
+    out = [value(m, variable(m, block, k)) for k = 1:2]
     @test out[1] + out[2] ≈ 10.0 atol = 1e-6
     @test value(m, f) ≈ 10.0 atol = 1e-6
     @test JuMPyHiGHS.jumpy_free_model(m) == 0
@@ -142,7 +142,12 @@ end
     @test J._unbox(square) isa J.NativeQuadratic
     @test J._unbox(apply(m, "*", x, x)) isa J.NativeQuadratic
     @test J._unbox(apply(m, "sin", x)) isa J.NativeNonlinear
-    objective = apply(m, "+", apply(m, "-", square, apply(m, "*", constant(m, 4), x)), constant(m, 4))
+    objective = apply(
+        m,
+        "+",
+        apply(m, "-", square, apply(m, "*", constant(m, 4), x)),
+        constant(m, 4),
+    )
     @test set_objective(m, 0, objective)
     GC.gc(true)
     @test J.jumpy_optimize(m) == 1
@@ -157,18 +162,23 @@ end
     m = JuMPyHiGHS.jumpy_new_model()
     block = JuMPyHiGHS.jumpy_variables(m, Clonglong(3))
     @test block != C_NULL
-    for k in 0:2
+    for k = 0:2
         @test add_constraint(m, variable(m, block, k+1), MOI.GreaterThan(0.0)) == 0
     end
     values = Clonglong[0, 1, 2]  # Python-style 0-based iterator values
     demand = Cdouble[1.0, 2.0, 3.0]
-    i = GC.@preserve values JuMPyHiGHS.jumpy_integer_iterator(m, pointer(values), Clonglong(3))
+    i = GC.@preserve values JuMPyHiGHS.jumpy_integer_iterator(
+        m,
+        pointer(values),
+        Clonglong(3),
+    )
     x = block
     d = GC.@preserve demand JuMPyHiGHS.jumpy_float_array(m, pointer(demand), Clonglong(3))
     @test i != C_NULL && x != C_NULL && d != C_NULL
     i1 = apply(m, "+", i, constant(m, 1))  # 0-based -> 1-based
     template = apply(m, "-", apply(m, "getindex", x, i1), apply(m, "getindex", d, i1))
-    @test JuMPyHiGHS._unbox(template) isa JuMPyHiGHS.GenOpt.ExprTemplate{JuMPyHiGHS.NativeAffine}
+    @test JuMPyHiGHS._unbox(template) isa
+          JuMPyHiGHS.GenOpt.ExprTemplate{JuMPyHiGHS.NativeAffine}
     set = JuMPyHiGHS.jumpy_greater_than(0.0)
     status = JuMPyHiGHS.jumpy_add_constraint(m, template, set)
     @test JuMPyHiGHS.jumpy_free_set(set) == 0
@@ -177,9 +187,11 @@ end
     # GenOpt's JuMP build_constraint shifts the set into the expression;
     # its function-generator type records the resulting affine row.
     direct = apply(m, "getindex", x, i1)
-    @test JuMPyHiGHS._unbox(direct) isa JuMPyHiGHS.GenOpt.ExprTemplate{JuMPyHiGHS.NativeVariable}
+    @test JuMPyHiGHS._unbox(direct) isa
+          JuMPyHiGHS.GenOpt.ExprTemplate{JuMPyHiGHS.NativeVariable}
     generator = JuMPyHiGHS.GenOpt.ExprGenerator(JuMPyHiGHS._unbox(direct))
-    @test JuMP.moi_function(generator) isa JuMPyHiGHS.GenOpt.FunctionGenerator{MOI.VariableIndex}
+    @test JuMP.moi_function(generator) isa
+          JuMPyHiGHS.GenOpt.FunctionGenerator{MOI.VariableIndex}
     # Integer literals remain integer until JuMP/GenOpt promotes coefficients.
     affine = apply(m, "+", direct, constant(m, 0))
     for native_set in (MOI.LessThan(4.0), MOI.GreaterThan(1.0))
@@ -188,14 +200,20 @@ end
     scaled = apply(m, "*", constant(m, 2), direct)
     @test add_constraint(m, scaled, MOI.LessThan(8.0)) == 0
     quadratic = apply(m, "*", direct, direct)
-    @test JuMPyHiGHS._unbox(quadratic) isa JuMPyHiGHS.GenOpt.ExprTemplate{JuMPyHiGHS.NativeQuadratic}
+    @test JuMPyHiGHS._unbox(quadratic) isa
+          JuMPyHiGHS.GenOpt.ExprTemplate{JuMPyHiGHS.NativeQuadratic}
     set = JuMPyHiGHS.jumpy_greater_than(1.0)
     @test JuMPyHiGHS.jumpy_add_constraint(m, direct, set) == 0
     @test JuMPyHiGHS.jumpy_free_set(set) == 0
-    obj = apply(m, "+", variable(m, block, 1), apply(m, "+", variable(m, block, 2), variable(m, block, 3)))
+    obj = apply(
+        m,
+        "+",
+        variable(m, block, 1),
+        apply(m, "+", variable(m, block, 2), variable(m, block, 3)),
+    )
     @test set_objective(m, 0, obj)
     @test JuMPyHiGHS.jumpy_optimize(m) == 1
-    @test [value(m, variable(m, block, k)) for k in 1:3] ≈ [1.0, 2.0, 3.0] atol = 1e-6
+    @test [value(m, variable(m, block, k)) for k = 1:3] ≈ [1.0, 2.0, 3.0] atol = 1e-6
     @test JuMPyHiGHS.jumpy_free_model(m) == 0
 end
 
@@ -206,11 +224,20 @@ end
     @test block != C_NULL
     @test add_constraint(m, variable(m, block, 1), MOI.ZeroOne()) == 0
     @test add_constraint(m, variable(m, block, 2), MOI.ZeroOne()) == 0
-    @test add_constraint(m, apply(m, "+", variable(m, block, 1), variable(m, block, 2)), MOI.LessThan(1.0)) == 0
-    obj = apply(m, "+", apply(m, "*", constant(m, 2.0), variable(m, block, 1)), variable(m, block, 2))
+    @test add_constraint(
+        m,
+        apply(m, "+", variable(m, block, 1), variable(m, block, 2)),
+        MOI.LessThan(1.0),
+    ) == 0
+    obj = apply(
+        m,
+        "+",
+        apply(m, "*", constant(m, 2.0), variable(m, block, 1)),
+        variable(m, block, 2),
+    )
     @test set_objective(m, 1, obj)
     @test JuMPyHiGHS.jumpy_optimize(m) == 1
-    @test [value(m, variable(m, block, k)) for k in 1:2] ≈ [1.0, 0.0] atol = 1e-6
+    @test [value(m, variable(m, block, k)) for k = 1:2] ≈ [1.0, 0.0] atol = 1e-6
     @test JuMPyHiGHS.jumpy_free_model(m) == 0
 end
 
@@ -236,7 +263,11 @@ end
     redirect_stderr(devnull) do
         # sin(x) <= 1 produces a ScalarNonlinearFunction, which the
         # HiGHS.Optimizer does not support
-        @test add_constraint(m, apply(m, "sin", variable(m, block, 1)), MOI.LessThan(1.0)) == -1
+        @test add_constraint(
+            m,
+            apply(m, "sin", variable(m, block, 1)),
+            MOI.LessThan(1.0),
+        ) == -1
         # NULL pointers (any other invalid pointer is undefined behavior,
         # as in any C API)
         @test JuMPyHiGHS.jumpy_optimize(C_NULL) == -1
