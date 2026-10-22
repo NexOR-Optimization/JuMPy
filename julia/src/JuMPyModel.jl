@@ -19,8 +19,18 @@ add_variables(model, count) = JuMP.@variable(model, [1:count])
 # Keep references to the native functions: a trimmed image need not retain
 # Base bindings looked up only by a runtime Symbol.
 const _OPERATORS = Dict{Symbol,Function}(
-    :+ => +, :- => -, :* => *, :/ => /, :^ => ^, :getindex => getindex,
-    :sin => sin, :cos => cos, :exp => exp, :log => log, :sqrt => sqrt, :abs => abs,
+    :+ => +,
+    :- => -,
+    :* => *,
+    :/ => /,
+    :^ => ^,
+    :getindex => getindex,
+    :sin => sin,
+    :cos => cos,
+    :exp => exp,
+    :log => log,
+    :sqrt => sqrt,
+    :abs => abs,
 )
 apply(op::Symbol, args::Vector{Any}) = _OPERATORS[op](args...)
 iterator(values) = GenOpt.iterator(values)

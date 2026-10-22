@@ -79,7 +79,11 @@
         x = variable(model, block, 1)
         @test add_constraint(model, x, MOI.GreaterThan(0.0)) == 0
         id = J.jumpy_greater_than(1.0)
-        @test J.jumpy_add_constraint(model, apply(model, "+", x, constant(model, 0.0)), id) == 0
+        @test J.jumpy_add_constraint(
+            model,
+            apply(model, "+", x, constant(model, 0.0)),
+            id,
+        ) == 0
         @test J.jumpy_free_set(id) == 0
         @test set_objective(model, 0, x)
         @test J.jumpy_optimize(model) == 1
