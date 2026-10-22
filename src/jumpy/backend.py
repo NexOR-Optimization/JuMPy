@@ -90,6 +90,12 @@ def _init_lib(path):
         lib.jumpy_integer_constant.restype = ctypes.c_void_p
         lib.jumpy_integer_iterator.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_longlong), ctypes.c_longlong]
         lib.jumpy_integer_iterator.restype = ctypes.c_void_p
+        lib.jumpy_objective_value.argtypes = [ctypes.c_void_p]
+        lib.jumpy_objective_value.restype = ctypes.c_double
+        for name in ("jumpy_has_values", "jumpy_has_duals", "jumpy_termination_status"):
+            query = getattr(lib, name)
+            query.argtypes = [ctypes.c_void_p]
+            query.restype = ctypes.c_int
         for name in ("jumpy_less_than", "jumpy_greater_than", "jumpy_equal_to"):
             constructor = getattr(lib, name)
             constructor.argtypes = [ctypes.c_double]
@@ -226,7 +232,34 @@ class JuliacOps:
             raise RuntimeError("Failed to set objective function")
 
     def optimize(self):
-        return self._lib.jumpy_optimize(self._m)
+        status = self._lib.jumpy_optimize(self._m)
+        if status < 0:
+            raise RuntimeError("Failed to optimize model")
+        return status
+
+    def termination_status(self):
+        status = self._lib.jumpy_termination_status(self._m)
+        if status < 0:
+            raise RuntimeError("Failed to query termination status")
+        return status
+
+    def _solution_flag(self, name):
+        result = getattr(self._lib, name)(self._m)
+        if result not in (0, 1):
+            raise RuntimeError("Failed to query solution availability")
+        return bool(result)
+
+    def has_values(self):
+        return self._solution_flag("jumpy_has_values")
+
+    def has_duals(self):
+        return self._solution_flag("jumpy_has_duals")
+
+    def objective_value(self):
+        value = self._lib.jumpy_objective_value(self._m)
+        if math.isnan(value):
+            raise RuntimeError("Failed to query objective value")
+        return value
 
     def set_time_limit_sec(self, seconds):
         if self._lib.jumpy_set_time_limit_sec(

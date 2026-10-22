@@ -493,3 +493,74 @@ def test_compiled_constraint_retains_set_after_handle_is_closed():
         assert m.value(x) == pytest.approx(3.0)
     finally:
         m.close()
+
+
+def _native_result_error():
+    if BACKEND == "juliacall":
+        from juliacall import JuliaError
+        return JuliaError
+    return RuntimeError
+
+
+@pytest.mark.parametrize("quadratic", [False, True])
+def test_native_result_queries_follow_jump_semantics(quadratic):
+    model = _model()
+    try:
+        x = model.variable(lower=0, upper=5)
+        model.objective = jp.minimize((x - 2) ** 2 if quadratic else x)
+        assert model.termination_status() == 0
+        assert not model.has_values()
+        assert not model.has_duals()
+        with pytest.raises(_native_result_error()):
+            model.objective_value()
+        assert model.optimize() == model.termination_status() == 1
+        assert model.has_values() and model.has_duals()
+        assert model.value(x) == pytest.approx(2 if quadratic else 0, abs=1e-6)
+        assert model.objective_value() == pytest.approx(0, abs=1e-10)
+        model.constraint(x + 0 <= 4)
+        if BACKEND == "juliacall":
+            # JuMP's cached model invalidates results after a modification.
+            assert model.termination_status() == 0
+            assert not model.has_values()
+            assert not model.has_duals()
+            with pytest.raises(_native_result_error()):
+                model.objective_value()
+        else:
+            # Direct models leave result availability to the solver. HiGHS
+            # retains these results after adding this redundant affine row.
+            assert model.termination_status() == 1
+            assert model.has_values() and model.has_duals()
+            assert model.objective_value() == pytest.approx(0, abs=1e-10)
+        with pytest.raises(_native_result_error()):
+            model.value(x)
+        model.optimize()
+        assert model.has_values()
+    finally:
+        model.close()
+
+
+def test_native_mip_has_objective_but_no_duals():
+    model = _model()
+    try:
+        x = model.variable(binary=True)
+        model.objective = jp.maximize(x)
+        model.optimize()
+        assert model.has_values()
+        assert model.objective_value() == pytest.approx(1)
+        assert not model.has_duals()
+    finally:
+        model.close()
+
+
+def test_native_nonoptimal_solve_reports_status_without_claiming_solution():
+    model = _model()
+    try:
+        x = model.variable(lower=1, upper=0)
+        model.objective = jp.minimize(x)
+        assert model.optimize() == 2  # MOI.INFEASIBLE
+        assert model.termination_status() == 2
+        assert not model.has_values()
+        with pytest.raises(_native_result_error()):
+            model.objective_value()
+    finally:
+        model.close()

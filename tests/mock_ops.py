@@ -13,6 +13,10 @@ class MockOps:
         self.value_calls = []
         self.value_result = 1.25
         self.optimize_calls = 0
+        self.status = 1
+        self.primal_available = True
+        self.dual_available = True
+        self.objective_result = 2.5
         self.MOI = SimpleNamespace(
             LessThan=lambda upper: ("LessThan", upper),
             GreaterThan=lambda lower: ("GreaterThan", lower),
@@ -43,7 +47,19 @@ class MockOps:
 
     def optimize(self):
         self.optimize_calls += 1
-        return 1
+        return self.status
+
+    def termination_status(self):
+        return self.status
+
+    def has_values(self):
+        return self.primal_available
+
+    def has_duals(self):
+        return self.dual_available
+
+    def objective_value(self):
+        return self.objective_result
 
     def value(self, func):
         self.value_calls.append(func)

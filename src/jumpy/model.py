@@ -20,9 +20,6 @@ from jumpy.expressions import (
     VariableVector,
 )
 
-# MOI.OPTIMAL in MOI.TerminationStatusCode.
-OPTIMAL = 1
-
 
 def minimize(func: Node) -> Objective:
     return Objective("min", func)
@@ -62,6 +59,10 @@ class Model:
 
     def __del__(self):
         self.close()
+
+    def _require_open(self):
+        if self._ops is None:
+            raise RuntimeError("The model has been closed")
 
     # -- Variables -------------------------------------------------------------
 
@@ -136,8 +137,7 @@ class Model:
         Comparison syntax forwards the same function and native set to the
         explicit form. Julia handles simplification and constant normalization.
         """
-        if self._ops is None:
-            raise RuntimeError("The model has been closed")
+        self._require_open()
         if set_ is None:
             if not isinstance(func, Constraint):
                 raise TypeError("Expected a comparison constraint, or a function and an MOI set")
@@ -182,16 +182,32 @@ class Model:
         """Clear the model's solve time limit."""
         self.set_time_limit_sec(None)
 
-    def optimize(self) -> None:
-        """Solve the native JuMP model."""
-        status = self._ops.optimize()
-        if status != OPTIMAL:
-            raise RuntimeError(
-                f"Solve did not reach OPTIMAL (termination status {status})"
-            )
+    def optimize(self) -> int:
+        """Solve and return the native MOI termination status code."""
+        self._require_open()
+        return self._ops.optimize()
+
+    def termination_status(self) -> int:
+        """Return the native MOI termination status code reported by JuMP."""
+        self._require_open()
+        return self._ops.termination_status()
+
+    def has_values(self) -> bool:
+        """Whether JuMP reports an available primal solution."""
+        self._require_open()
+        return self._ops.has_values()
+
+    def has_duals(self) -> bool:
+        """Whether JuMP reports an available dual solution (normally not for MIPs)."""
+        self._require_open()
+        return self._ops.has_duals()
+
+    def objective_value(self) -> float:
+        """Query the solver's current objective value."""
+        self._require_open()
+        return self._ops.objective_value()
 
     def value(self, expr: Node) -> float:
         """Query JuMP for the value of a native variable or scalar expression."""
-        if self._ops is None:
-            raise RuntimeError("The model has been closed")
+        self._require_open()
         return self._ops.value(_native(self._ops, expr))

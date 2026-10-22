@@ -31,8 +31,8 @@ model.optimize()
 model.unset_time_limit_sec()
 ```
 
-`optimize()` still requires an optimal solve and raises if, for example, the
-time limit is reached. Setting a limit does not change its result handling.
+If the limit is reached, `optimize()` returns the termination status normally.
+Use `model.has_values()` to check whether a solution is available.
 
 ## Function-in-set constraints
 
@@ -98,6 +98,31 @@ After optimizing, `model.value(x)` or `model.value(2 * x + 1)` queries the
 current solution in JuMP directly, without a Python column mapping or solution
 cache. Querying variable values before solving raises a backend error.
 Expressions must belong to the queried model, and the model must still be open.
+
+## Solve results
+
+`model.optimize()` returns the native MOI termination status code (`1` means
+`OPTIMAL`), including nonoptimal termination such as a time limit or
+infeasibility. Check solution availability before querying values:
+
+```python
+status = model.optimize()
+if model.has_values():
+    print(model.objective_value())
+    print(model.value(x))
+```
+
+`model.termination_status()` queries the current status without solving.
+`model.has_values()` and `model.has_duals()` query primal and dual result
+availability; MIPs normally have no dual solution. `model.objective_value()`
+reads the solver's objective value rather than reconstructing it in Python.
+These queries follow JuMP's result semantics: modifying the JuliaCall backend's
+cached model invalidates its results, while the direct HiGHS backend leaves
+result availability to the solver. Reoptimize after modifying the model before
+using its solution; `model.value(...)` rejects queries until then. Querying an
+unavailable objective value raises a backend error.
+
+## Constraint groups
 
 Symbolic indexing creates native GenOpt expression templates.
 `model.constraint_group(con)` delegates to `model.constraint(con)`, which uses
