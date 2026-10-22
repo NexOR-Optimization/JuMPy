@@ -117,8 +117,11 @@ if model.has_values():
 `model.has_values()` and `model.has_duals()` query primal and dual result
 availability; MIPs normally have no dual solution. `model.objective_value()`
 reads the solver's objective value rather than reconstructing it in Python.
-Result queries are not cached. Modifying the model invalidates its previous
-result, and querying an unavailable objective value raises a backend error.
+These queries follow JuMP's result semantics: modifying the JuliaCall backend's
+cached model invalidates its results, while the direct HiGHS backend leaves
+result availability to the solver. Reoptimize after modifying the model before
+using its solution; `model.value(...)` rejects queries until then. Querying an
+unavailable objective value raises a backend error.
 
 ## Constraint groups
 

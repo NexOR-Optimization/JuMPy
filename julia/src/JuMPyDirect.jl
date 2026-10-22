@@ -76,26 +76,6 @@ function optimize(model)
     return
 end
 
-function termination_status(model)
-    return model.is_model_dirty ? MOI.OPTIMIZE_NOT_CALLED :
-           MOI.get(JuMP.backend(model), MOI.TerminationStatus())
-end
-
-function has_values(model)
-    return !model.is_model_dirty &&
-           MOI.get(JuMP.backend(model), MOI.PrimalStatus()) != MOI.NO_SOLUTION
-end
-
-function has_duals(model)
-    return !model.is_model_dirty &&
-           MOI.get(JuMP.backend(model), MOI.DualStatus()) != MOI.NO_SOLUTION
-end
-
-function objective_value(model)
-    has_values(model) || error("No primal solution is available")
-    return MOI.get(JuMP.backend(model), MOI.ObjectiveValue())
-end
-
 function _variable_value(variable::JuMP.AbstractVariableRef)
     model = JuMP.owner_model(variable)
     model.is_model_dirty && throw(JuMP.OptimizeNotCalled())

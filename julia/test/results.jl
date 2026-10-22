@@ -4,6 +4,7 @@ import JuMP
 import MathOptInterface as MOI
 
 @testset "native model result queries" begin
+    R = JuMPyHiGHS.JuMPyModel
     for J in (JuMPyHiGHS.JuMPyModel, JuMPyHiGHS.JuMPyDirect)
         @testset "$J" begin
             for quadratic in (false, true)
@@ -13,20 +14,32 @@ import MathOptInterface as MOI
                 J.add_constraint(model, x, MOI.LessThan(5.0))
                 J.set_objective_sense(model, MOI.MIN_SENSE)
                 J.set_objective_function(model, quadratic ? (x - 2)^2 : x)
-                @test J.termination_status(model) == MOI.OPTIMIZE_NOT_CALLED
-                @test !J.has_values(model)
-                @test !J.has_duals(model)
-                @test_throws Exception J.objective_value(model)
+                @test R.termination_status(model) == MOI.OPTIMIZE_NOT_CALLED
+                @test !R.has_values(model)
+                @test !R.has_duals(model)
+                @test_throws Exception R.objective_value(model)
                 J.optimize(model)
-                @test J.termination_status(model) == MOI.OPTIMAL
-                @test J.has_values(model)
-                @test J.has_duals(model)
-                @test J.objective_value(model) ≈ 0.0 atol = 1e-10
+                @test R.termination_status(model) == MOI.OPTIMAL
+                @test R.has_values(model)
+                @test R.has_duals(model)
+                @test R.objective_value(model) ≈ 0.0 atol = 1e-10
                 J.add_constraint(model, x + 0.0, MOI.LessThan(4.0))
-                @test J.termination_status(model) == MOI.OPTIMIZE_NOT_CALLED
-                @test !J.has_values(model)
-                @test !J.has_duals(model)
-                @test_throws Exception J.objective_value(model)
+                if JuMP.mode(model) == JuMP.DIRECT
+                    # Direct models leave result availability to their solver.
+                    backend = JuMP.backend(model)
+                    @test R.termination_status(model) ==
+                          MOI.get(backend, MOI.TerminationStatus())
+                    @test R.has_values(model) ==
+                          (MOI.get(backend, MOI.PrimalStatus()) != MOI.NO_SOLUTION)
+                    @test R.has_duals(model) ==
+                          (MOI.get(backend, MOI.DualStatus()) != MOI.NO_SOLUTION)
+                    @test R.objective_value(model) == MOI.get(backend, MOI.ObjectiveValue())
+                else
+                    @test R.termination_status(model) == MOI.OPTIMIZE_NOT_CALLED
+                    @test !R.has_values(model)
+                    @test !R.has_duals(model)
+                    @test_throws Exception R.objective_value(model)
+                end
             end
 
             model = J.model(JuMPyHiGHS.Optimizer())
@@ -35,9 +48,9 @@ import MathOptInterface as MOI
             J.set_objective_sense(model, MOI.MAX_SENSE)
             J.set_objective_function(model, x)
             J.optimize(model)
-            @test J.has_values(model)
-            @test !J.has_duals(model)
-            @test J.objective_value(model) ≈ 1.0
+            @test R.has_values(model)
+            @test !R.has_duals(model)
+            @test R.objective_value(model) ≈ 1.0
 
             model = J.model(JuMPyHiGHS.Optimizer())
             x = only(J.add_variables(model, 1))
@@ -45,10 +58,10 @@ import MathOptInterface as MOI
             J.add_constraint(model, x, MOI.LessThan(0.0))
             J.set_objective_function(model, x)
             J.optimize(model)
-            @test J.termination_status(model) == MOI.INFEASIBLE
-            @test !J.has_values(model)
-            @test !J.has_duals(model)
-            @test_throws Exception J.objective_value(model)
+            @test R.termination_status(model) == MOI.INFEASIBLE
+            @test !R.has_values(model)
+            @test !R.has_duals(model)
+            @test_throws Exception R.objective_value(model)
         end
     end
 end

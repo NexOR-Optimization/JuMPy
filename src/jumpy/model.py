@@ -200,17 +200,17 @@ class Model:
         return status
 
     def termination_status(self) -> int:
-        """Return the native MOI termination status code."""
+        """Return the native MOI termination status code reported by JuMP."""
         self._require_open()
         return self._ops.termination_status()
 
     def has_values(self) -> bool:
-        """Whether the current solve has a primal solution."""
+        """Whether JuMP reports an available primal solution."""
         self._require_open()
         return self._ops.has_values()
 
     def has_duals(self) -> bool:
-        """Whether the current solve has a dual solution (normally not for MIPs)."""
+        """Whether JuMP reports an available dual solution (normally not for MIPs)."""
         self._require_open()
         return self._ops.has_duals()
 

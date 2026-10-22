@@ -503,7 +503,7 @@ def _native_result_error():
 
 
 @pytest.mark.parametrize("quadratic", [False, True])
-def test_native_result_queries_and_invalidation(quadratic):
+def test_native_result_queries_follow_jump_semantics(quadratic):
     model = _model()
     try:
         x = model.variable(lower=0, upper=5)
@@ -518,11 +518,21 @@ def test_native_result_queries_and_invalidation(quadratic):
         assert model.value(x) == pytest.approx(2 if quadratic else 0, abs=1e-6)
         assert model.objective_value() == pytest.approx(0, abs=1e-10)
         model.constraint(x + 0 <= 4)
-        assert model.termination_status() == 0
-        assert not model.has_values()
-        assert not model.has_duals()
+        if BACKEND == "juliacall":
+            # JuMP's cached model invalidates results after a modification.
+            assert model.termination_status() == 0
+            assert not model.has_values()
+            assert not model.has_duals()
+            with pytest.raises(_native_result_error()):
+                model.objective_value()
+        else:
+            # Direct models leave result availability to the solver. HiGHS
+            # retains these results after adding this redundant affine row.
+            assert model.termination_status() == 1
+            assert model.has_values() and model.has_duals()
+            assert model.objective_value() == pytest.approx(0, abs=1e-10)
         with pytest.raises(_native_result_error()):
-            model.objective_value()
+            model.value(x)
         model.optimize()
         assert model.has_values()
     finally:
