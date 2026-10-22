@@ -18,9 +18,10 @@ jobs:
           version: "1.13.2"
 
       - name: Install JuliaFormatter
-        run: >
-          julia --project=@formatter -e
-          'using Pkg; Pkg.add(PackageSpec(name="JuliaFormatter", version="2.14.0"))'
+        shell: julia --project=@formatter --color=yes {0}
+        run: |
+          using Pkg
+          Pkg.add(PackageSpec(name="JuliaFormatter", version="2"))
 
       - name: Check formatting
         run: |
