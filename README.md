@@ -39,7 +39,7 @@ The Python workload is proportional to the **number of groups**, not the number 
 
 This branch's native JuMP/GenOpt integration is a prototype. Building it or
 using its JuliaCall interface currently requires a patched development checkout
-of GenOpt; released GenOpt 0.2.1 is not sufficient. See the
+of GenOpt; released GenOpt 0.2.3 lacks the required lazy-sum bridge. See the
 [local development setup](julia/README.md#building).
 
 ```
