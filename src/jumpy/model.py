@@ -157,6 +157,18 @@ class Model:
 
     # -- Objective -------------------------------------------------------------
 
+    def lazy_sum(self, template) -> Node:
+        """Sum a GenOpt template without expanding its symbolic iterators.
+
+        For example, ``model.lazy_sum(cost[i] * x[i])`` retains the repeated
+        expression's structure instead of consuming a Python iterable.
+        """
+        self._require_open()
+        return Node(
+            self._ops,
+            self._ops.apply("lazy_sum", [_native(self._ops, template)]),
+        )
+
     @property
     def objective(self) -> Objective | None:
         return self._objective

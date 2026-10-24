@@ -29,6 +29,8 @@ jobs:
   build-lib:
     name: Build and test compiled library (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      JULIA_CPU_TARGET: generic
     strategy:
       fail-fast: false
       matrix:
@@ -54,7 +56,7 @@ jobs:
           mkdir -p julia/build
           julia --project=julia/test --trace-dispatch=julia/build/workload.trace julia/workload.jl
           julia --project=julia/test --trace-dispatch=julia/build/tests.trace julia/test/runtests.jl
-          julia --project=julia/test julia/generate_trim_dispatch.jl julia/build/workload.trace julia/build/tests.trace
+          julia --project=julia/test julia/generate_trim_dispatch.jl julia/trim_dispatch.jl julia/build/workload.trace julia/build/tests.trace
 
       - name: Install JuliaC
         run: julia --project=@juliac -e 'using Pkg; Pkg.add(PackageSpec(name="JuliaC", version="0.3.12"))'
@@ -65,6 +67,7 @@ jobs:
           julia --project=@juliac -m JuliaC
           --output-lib build/libjumpy_highs --project test
           --compile-ccallable
+          --trim=unsafe-warn
           --jl-option handle-signals=no
           --bundle build
           --verbose

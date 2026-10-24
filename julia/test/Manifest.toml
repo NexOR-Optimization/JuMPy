@@ -85,7 +85,7 @@ version = "1.4.6"
 
 [[deps.GenOpt]]
 deps = ["JuMP", "MathOptInterface", "MutableArithmetics"]
-git-tree-sha1 = "9affd720b23e8e6fd8bf167138e7cdb2dc5198ce"
+git-tree-sha1 = "4af8dd69fe5031c264253af412049cdadf5f8aed"
 repo-rev = "bl/juliac-safe"
 repo-url = "https://github.com/blegat/GenOpt.jl.git"
 uuid = "f2c049d8-7489-4223-990c-4f1c121a4cde"

@@ -61,6 +61,9 @@ Both expose the same modeling helpers and `Model()`, without a `backend`
 argument. `jumpy.Model` is no longer exported. Use one interface per process;
 the two Julia runtimes do not share objects.
 
+JuliaCall also accepts `jp.Model(optimizer=...)` to use a native Julia MOI
+optimizer instance instead of HiGHS; pass an instance, not an optimizer factory.
+
 ## Quick start
 
 ```python
@@ -167,12 +170,35 @@ expression such as `z + 0` when you want an affine row instead of a bound.
 | `m.objective = jp.maximize(expr)` | Set a maximization objective |
 | `m.iterator(range(n))` | An index set for constraint groups |
 | `m.parameter(values, name=)` | A data vector, symbolically indexable |
+| `m.lazy_sum(template)` | Retain a symbolic sum's template and iterators in GenOpt |
 | `m.optimize()` | Solve the model |
 | `m.set_time_limit_sec(seconds)` | Set a positive finite solve time limit in seconds; `None` clears it |
 | `m.unset_time_limit_sec()` | Clear the solve time limit |
 | `m.value(expr)` | Query the current native value of a variable or scalar expression |
 
 ### Expressions
+
+`m.lazy_sum(template)` retains a repeated expression as a native GenOpt
+`LazySum`. Solvers such as ExaModels can consume its structure without
+expanding all terms first. For example, with ExaModels and MadNLP
+installed in the JuliaCall environment:
+
+```python
+import jumpy.juliacall as jp
+from juliacall import Main as jl
+
+jl.seval("using ExaModels, MadNLP")
+m = jp.Model(optimizer=jl.ExaModels.Optimizer(jl.MadNLP.madnlp))
+x = m.variables(3, lower=0)
+cost = m.parameter([2, 3, 4])
+i = m.iterator(range(3))
+m.objective = jp.minimize(m.lazy_sum(cost[i] * x[i]))
+```
+
+This accepts a symbolic template, not a Python iterable or generator. With
+HiGHS, GenOpt lowers affine lazy sums and quadratic lazy-sum objectives to
+ordinary solver functions. Python's built-in `sum()` remains available for
+explicit sums.
 
 Variables and iterators support standard arithmetic (`+`, `-`, `*`, `/`, `**`) and comparisons (`<=`, `>=`, `==`). Nonlinear functions are available as:
 
@@ -221,8 +247,8 @@ Both backends use the same solver-independent Julia module,
 [`JuMPyModel.jl`](julia/src/JuMPyModel.jl). JuliaCall loads this source from the
 Python package; JuliaC compiles it into the backend image. Expressions are
 native JuMP/GenOpt objects and sets are native MOI objects. This shares source
-code, not live objects between separate Julia runtimes. The compiled build is
-currently untrimmed.
+code, not live objects between separate Julia runtimes. The compiled build uses
+`--trim=unsafe-warn`.
 
 ```
 src/jumpy/

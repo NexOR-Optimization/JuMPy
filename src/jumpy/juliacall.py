@@ -12,10 +12,14 @@ __all__ = [*_common_all, "Model", "MOI"]
 
 
 class Model(_Model):
-    """A model using HiGHS through JuliaCall and MOI bridges."""
+    """A JuliaCall model with MOI bridges, using HiGHS by default.
 
-    def __init__(self):
-        super().__init__(_bridge.JuliaCallOps())
+    ``optimizer`` may be a native Julia MOI optimizer instance, not a factory.
+    """
+
+    def __init__(self, optimizer=None):
+        ops = _bridge.JuliaCallOps() if optimizer is None else _bridge.JuliaCallOps(optimizer)
+        super().__init__(ops)
 
 
 def __getattr__(name):

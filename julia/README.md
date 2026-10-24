@@ -18,6 +18,9 @@ produce errors.
 JuliaCall instead creates a regular JuMP model with caching and bridges,
 including GenOpt's `FunctionGeneratorBridge`. Both frontends use the same
 native JuMP/GenOpt expressions; their solver plumbing is intentionally different.
+JuliaCall accepts a native Julia MOI optimizer instance via
+`jp.Model(optimizer=...)`, with HiGHS used by default. The optimizer argument
+is an instance, not a factory.
 
 In Python, select this backend with `import jumpy.highs as jp`, then construct
 `jp.Model()` without a backend argument. `import jumpy.juliacall as jp` selects
@@ -44,7 +47,8 @@ See `src/JuMPyHiGHS.jl` for the full conventions.
 
 Rebuild existing compiled libraries for this ABI. The old column-index and
 bulk-solution entry points are removed; the Python loader rejects binaries
-without the native array and value-query entry points before starting Julia.
+without the native array and value-query entry points before
+starting Julia.
 
 A model is an opaque `void*` pointing at the Julia-side model object; native
 expressions are opaque `void*` nodes built with the operation entry points.
@@ -86,6 +90,13 @@ through `jumpy_apply`; no global column IDs or variable reconstruction are
 needed. Value queries use the expression reference directly, with no Python
 solution-vector cache. Constraint insertion returns only a success status,
 not a retained constraint ID.
+
+`model.lazy_sum(template)` uses `jumpy_apply` with the `lazy_sum` operation to
+create a native GenOpt `LazySum`. Its template and iterators remain intact for
+structure-aware solvers such as ExaModels through JuliaCall. The compiled HiGHS
+adapter calls GenOpt's polynomial lowering directly for affine lazy sums and
+quadratic lazy-sum objectives. Python's built-in `sum()` remains available for
+explicit sums.
 
 Native sets use checked `uint64` identity handles, not set-kind codes; constructors
 return `0` on error. Comparisons, variable bounds, and constraint groups all use
@@ -161,8 +172,20 @@ JULIA_PKG_OFFLINE=true julia --project="$JUMPY_JULIA_PROJECT" -e '
 
 Offline mode requires the other dependencies and solver artifacts to be cached;
 omit `JULIA_PKG_OFFLINE=true` if they need downloading. Then build with that
-environment. CI builds without trimming; the `--trim=unsafe-warn` flag below
-opts into experimental trimming:
+environment. Regenerate retention roots with these exact dependencies before
+building, as CI does:
+
+```bash
+mkdir -p build
+JULIA_CPU_TARGET=generic julia --project="$JUMPY_JULIA_PROJECT" \
+    --trace-dispatch=build/workload.trace workload.jl
+JULIA_CPU_TARGET=generic julia --project="$JUMPY_JULIA_PROJECT" \
+    --trace-dispatch=build/tests.trace test/runtests.jl
+JULIA_CPU_TARGET=generic julia --project="$JUMPY_JULIA_PROJECT" \
+    generate_trim_dispatch.jl trim_dispatch.jl build/workload.trace build/tests.trace
+```
+
+CI and local backend validation use `--trim=unsafe-warn`:
 
 ```bash
 JULIA_CPU_TARGET=generic julia --project=@juliac -m JuliaC \
@@ -191,8 +214,8 @@ Notes:
 - The dispatch roots depend on the Julia/dependency versions. Regenerate them
   from the ordinary-Julia workload when those versions or the ABI change;
   instructions are in [`generate_trim_dispatch.jl`](generate_trim_dispatch.jl).
-  The checked roots use HiGHS 1.26.1 and MOI 1.54.0, as in the repository
-  manifest, plus the development changes above. The image-build entry
+  Generated roots are excluded from Git because private method names depend on
+  the build environment. The image-build entry
   script does not execute a solver workload because JLL initialization has not
   run at that point.
 
