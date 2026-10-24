@@ -80,12 +80,13 @@ function _supplement_collect_roots!(roots::Vector{String}, signature)
     return nothing
 end
 
-function _native_dispatch_domain(T)
-    T isa DataType && T <: Type && length(T.parameters) == 1 || return nothing
-    domain = only(T.parameters)
-    domain isa Type && domain <: Union{JuMPyHiGHS.NativeNode,JuMPyHiGHS.NativeSet} ||
-        return nothing
-    return domain
+_native_dispatch_domain(T) = nothing
+
+# Julia 1.14 represents Type{T} differently when T is a union. Dispatch keeps
+# the domain independent of that internal representation.
+function _native_dispatch_domain(::Type{<:Type{T}}) where {T}
+    T <: Union{JuMPyHiGHS.NativeNode,JuMPyHiGHS.NativeSet} || return nothing
+    return T
 end
 
 function _supplement_native_dispatch_roots!(
@@ -115,7 +116,7 @@ end
 
 function _is_backend_signature(line::String)
     occursin(
-        r"Main\.|Test\.|Base\.Compiler|CachingOptimizer|\.Bridges\.|FunctionGeneratorBridge|JuMPyModel\.model\)|JuMP\.Containers\.|JuMP\._finalize_macro|Base\.Experimental\.entrypoint",
+        r"Main\.|Test\.|JuMPyTrimDispatch\.|Base\.Compiler|CachingOptimizer|\.Bridges\.|FunctionGeneratorBridge|JuMPyModel\.model\)|JuMP\.Containers\.|JuMP\._finalize_macro|Base\.Experimental\.entrypoint",
         line,
     ) && return false
     occursin(

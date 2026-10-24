@@ -36,6 +36,7 @@ end
                     collection,
                     valid,
                     "precompile(Tuple{typeof(Main.test_helper), GenOpt.IteratorIndex})",
+                    "precompile(Tuple{typeof(JuMPyTrimDispatch._native_dispatch_domain), Type{GenOpt.IteratorIndex}})",
                     "precompile(Tuple{typeof(Test.test_helper), GenOpt.IteratorIndex})",
                     "precompile(Tuple{typeof(Base.Compiler.test_helper), GenOpt.IteratorIndex})",
                     "precompile(Tuple{typeof(MathOptInterface.Bridges.test_helper), Int64})",
@@ -136,7 +137,7 @@ end
             (J.NativeNode, J.NativeNode),
             (constraints, J.NativeSet),
         )
-            domain_types = map(T -> Type{T}, domains)
+            domain_types = map(Core.Typeof, domains)
             values = map(T -> first(Base.uniontypes(T)), domains)
             observed = Tuple{dispatch,callback,values...,domain_types...}
             write(trace, "precompile(" * repr(observed) * ")")
@@ -157,8 +158,8 @@ end
             callback,
             GenOpt.ExprTemplate{J.NativeVariable,J.NativeVariable},
             MathOptInterface.LessThan{Float64},
-            Type{constraints},
-            Type{J.NativeSet},
+            Core.Typeof(constraints),
+            Core.Typeof(J.NativeSet),
         }
         @test entrypoint(unobserved) in G.dispatch_roots([trace])
         retained = String[]
@@ -170,6 +171,8 @@ end
         @test length(retained) == count
         @test G._native_dispatch_domain(Type{J.NativeScalar}) === J.NativeScalar
         @test G._native_dispatch_domain(Type{J.NativeSet}) === J.NativeSet
+        @test G._native_dispatch_domain(Core.Typeof(J.NativeScalar)) === J.NativeScalar
+        @test G._native_dispatch_domain(Core.Typeof(J.NativeSet)) === J.NativeSet
         @test G._native_dispatch_domain(Int64) === nothing
         @test G._native_dispatch_domain(Type{Any}) === nothing
         @test G._native_dispatch_domain(Type{Real}) === nothing
