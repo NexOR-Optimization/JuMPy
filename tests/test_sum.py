@@ -91,7 +91,7 @@ def _interface():
     return jp
 
 
-def test_native_lazy_sum_preserves_template_and_highs_rejects_objective(monkeypatch):
+def test_native_lazy_sum_preserves_template_and_solves_lp(monkeypatch):
     jp = _interface()
     model = jp.Model()
     try:
@@ -116,14 +116,49 @@ def test_native_lazy_sum_preserves_template_and_highs_rejects_objective(monkeypa
             jl = model._ops._jl
             assert jl.isa(total.ref, jl.GenOpt.LazySum)
             func = jl.JuMP.moi_function(total.ref)
-            assert jl.isa(func, jl.GenOpt.SumGenerator)
-            assert int(jl.length(func.iterators)) == 1
-            assert int(jl.seval("s -> length(only(s.iterators))")(func)) == 3
-        # A native LazySum needs solver support or a suitable expansion bridge.
-        # HiGHS cannot accept the SumGenerator objective directly.
-        with pytest.raises(Exception):
-            model.objective = jp.minimize(total)
-            model.optimize()
+            assert jl.isa(func, jl.GenOpt.PolynomialFunction)
+            raw = jl.seval("f -> only(f.func.args)")(func)
+            assert jl.isa(raw, jl.GenOpt.SumGenerator)
+            assert int(jl.length(raw.iterators)) == 1
+            assert int(jl.seval("s -> length(only(s.iterators))")(raw)) == 3
+        model.constraint_group(x[i] >= i + 1)
+        model.constraint(model.lazy_sum(x[i] + 1) <= 12)
+        model.objective = jp.minimize(total)
+        assert model.optimize() == 1
+        assert [model.value(variable) for variable in x] == pytest.approx([1, 2, 3])
+        assert model.objective_value() == pytest.approx(20)
+    finally:
+        model.close()
+
+
+def test_native_lazy_sum_quadratic_objective():
+    jp = _interface()
+    model = jp.Model()
+    try:
+        x = model.variables(3, lower=0)
+        i = model.iterator(range(3))
+        model.constraint_group(x[i] >= 1)
+        model.objective = jp.minimize(model.lazy_sum((x[i] - (i + 1)) ** 2))
+        assert model.optimize() == 1
+        assert [model.value(variable) for variable in x] == pytest.approx(
+            [1, 2, 3], abs=1e-3,
+        )
+        assert model.objective_value() == pytest.approx(0, abs=1e-6)
+    finally:
+        model.close()
+
+
+def test_native_lazy_sum_integer_objective():
+    jp = _interface()
+    model = jp.Model()
+    try:
+        x = model.variables(3, binary=True)
+        i = model.iterator(range(3))
+        model.constraint(model.lazy_sum(x[i]) <= 2)
+        model.objective = jp.maximize(model.lazy_sum((i + 1) * x[i]))
+        assert model.optimize() == 1
+        assert [model.value(variable) for variable in x] == pytest.approx([0, 1, 1])
+        assert model.objective_value() == pytest.approx(5)
     finally:
         model.close()
 

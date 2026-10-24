@@ -93,9 +93,10 @@ not a retained constraint ID.
 
 `model.lazy_sum(template)` uses `jumpy_apply` with the `lazy_sum` operation to
 create a native GenOpt `LazySum`. Its template and iterators remain intact for
-structure-aware solvers such as ExaModels through JuliaCall. HiGHS does not
-currently support lazy-sum objectives; use Python's built-in `sum()` for
-ordinary explicit sums with HiGHS.
+structure-aware solvers such as ExaModels through JuliaCall. The compiled HiGHS
+adapter calls GenOpt's polynomial lowering directly for affine lazy sums and
+quadratic lazy-sum objectives. Python's built-in `sum()` remains available for
+explicit sums.
 
 Native sets use checked `uint64` identity handles, not set-kind codes; constructors
 return `0` on error. Comparisons, variable bounds, and constraint groups all use

@@ -6,8 +6,10 @@ import HiGHS
 import JuMP
 import MathOptInterface
 
-include("trim_roots.jl")
-include("trim_dispatch.jl")
+if Base.JLOptions().trim != 0
+    include("trim_roots.jl")
+    include("trim_dispatch.jl")
+end
 
 # Do not execute workload.jl here. JuliaC image generation does not initialize
 # JLL libraries, so constructing a solver would fail before exercising the

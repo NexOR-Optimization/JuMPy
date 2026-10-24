@@ -14,6 +14,9 @@ end
 
 add_variables(model, count) = JuMP.@variable(model, [1:count])
 
+_solver_function(func) = func
+_solver_function(func::GenOpt.PolynomialFunction{F}) where {F} = convert(F, func)
+
 function add_constraint(model, func, set)
     constraint = JuMP.build_constraint(error, JuMP._MA.copy_if_mutable(func), set)
     constraint = JuMP.model_convert(model, constraint)
@@ -23,10 +26,15 @@ end
 
 function _add_constraint(model, constraint::JuMP.ScalarConstraint{F,S}) where {F,S}
     backend = JuMP.backend(model)
-    func = JuMP.moi_function(model, constraint)
+    func = _solver_function(JuMP.moi_function(model, constraint))
     M = typeof(func)
     MOI.supports_constraint(backend, M, S) || throw(MOI.UnsupportedConstraint{M,S}())
-    index = MOI.add_constraint(backend, func, JuMP.moi_set(constraint))
+    index = MOI.Utilities.normalize_and_add_constraint(
+        backend,
+        func,
+        JuMP.moi_set(constraint);
+        allow_modify_function = true,
+    )
     model.is_model_dirty = true
     return index
 end
@@ -58,7 +66,7 @@ _objective_function(model, func::JuMP.AbstractJuMPScalar) = JuMP.moi_function(mo
 
 function set_objective_function(model, func)
     func isa Real || JuMP.check_belongs_to_model(func, model)
-    moi_func = _objective_function(model, func)
+    moi_func = _solver_function(_objective_function(model, func))
     attr = MOI.ObjectiveFunction{typeof(moi_func)}()
     backend = JuMP.backend(model)
     MOI.supports(backend, attr) || throw(MOI.UnsupportedAttribute(attr))

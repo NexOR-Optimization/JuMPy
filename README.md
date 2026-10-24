@@ -195,9 +195,10 @@ i = m.iterator(range(3))
 m.objective = jp.minimize(m.lazy_sum(cost[i] * x[i]))
 ```
 
-This accepts a symbolic template, not a Python iterable or generator. HiGHS
-does not currently support lazy-sum objectives. Python's built-in `sum()`
-remains available for ordinary explicit sums with HiGHS.
+This accepts a symbolic template, not a Python iterable or generator. With
+HiGHS, GenOpt lowers affine lazy sums and quadratic lazy-sum objectives to
+ordinary solver functions. Python's built-in `sum()` remains available for
+explicit sums.
 
 Variables and iterators support standard arithmetic (`+`, `-`, `*`, `/`, `**`) and comparisons (`<=`, `>=`, `==`). Nonlinear functions are available as:
 
