@@ -247,8 +247,8 @@ Both backends use the same solver-independent Julia module,
 [`JuMPyModel.jl`](julia/src/JuMPyModel.jl). JuliaCall loads this source from the
 Python package; JuliaC compiles it into the backend image. Expressions are
 native JuMP/GenOpt objects and sets are native MOI objects. This shares source
-code, not live objects between separate Julia runtimes. The compiled build is
-currently untrimmed.
+code, not live objects between separate Julia runtimes. The compiled build uses
+`--trim=unsafe-warn`.
 
 ```
 src/jumpy/

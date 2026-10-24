@@ -6,8 +6,7 @@ let J = JuMPyHiGHS, D = JuMPyHiGHS.JuMPyDirect, MOI = MathOptInterface
     V = J.NativeVariable
     base_scalar_types =
         (Float64, Int64, V, J.NativeAffine, J.NativeQuadratic, J.NativeNonlinear)
-    scalar_types =
-        (base_scalar_types..., JuMP.NonlinearExpr, Base.uniontypes(J.NativeLazySum)...)
+    scalar_types = Tuple(Base.uniontypes(J.NativeScalar))
     template_types = (
         (GenOpt.ExprTemplate{E,V} for E in base_scalar_types)...,
         GenOpt.ExprTemplate{Int64,JuMP.VariableRef},
@@ -15,6 +14,22 @@ let J = JuMPyHiGHS, D = JuMPyHiGHS.JuMPyDirect, MOI = MathOptInterface
     )
     node_types = (scalar_types..., template_types..., GenOpt.IteratorValues)
     set_types = Base.uniontypes(J.NativeSet)
+    numbers = (Float64, Int64, Bool)
+    tuples = (
+        Tuple{Int64},
+        Tuple{Float64},
+        Tuple{Int64,Int64},
+        Tuple{Int64,Float64},
+        Tuple{Float64,Int64},
+        Tuple{Float64,Float64},
+    )
+    polynomial_functions =
+        (MOI.ScalarAffineFunction{Float64}, MOI.ScalarQuadraticFunction{Float64})
+    polynomial_wrappers = Tuple(GenOpt.PolynomialFunction{F} for F in polynomial_functions)
+    sum_types = Tuple(
+        GenOpt.SumGenerator{F} for
+        F in (MOI.VariableIndex, polynomial_functions..., MOI.ScalarNonlinearFunction)
+    )
 
     for T in template_types
         Base.Experimental.entrypoint(J.JuMPyModel.lazy_sum, (T,))
@@ -62,7 +77,9 @@ let J = JuMPyHiGHS, D = JuMPyHiGHS.JuMPyDirect, MOI = MathOptInterface
     for F in scalar_types
         Base.Experimental.entrypoint(D.set_objective_function, (J.NativeModel, F))
         Base.Experimental.entrypoint(D.value, (F,))
-        Base.Experimental.entrypoint(JuMP.value, (typeof(D._variable_value), F))
+        if hasmethod(JuMP.value, Tuple{typeof(D._variable_value),F})
+            Base.Experimental.entrypoint(JuMP.value, (typeof(D._variable_value), F))
+        end
         Base.Experimental.entrypoint(
             JuMP._evaluate_expr,
             (MOI.Nonlinear.OperatorRegistry, typeof(D._variable_value), F),
@@ -78,11 +95,44 @@ let J = JuMPyHiGHS, D = JuMPyHiGHS.JuMPyDirect, MOI = MathOptInterface
             (MOI.Nonlinear.OperatorRegistry, Symbol, T),
         )
     end
-    for op in (==, !=, <, <=, >, >=, isequal, Base.add_sum, Base.mul_prod),
-        A in (Float64, Int64, Bool),
-        B in (Float64, Int64, Bool)
+    for op in (
+            +,
+            -,
+            *,
+            /,
+            ^,
+            ==,
+            !=,
+            <,
+            <=,
+            >,
+            >=,
+            isequal,
+            promote,
+            Base.add_sum,
+            Base.mul_prod,
+        ),
+        A in numbers,
+        B in numbers
 
         Base.Experimental.entrypoint(op, (A, B))
+    end
+    # Constant folding promotes boxed arguments and converts their tuple to
+    # floating-point values before evaluating the nonlinear operator.
+    for T in numbers
+        Base.Experimental.entrypoint(float, (T,))
+        Base.Experimental.entrypoint(promote, (T,))
+    end
+    numeric_tuples =
+        ((Tuple{T} for T in numbers)..., (Tuple{A,B} for A in numbers for B in numbers)...)
+    for T in numeric_tuples
+        args = ntuple(i -> zero(fieldtype(T, i)), fieldcount(T))
+        broadcast = Base.Broadcast.broadcasted(float, args)
+        Base.Experimental.entrypoint(Base.Broadcast.broadcasted, (typeof(float), T))
+        Base.Experimental.entrypoint(Base.Broadcast.materialize, (typeof(broadcast),))
+    end
+    for T in (Tuple{Float64}, Tuple{Float64,Float64})
+        Base.Experimental.entrypoint(collect, (T,))
     end
     Base.Experimental.entrypoint(
         MOI.Nonlinear._is_registered,
@@ -92,12 +142,16 @@ let J = JuMPyHiGHS, D = JuMPyHiGHS.JuMPyDirect, MOI = MathOptInterface
         MOI.Nonlinear.eval_multivariate_function,
         (MOI.Nonlinear.OperatorRegistry, Symbol, Vector{Real}),
     )
+    Base.Experimental.entrypoint(
+        MOI.Nonlinear.eval_multivariate_function,
+        (MOI.Nonlinear.OperatorRegistry, Symbol, Vector{Float64}),
+    )
     Base.Experimental.entrypoint(haskey, (Dict{Symbol,Int64}, Symbol))
     # The C value entry point converts the result of dynamically dispatched
     # value(). Inference can otherwise fold away even Float64(::Float64).
-    for T in (Float64, Int64, Bool)
-        Base.Experimental.entrypoint(Float64, (T,))
-        Base.Experimental.entrypoint(convert, (Type{Float64}, T))
+    for T in (Float64, Int64), S in numbers
+        Base.Experimental.entrypoint(T, (S,))
+        Base.Experimental.entrypoint(convert, (Type{T}, S))
     end
 
     # Native nonlinear expressions and generators contain heterogeneous leaves.
@@ -116,32 +170,49 @@ let J = JuMPyHiGHS, D = JuMPyHiGHS.JuMPyDirect, MOI = MathOptInterface
         Vector{Int64},
         GenOpt.ContiguousArrayOfVariables{1},
         GenOpt._DataArray{Float64,1,Vector{Float64}},
-        Tuple{Int64},
-        Tuple{Float64},
-        Tuple{Int64,Float64},
-        Tuple{Int64,Int64},
-        Tuple{Float64,Float64},
+        tuples...,
+        polynomial_wrappers...,
+        sum_types...,
     )
     for F in moi_types
         Base.Experimental.entrypoint(GenOpt._expand, (F, Vector{Any}))
         Base.Experimental.entrypoint(GenOpt._is_numeric, (F,))
         Base.Experimental.entrypoint(setindex!, (Vector{Any}, F, Int64))
+        Base.Experimental.entrypoint(hash, (F, UInt))
     end
     Base.Experimental.entrypoint(==, (MOI.VariableIndex, MOI.VariableIndex))
     Base.Experimental.entrypoint(isequal, (MOI.VariableIndex, MOI.VariableIndex))
     Base.Experimental.entrypoint(hash, (MOI.VariableIndex, UInt))
-    for F in (
+    julia_leaves = (
         scalar_types...,
+        Bool,
         JuMP.GenericNonlinearExpr{JuMP.VariableRef},
         GenOpt.IteratorIndex,
         GenOpt.ArrayOfVariables{Float64,1,V,J.NativeModel},
         GenOpt._DataArray{Float64,1,Vector{Float64}},
     )
+    for F in julia_leaves
         Base.Experimental.entrypoint(GenOpt._reindex, (F, Vector{Int64}))
         Base.Experimental.entrypoint(GenOpt._check_belongs_to_model, (F, J.NativeModel))
         Base.Experimental.entrypoint(JuMP._throw_if_not_real, (F,))
         Base.Experimental.entrypoint(JuMP.moi_function, (Nothing, F))
         Base.Experimental.entrypoint(JuMP.moi_function, (J.NativeModel, F))
+        Base.Experimental.entrypoint(JuMP.moi_function, (F,))
+        Base.Experimental.entrypoint(hash, (F, UInt))
+    end
+    # Subexpression cache collisions depend on process-local object hashes.
+    cache_keys = (J.NativeNonlinear, JuMP.NonlinearExpr, WeakRef, Nothing)
+    for op in (isequal, ==), A in cache_keys, B in cache_keys
+        Base.Experimental.entrypoint(op, (A, B))
+    end
+    for T in (WeakRef, Nothing)
+        Base.Experimental.entrypoint(hash, (T, UInt))
+    end
+    for f in (any, findfirst)
+        Base.Experimental.entrypoint(f, (typeof(JuMP._has_variable_ref_type), Vector{Any}))
+    end
+    for F in (julia_leaves..., tuples...)
+        Base.Experimental.entrypoint(JuMP._has_variable_ref_type, (F,))
     end
     for F in (
             MOI.VariableIndex,
@@ -164,10 +235,35 @@ let J = JuMPyHiGHS, D = JuMPyHiGHS.JuMPyDirect, MOI = MathOptInterface
         MOI.ScalarAffineFunction{Float64},
         MOI.ScalarQuadraticFunction{Float64},
     )
-    for F in (MOI.ScalarAffineFunction{Float64}, MOI.ScalarQuadraticFunction{Float64}),
-        G in polynomial_types
+    for F in polynomial_functions, G in polynomial_types
 
-        Base.Experimental.entrypoint(convert, (Type{F}, G))
+        if hasmethod(convert, Tuple{Type{F},G})
+            Base.Experimental.entrypoint(convert, (Type{F}, G))
+        end
+    end
+    for F in polynomial_functions
+        Base.Experimental.entrypoint(convert, (Type{F}, GenOpt.PolynomialFunction{F}))
+        Base.Experimental.entrypoint(D._solver_function, (GenOpt.PolynomialFunction{F},))
+    end
+    # Polynomial builders recurse through boxed nonlinear and lazy-sum leaves.
+    for F in (
+        polynomial_types...,
+        MOI.ScalarNonlinearFunction,
+        GenOpt.IteratorIndex,
+        polynomial_wrappers...,
+        sum_types...,
+    )
+        Base.Experimental.entrypoint(
+            GenOpt._expand_affine!,
+            (MOI.ScalarAffineFunction{Float64}, F, Vector{Any}, Float64),
+        )
+        Base.Experimental.entrypoint(
+            GenOpt._expand_quadratic!,
+            (MOI.ScalarQuadraticFunction{Float64}, F, Vector{Any}, Float64),
+        )
+    end
+    for F in (Int64, Float64, GenOpt.IteratorIndex, MOI.ScalarNonlinearFunction)
+        Base.Experimental.entrypoint(GenOpt._eval_index, (F, Vector{Any}))
     end
     Base.Experimental.entrypoint(
         convert,
@@ -186,25 +282,58 @@ let J = JuMPyHiGHS, D = JuMPyHiGHS.JuMPyDirect, MOI = MathOptInterface
         )
     end
 
-    # Generator expansion and nonlinear arguments use Vector{Any} internally.
-    for f in (length, isempty, eachindex, copy, similar, iterate)
-        Base.Experimental.entrypoint(f, (Vector{Any},))
+    # Generic collection loops are not always observed by dispatch tracing.
+    for T in (tuples..., Any, Float64, Int64, Bool)
+        array = Vector{T}
+        Base.Experimental.entrypoint(array, (UndefInitializer, Int64))
+        Base.Experimental.entrypoint(array, (UndefInitializer, Tuple{Int64}))
+        for f in (length, isempty, eachindex, copy, similar, iterate)
+            Base.Experimental.entrypoint(f, (array,))
+        end
+        Base.Experimental.entrypoint(iterate, (array, Int64))
+        Base.Experimental.entrypoint(getindex, (array, Int64))
+        Base.Experimental.entrypoint(setindex!, (array, T, Int64))
+        Base.Experimental.entrypoint(any, (Function, array))
+        Base.Experimental.entrypoint(Base._any, (Function, array, Colon))
     end
-    for T in (
-        Tuple{Int64},
-        Tuple{Float64},
-        Tuple{Int64,Int64},
-        Tuple{Int64,Float64},
-        Tuple{Float64,Float64},
-    )
-        Base.Experimental.entrypoint(getindex, (Vector{T}, Int64))
+    for T in tuples
         Base.Experimental.entrypoint(getindex, (T, Int64))
-        Base.Experimental.entrypoint(length, (Vector{T},))
+        for f in (length, iterate, first, last, eachindex)
+            Base.Experimental.entrypoint(f, (T,))
+        end
+        Base.Experimental.entrypoint(iterate, (T, Int64))
+        Base.Experimental.entrypoint(map, (Function, Vector{T}))
+        Base.Experimental.entrypoint(GenOpt._arity, (GenOpt.Iterator{T},))
     end
-    Base.Experimental.entrypoint(iterate, (Vector{Any}, Int64))
+    for T in (tuples..., Any), S in numbers
+        Base.Experimental.entrypoint(Base.setindex_widen_up_to, (Vector{T}, S, Int64))
+    end
+    for C in (tuples..., Vector{Any}, Vector{Int64}, Vector{Float64})
+        Base.Experimental.entrypoint(
+            GenOpt._getindex_fallback,
+            (C, Vector{Any}, Vector{Any}),
+        )
+    end
+    for N = 1:3
+        dimensions = NTuple{N,Int64}
+        indices = CartesianIndices{N,NTuple{N,Base.OneTo{Int64}}}
+        index = CartesianIndex{N}
+        Base.Experimental.entrypoint(CartesianIndices, (dimensions,))
+        Base.Experimental.entrypoint(iterate, (indices,))
+        Base.Experimental.entrypoint(iterate, (indices, index))
+        Base.Experimental.entrypoint(getindex, (indices, Int64))
+        Base.Experimental.entrypoint(getindex, (indices, ntuple(_ -> Int64, N)...))
+        Base.Experimental.entrypoint(getindex, (index, Int64))
+        Base.Experimental.entrypoint(
+            Base._to_linear_index,
+            (indices, ntuple(_ -> Int64, N)...),
+        )
+        for f in (length, size, axes, first, last, eachindex)
+            Base.Experimental.entrypoint(f, (indices,))
+        end
+    end
     Base.Experimental.entrypoint(iterate, (Base.OneTo{Int64},))
     Base.Experimental.entrypoint(iterate, (Base.OneTo{Int64}, Int64))
-    Base.Experimental.entrypoint(getindex, (Vector{Any}, Int64))
     Base.Experimental.entrypoint(HiGHS.Highs_destroy, (J.Optimizer,))
     Base.Experimental.entrypoint(HiGHS.HighsCallbackDataIn, (Cint,))
 end

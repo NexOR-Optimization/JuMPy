@@ -172,8 +172,20 @@ JULIA_PKG_OFFLINE=true julia --project="$JUMPY_JULIA_PROJECT" -e '
 
 Offline mode requires the other dependencies and solver artifacts to be cached;
 omit `JULIA_PKG_OFFLINE=true` if they need downloading. Then build with that
-environment. CI builds without trimming; the `--trim=unsafe-warn` flag below
-opts into experimental trimming:
+environment. Regenerate retention roots with these exact dependencies before
+building, as CI does:
+
+```bash
+mkdir -p build
+JULIA_CPU_TARGET=generic julia --project="$JUMPY_JULIA_PROJECT" \
+    --trace-dispatch=build/workload.trace workload.jl
+JULIA_CPU_TARGET=generic julia --project="$JUMPY_JULIA_PROJECT" \
+    --trace-dispatch=build/tests.trace test/runtests.jl
+JULIA_CPU_TARGET=generic julia --project="$JUMPY_JULIA_PROJECT" \
+    generate_trim_dispatch.jl trim_dispatch.jl build/workload.trace build/tests.trace
+```
+
+CI and local backend validation use `--trim=unsafe-warn`:
 
 ```bash
 JULIA_CPU_TARGET=generic julia --project=@juliac -m JuliaC \
@@ -202,8 +214,8 @@ Notes:
 - The dispatch roots depend on the Julia/dependency versions. Regenerate them
   from the ordinary-Julia workload when those versions or the ABI change;
   instructions are in [`generate_trim_dispatch.jl`](generate_trim_dispatch.jl).
-  The checked roots use HiGHS 1.26.1 and MOI 1.54.0, as in the repository
-  manifest, plus the development changes above. The image-build entry
+  Generated roots are excluded from Git because private method names depend on
+  the build environment. The image-build entry
   script does not execute a solver workload because JLL initialization has not
   run at that point.
 
