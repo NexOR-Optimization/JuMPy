@@ -61,8 +61,22 @@ Both expose the same modeling helpers and `Model()`, without a `backend`
 argument. `jumpy.Model` is no longer exported. Use one interface per process;
 the two Julia runtimes do not share objects.
 
-JuliaCall also accepts `jp.Model(optimizer=...)` to use a native Julia MOI
-optimizer instance instead of HiGHS; pass an instance, not an optimizer factory.
+Compiled HiGHS includes its solver in `jp.Model()`. JuliaCall follows JuMP's
+constructors instead. With HiGHS installed in the JuliaCall environment:
+
+```python
+import jumpy.juliacall as jp
+from juliacall import Main as jl
+
+jl.seval("import HiGHS")
+empty = jp.Model()  # JuMP.Model(): no solver
+model = jp.Model(jl.HiGHS.Optimizer)  # JuMP.Model(HiGHS.Optimizer)
+direct = jp.direct_model(jl.HiGHS.Optimizer())  # JuMP.direct_model(instance)
+```
+
+Cached JuliaCall models register GenOpt's bridges. `direct_model` uses the
+optimizer as supplied, without a cache or added bridges. The constructors
+preserve JuMP's solver-output defaults.
 
 ## Quick start
 
@@ -160,7 +174,9 @@ expression such as `z + 0` when you want an affine row instead of a bound.
 
 | Method | Description |
 |---|---|
-| `m = jp.Model()` | Create a new model |
+| `m = jp.Model()` | Create a HiGHS model (compiled) or a solver-free model (JuliaCall) |
+| `m = jp.Model(optimizer_constructor)` | Create a cached JuliaCall model with an optimizer factory |
+| `m = jp.direct_model(optimizer)` | Create a direct JuliaCall model from an optimizer instance |
 | `m.variables(n, lower=, upper=, name=, binary=, integer=)` | Add `n` variables, returns a `VariableVector` |
 | `m.variable(lower=, upper=, name=, binary=, integer=)` | Add a single variable |
 | `m.constraint_group(template)` | Add a constraint group (iterators are discovered from the template) |
@@ -188,14 +204,16 @@ import jumpy.juliacall as jp
 from juliacall import Main as jl
 
 jl.seval("using ExaModels, MadNLP")
-m = jp.Model(optimizer=jl.ExaModels.Optimizer(jl.MadNLP.madnlp))
+m = jp.Model(lambda: jl.ExaModels.Optimizer(jl.MadNLP.madnlp))
 x = m.variables(3, lower=0)
 cost = m.parameter([2, 3, 4])
 i = m.iterator(range(3))
 m.objective = jp.minimize(m.lazy_sum(cost[i] * x[i]))
 ```
 
-This accepts a symbolic template, not a Python iterable or generator. With
+The zero-argument Python factory lets JuMP construct the optimizer with its
+solver function.
+`lazy_sum` accepts a symbolic template, not a Python iterable or generator. With
 HiGHS, GenOpt lowers affine lazy sums and quadratic lazy-sum objectives to
 ordinary solver functions. Python's built-in `sum()` remains available for
 explicit sums.

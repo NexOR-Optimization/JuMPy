@@ -8,12 +8,11 @@ import GenOpt
 import JuMP
 import MathOptInterface as MOI
 
-function model(optimizer)
-    result = JuMP.Model(() -> optimizer)
-    JuMP.add_bridge(result, GenOpt.FunctionGeneratorBridge)
-    JuMP.add_bridge(result, GenOpt.PolynomialFunctionBridge)
-    if MOI.supports(optimizer, MOI.Silent())
-        JuMP.set_silent(result)
+function model(optimizer = nothing; add_bridges::Bool = true, kwargs...)
+    result = JuMP.Model(optimizer; add_bridges, kwargs...)
+    if add_bridges
+        JuMP.add_bridge(result, GenOpt.FunctionGeneratorBridge)
+        JuMP.add_bridge(result, GenOpt.PolynomialFunctionBridge)
     end
     return result
 end

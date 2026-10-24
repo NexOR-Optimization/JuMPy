@@ -1,11 +1,41 @@
 using Test
+import HiGHS
 import JuMPyHiGHS
 import JuMP
 import MathOptInterface as MOI
 
+@testset "shared model constructors follow JuMP" begin
+    J = JuMPyHiGHS.JuMPyModel
+    model = J.model()
+    x = only(J.add_variables(model, 1))
+    J.add_constraint(model, x, MOI.GreaterThan(2.0))
+    J.set_objective_sense(model, MOI.MIN_SENSE)
+    J.set_objective_function(model, x)
+    @test JuMP.backend(model) isa MOI.Utilities.CachingOptimizer
+    @test JuMP.owner_model(x) === model
+    @test_throws JuMP.NoOptimizer J.optimize(model)
+
+    optimizers = HiGHS.Optimizer[]
+    factory = () -> begin
+        optimizer = HiGHS.Optimizer()
+        push!(optimizers, optimizer)
+        return optimizer
+    end
+    model = J.model(factory)
+    @test length(optimizers) == 1
+    @test JuMP.unsafe_backend(model) === only(optimizers)
+    @test JuMP.bridge_constraints(model)
+    @test MOI.get(JuMP.backend(model), MOI.Silent()) === false
+
+    model = J.model(HiGHS.Optimizer; add_bridges = false)
+    @test !JuMP.bridge_constraints(model)
+    @test JuMP.backend(model).optimizer isa HiGHS.Optimizer
+    @test MOI.get(JuMP.backend(model), MOI.Silent()) === false
+end
+
 @testset "shared JuMP model operations" begin
     J = JuMPyHiGHS.JuMPyModel
-    model = J.model(JuMPyHiGHS.Optimizer())
+    model = J.model(HiGHS.Optimizer)
     variables = J.add_variables(model, 2)
     x, y = variables
     @test model isa JuMP.Model
@@ -69,7 +99,7 @@ end
 @testset "cached JuliaCall model registers the GenOpt bridge" begin
     J = JuMPyHiGHS.JuMPyModel
     G = JuMPyHiGHS.GenOpt
-    model = J.model(JuMPyHiGHS.Optimizer())
+    model = J.model(HiGHS.Optimizer)
     x = J.add_variables(model, 3)
     indexed = J.apply(:getindex, Any[x, J.iterator([1, 2, 3])])
     constraint = J.add_constraint(model, indexed, MOI.LessThan(2.0))

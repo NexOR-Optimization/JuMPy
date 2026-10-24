@@ -35,7 +35,7 @@ def _julia():
         ) from None
     # Install and load Julia packages on first use
     jl.seval("using Pkg")
-    for pkg in ["MathOptInterface", "HiGHS", "GenOpt", "JuMP"]:
+    for pkg in ["MathOptInterface", "GenOpt", "JuMP"]:
         jl.seval(f"""
             if !haskey(Pkg.project().dependencies, "{pkg}")
                 Pkg.add("{pkg}")
@@ -43,7 +43,6 @@ def _julia():
         """)
     jl.seval("import MathOptInterface as MOI")
     jl.seval("import GenOpt")
-    jl.seval("import HiGHS")
     jl.seval("import JuMP")
     # Load the same constructor source that is compiled into the JuliaC image.
     source = Path(__file__).with_name("julia") / "JuMPyModel.jl"
@@ -55,17 +54,26 @@ def _julia():
     return jl
 
 
+def _optimizer_factory(factory):
+    if callable(factory):
+        from juliacall import AnyValue
+
+        if not isinstance(factory, AnyValue):
+            # PythonCall returns Py from a Python callback; JuMP needs the
+            # underlying Julia optimizer. Keep JuMP's own factory validation.
+            return _julia().seval("f -> () -> PythonCall.pyconvert(Any, f())")(factory)
+    return factory
+
+
 class JuliaCallOps:
-    def __init__(self, optimizer=None):
+    def __init__(self, model):
         jl = _julia()
         self._jl = jl
         self.MOI = jl.MOI
         self._jump = jl.JuMPyModel
         # jl.Any[...] is broken in PythonCall with Julia 1.12+
         self._any_vec = jl.seval("(args...) -> Any[args...]")
-        if optimizer is None:
-            optimizer = jl.HiGHS.Optimizer()
-        self._model = self._jump.model(optimizer)
+        self._model = model
 
     def free(self):
         pass  # the JuMP model is garbage-collected with this object

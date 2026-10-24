@@ -1,14 +1,18 @@
 using Test
+import HiGHS
 import JuMPyHiGHS
 import JuMP
 import MathOptInterface as MOI
 
 @testset "native model result queries" begin
     R = JuMPyHiGHS.JuMPyModel
-    for J in (JuMPyHiGHS.JuMPyModel, JuMPyHiGHS.JuMPyDirect)
+    for (J, optimizer_argument) in (
+        (JuMPyHiGHS.JuMPyModel, () -> HiGHS.Optimizer),
+        (JuMPyHiGHS.JuMPyDirect, HiGHS.Optimizer),
+    )
         @testset "$J" begin
             for quadratic in (false, true)
-                model = J.model(JuMPyHiGHS.Optimizer())
+                model = J.model(optimizer_argument())
                 x = only(J.add_variables(model, 1))
                 J.add_constraint(model, x, MOI.GreaterThan(0.0))
                 J.add_constraint(model, x, MOI.LessThan(5.0))
@@ -42,7 +46,7 @@ import MathOptInterface as MOI
                 end
             end
 
-            model = J.model(JuMPyHiGHS.Optimizer())
+            model = J.model(optimizer_argument())
             x = only(J.add_variables(model, 1))
             J.add_constraint(model, x, MOI.ZeroOne())
             J.set_objective_sense(model, MOI.MAX_SENSE)
@@ -52,7 +56,7 @@ import MathOptInterface as MOI
             @test !R.has_duals(model)
             @test R.objective_value(model) ≈ 1.0
 
-            model = J.model(JuMPyHiGHS.Optimizer())
+            model = J.model(optimizer_argument())
             x = only(J.add_variables(model, 1))
             J.add_constraint(model, x, MOI.GreaterThan(1.0))
             J.add_constraint(model, x, MOI.LessThan(0.0))

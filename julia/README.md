@@ -15,12 +15,15 @@ JuMPy does not implement another expansion loop. HiGHS supports linear
 constraints and convex quadratic objectives. Unsupported functions and sets
 produce errors.
 
-JuliaCall instead creates a regular JuMP model with caching and bridges,
-including GenOpt's `FunctionGeneratorBridge`. Both frontends use the same
-native JuMP/GenOpt expressions; their solver plumbing is intentionally different.
-JuliaCall accepts a native Julia MOI optimizer instance via
-`jp.Model(optimizer=...)`, with HiGHS used by default. The optimizer argument
-is an instance, not a factory.
+JuliaCall's `jp.Model()` creates a regular cached JuMP model without a solver.
+`jp.Model(optimizer_constructor)` forwards a zero-argument optimizer factory to
+`JuMP.Model`; this can be a Julia constructor such as `jl.HiGHS.Optimizer` or a
+Python lambda. Cached models register GenOpt's `FunctionGeneratorBridge` and
+`PolynomialFunctionBridge`. `jp.direct_model(optimizer)` forwards an already
+constructed optimizer to `JuMP.direct_model`, without adding a cache or bridges.
+Solver-output defaults also follow JuMP. Both frontends use the same native
+JuMP/GenOpt expressions; their solver plumbing is intentionally different.
+JuliaCall users install and import their selected solver explicitly.
 
 In Python, select this backend with `import jumpy.highs as jp`, then construct
 `jp.Model()` without a backend argument. `import jumpy.juliacall as jp` selects
@@ -249,3 +252,7 @@ JULIA_PKG_OFFLINE=true julia --project="$JUMPY_PYTHONCALL_PROJECT" -e '
 export PYTHON_JULIACALL_PROJECT="$JUMPY_PYTHONCALL_PROJECT"
 export PYTHON_JULIACALL_EXE="$(julia -e 'print(joinpath(Sys.BINDIR, Base.julia_exename()))')"
 ```
+
+Install solver packages in that same JuliaCall environment when needed, for
+example `Pkg.add("HiGHS")`. Then import the solver through JuliaCall and pass
+its constructor to `jp.Model`, or an instance to `jp.direct_model`.

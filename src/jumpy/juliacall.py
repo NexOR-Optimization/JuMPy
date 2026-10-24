@@ -8,18 +8,26 @@ from jumpy import __all__ as _common_all
 from jumpy import bridge_juliacall as _bridge
 from jumpy.model import Model as _Model
 
-__all__ = [*_common_all, "Model", "MOI"]
+__all__ = [*_common_all, "Model", "direct_model", "MOI"]
 
 
 class Model(_Model):
-    """A JuliaCall model with MOI bridges, using HiGHS by default.
+    """A cached JuMP model, optionally initialized with an optimizer factory.
 
-    ``optimizer`` may be a native Julia MOI optimizer instance, not a factory.
+    With no factory, the model has no optimizer. Native Julia constructors and
+    Python callables are accepted; keyword arguments are forwarded to JuMP.
     """
 
-    def __init__(self, optimizer=None):
-        ops = _bridge.JuliaCallOps() if optimizer is None else _bridge.JuliaCallOps(optimizer)
-        super().__init__(ops)
+    def __init__(self, optimizer=None, **kwargs):
+        jl = _bridge._julia()
+        native = jl.JuMPyModel.model(_bridge._optimizer_factory(optimizer), **kwargs)
+        super().__init__(_bridge.JuliaCallOps(native))
+
+
+def direct_model(optimizer, **kwargs):
+    """Wrap ``JuMP.direct_model(optimizer)`` without adding caches or bridges."""
+    jl = _bridge._julia()
+    return _Model(_bridge.JuliaCallOps(jl.JuMP.direct_model(optimizer, **kwargs)))
 
 
 def __getattr__(name):

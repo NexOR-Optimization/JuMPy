@@ -80,28 +80,16 @@ def test_old_abi_is_rejected_before_julia_initialization(monkeypatch, missing):
         backend._init_lib("old-library.so")
 
 
-@pytest.mark.parametrize("custom", [False, True])
-def test_juliacall_passes_optimizer_instance_to_shared_model(monkeypatch, custom):
-    native_optimizer, native_model = object(), object()
-    defaults, selected = [], []
+def test_juliacall_ops_wraps_an_existing_jump_model(monkeypatch):
+    native_model = object()
     jl = SimpleNamespace(
         MOI=object(),
-        HiGHS=SimpleNamespace(
-            Optimizer=lambda: defaults.append(True) or native_optimizer,
-        ),
-        JuMPyModel=SimpleNamespace(
-            model=lambda optimizer: selected.append(optimizer) or native_model,
-        ),
+        JuMPyModel=object(),
         seval=lambda code: object(),
     )
     monkeypatch.setattr(bridge_juliacall, "_julia", lambda: jl)
 
-    from jumpy import juliacall
-
-    model = juliacall.Model(optimizer=native_optimizer) if custom else juliacall.Model()
-    try:
-        assert model._ops._model is native_model
-        assert selected == [native_optimizer]
-        assert defaults == ([] if custom else [True])
-    finally:
-        model.close()
+    ops = bridge_juliacall.JuliaCallOps(native_model)
+    assert ops._model is native_model
+    assert ops._jl is jl
+    assert ops._jump is jl.JuMPyModel

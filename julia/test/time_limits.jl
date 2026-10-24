@@ -6,8 +6,11 @@ import MathOptInterface as MOI
 
 @testset "time limits in both Julia adapters" begin
     shared = JuMPyHiGHS.JuMPyModel
-    for J in (JuMPyHiGHS.JuMPyModel, JuMPyHiGHS.JuMPyDirect)
-        model = J.model(HiGHS.Optimizer())
+    for (J, optimizer_argument) in (
+        (JuMPyHiGHS.JuMPyModel, HiGHS.Optimizer),
+        (JuMPyHiGHS.JuMPyDirect, HiGHS.Optimizer()),
+    )
+        model = J.model(optimizer_argument)
         @test MOI.get(JuMP.backend(model), MOI.TimeLimitSec()) === nothing
         @test (@inferred shared.set_time_limit_sec(model, 10.0)) === nothing
         @test MOI.get(JuMP.backend(model), MOI.TimeLimitSec()) == 10.0

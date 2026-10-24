@@ -48,6 +48,7 @@ jobs:
           from juliacall import Main as jl
           jl.seval("""
               using Pkg
+              Pkg.add("HiGHS")
               Pkg.add(PackageSpec(
                   url="https://github.com/blegat/GenOpt.jl.git",
                   rev="bl/juliac-safe",

@@ -91,9 +91,17 @@ def _interface():
     return jp
 
 
+def _model(jp):
+    if os.environ.get("JUMPY_BACKEND", "juliac") == "juliacall":
+        jl = bridge_juliacall._julia()
+        jl.seval("import HiGHS")
+        return jp.Model(jl.HiGHS.Optimizer)
+    return jp.Model()
+
+
 def test_native_lazy_sum_preserves_template_and_solves_lp(monkeypatch):
     jp = _interface()
-    model = jp.Model()
+    model = _model(jp)
     try:
         x = model.variables(3, lower=0)
         cost = model.parameter([2, 3, 4])
@@ -133,7 +141,7 @@ def test_native_lazy_sum_preserves_template_and_solves_lp(monkeypatch):
 
 def test_native_lazy_sum_quadratic_objective():
     jp = _interface()
-    model = jp.Model()
+    model = _model(jp)
     try:
         x = model.variables(3, lower=0)
         i = model.iterator(range(3))
@@ -150,7 +158,7 @@ def test_native_lazy_sum_quadratic_objective():
 
 def test_native_lazy_sum_integer_objective():
     jp = _interface()
-    model = jp.Model()
+    model = _model(jp)
     try:
         x = model.variables(3, binary=True)
         i = model.iterator(range(3))
@@ -172,7 +180,7 @@ def test_examodels_receives_one_objective_template():
         pytest.skip("ExaModels is not installed in the JuliaCall environment")
     jl.seval("import ExaModels")
     optimizer = jl.ExaModels.Optimizer(jl.nothing)
-    model = jp.Model(optimizer=optimizer)
+    model = jp.Model(lambda: optimizer)
     try:
         x = model.variables(4)
         cost = model.parameter([2, 3, 4, 5])
