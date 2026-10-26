@@ -84,7 +84,7 @@ end
         Clonglong(2),
     )
     set = J.jumpy_greater_than(2.0)
-    @test J.jumpy_add_constraint(model, x, set) == 0
+    @test J.jumpy_add_constraint(model, x, set) != C_NULL
     @test J.jumpy_free_set(set) == 0
     @test J.jumpy_has_values(model) == 0
     @test J.jumpy_has_duals(model) == 0

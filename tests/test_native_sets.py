@@ -18,7 +18,7 @@ class FakeLib:
         self.next_handle = 2**40
         self.fail_construction = False
         self.free_status = 0
-        self.constraint_status = 0
+        self.constraint_status = 789
         self.expression_ref = 456
         self.value_result = 1.25
 
@@ -282,7 +282,7 @@ def test_compiled_ops_reject_closed_set_before_calling_julia(lib):
 
 def test_compiled_ops_report_native_constraint_error(lib):
     ops = backend.JuliacOps(lib)
-    lib.constraint_status = -1
+    lib.constraint_status = 0
     with jp.MOI.LessThan(1.0) as set_:
         with pytest.raises(RuntimeError, match="constraint"):
             ops.add_constraint(123, set_)

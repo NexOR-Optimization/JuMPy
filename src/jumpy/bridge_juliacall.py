@@ -100,7 +100,7 @@ class JuliaCallOps:
     def add_constraint(self, func, set_):
         if not self._jl.isa(set_, self._jl.MOI.AbstractScalarSet):
             raise TypeError("Expected a native MOI scalar set from jumpy.juliacall")
-        self._jump.add_constraint(self._model, func, set_)
+        return self._jump.add_constraint(self._model, func, set_)
 
     def set_objective(self, sense, func):
         self._jump.set_objective_sense(
@@ -126,6 +126,9 @@ class JuliaCallOps:
 
     def set_time_limit_sec(self, seconds):
         self._jump.set_time_limit_sec(self._model, math.nan if seconds is None else seconds)
+
+    def dual(self, constraint):
+        return float(self._jump.dual(self._model, constraint))
 
     def value(self, func):
         return float(self._jump.value(func))

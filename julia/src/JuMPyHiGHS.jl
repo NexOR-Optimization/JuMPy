@@ -111,6 +111,17 @@ function _unbox(node::Ptr{Cvoid})
     return value::NativeNode
 end
 
+function _unbox_constraint(handle::ModelHandle, node::Ptr{Cvoid})
+    node == C_NULL && error("Constraint pointer is NULL")
+    any(ref -> pointer_from_objref(ref) == node, handle.nodes) ||
+        error("Constraint does not belong to this model")
+    value = (unsafe_pointer_to_objref(node)::Base.RefValue{Any})[]
+    value isa MOI.ConstraintIndex || error(
+        "Expected a scalar constraint; generated constraint groups have no scalar dual",
+    )
+    return value
+end
+
 include("native_dispatch.jl")
 
 # Report without letting Julia exceptions cross the C ABI.
@@ -304,19 +315,19 @@ end
 # -- Constraints --------------------------------------------------------------
 
 # JuMP builds the constraints; the compiled adapter sends them to raw MOI.
-# Only a success/error status crosses the ABI; Julia owns the constraint.
+# The actual constraint index (or generated vector) stays rooted in its model.
 Base.@ccallable function jumpy_add_constraint(
     model::Ptr{Cvoid},
     func::Ptr{Cvoid},
     set_id::UInt64,
-)::Cint
-    @_catch Cint(-1) begin
+)::Ptr{Cvoid}
+    @_catch C_NULL begin
         set = _get_set(set_id)
         handle = _get(model)
         expression = _unbox(func)
         expression isa Union{NativeScalar,NativeTemplate} ||
             error("Expected a scalar or generated constraint expression")
-        _dispatch_native(
+        constraint = _dispatch_native(
             expression,
             set,
             Union{NativeScalar,NativeTemplate},
@@ -324,7 +335,7 @@ Base.@ccallable function jumpy_add_constraint(
         ) do f, s
             JuMPyDirect.add_constraint(handle.model, f, s)
         end
-        Cint(0)
+        _box(handle, constraint)
     end
 end
 
@@ -400,6 +411,14 @@ end
 
 Base.@ccallable function jumpy_termination_status(model::Ptr{Cvoid})::Cint
     @_catch Cint(-1) Cint(Integer(JuMPyModel.termination_status(_get(model).model)))
+end
+
+Base.@ccallable function jumpy_dual(model::Ptr{Cvoid}, constraint::Ptr{Cvoid})::Cdouble
+    @_catch Cdouble(NaN) begin
+        handle = _get(model)
+        index = _unbox_constraint(handle, constraint)
+        Cdouble(JuMPyDirect.dual(handle.model, index))
+    end
 end
 
 end # module JuMPyHiGHS

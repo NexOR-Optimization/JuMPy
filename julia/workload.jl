@@ -89,7 +89,7 @@ let J = JuMPyHiGHS
     for f in ("sin", "cos", "exp", "log", "sqrt", "abs")
         add(m, apply(m, f, x), J.jumpy_less_than(1.0))
         generated = apply(m, f, apply(m, "getindex", block, i1))
-        @assert add(m, generated, J.jumpy_less_than(1.0)) == -1
+        @assert add(m, generated, J.jumpy_less_than(1.0)) == C_NULL
     end
     # Errors remain contained within the C entry points.
     J.jumpy_optimize(C_NULL)

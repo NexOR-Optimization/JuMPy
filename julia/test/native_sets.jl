@@ -31,7 +31,7 @@
             @test block != C_NULL
             x = variable(model, block, 1)
             f = apply(model, "+", x, constant(model, shift))
-            @test J.jumpy_add_constraint(model, f, id) == 0
+            @test J.jumpy_add_constraint(model, f, id) != C_NULL
             @test J._get_set(id).upper == 13.0
             @test set_objective(model, 1, x)
             @test J.jumpy_optimize(model) == 1
@@ -57,12 +57,12 @@
             @test block != C_NULL
             x = variable(model, block, 1)
             id = constructor()
-            @test J.jumpy_add_constraint(model, x, id) == 0
+            @test J.jumpy_add_constraint(model, x, id) != C_NULL
             @test J.jumpy_free_set(id) == 0
-            @test J.jumpy_add_constraint(model, x, id) == -1
-            @test J.jumpy_add_constraint(model, x, typemax(UInt64)) == -1
+            @test J.jumpy_add_constraint(model, x, id) == C_NULL
+            @test J.jumpy_add_constraint(model, x, typemax(UInt64)) == C_NULL
             if constructor === J.jumpy_integer
-                @test add_constraint(model, x, MOI.LessThan(4.5)) == 0
+                @test add_constraint(model, x, MOI.LessThan(4.5)) != C_NULL
             end
             @test set_objective(model, objective_sense, x)
             GC.gc(true)
@@ -77,13 +77,13 @@
         block = J.jumpy_variables(model, Clonglong(1))
         @test block != C_NULL
         x = variable(model, block, 1)
-        @test add_constraint(model, x, MOI.GreaterThan(0.0)) == 0
+        @test add_constraint(model, x, MOI.GreaterThan(0.0)) != C_NULL
         id = J.jumpy_greater_than(1.0)
         @test J.jumpy_add_constraint(
             model,
             apply(model, "+", x, constant(model, 0.0)),
             id,
-        ) == 0
+        ) != C_NULL
         @test J.jumpy_free_set(id) == 0
         @test set_objective(model, 0, x)
         @test J.jumpy_optimize(model) == 1

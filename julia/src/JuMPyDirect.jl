@@ -81,6 +81,11 @@ function optimize(model)
     return
 end
 
+function dual(model, constraint::MOI.ConstraintIndex)
+    JuMP.has_duals(model) || error("No dual solution is available")
+    return MOI.get(JuMP.backend(model), MOI.ConstraintDual(), constraint)
+end
+
 function _variable_value(variable::JuMP.AbstractVariableRef)
     model = JuMP.owner_model(variable)
     model.is_model_dirty && throw(JuMP.OptimizeNotCalled())

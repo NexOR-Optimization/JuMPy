@@ -9,6 +9,7 @@ include("time_limits.jl")
 include("results.jl")
 include("sum.jl")
 include("trim_dispatch.jl")
+include("duals.jl")
 
 variable(m, block, i) = apply(m, "getindex", block, constant(m, i))
 value(m, func) = JuMPyHiGHS.jumpy_value(m, func)
@@ -57,8 +58,8 @@ include("native_sets.jl")
     @test J._unbox(x) === J._unbox(first)[1]
     @test J._unbox(y) === J._unbox(second)[1]
     @test J._unbox(x) != J._unbox(y)
-    @test add_constraint(model, x, MOI.EqualTo(2.0)) == 0
-    @test add_constraint(model, y, MOI.EqualTo(3.0)) == 0
+    @test add_constraint(model, x, MOI.EqualTo(2.0)) != C_NULL
+    @test add_constraint(model, y, MOI.EqualTo(3.0)) != C_NULL
     sum = apply(model, "+", x, y)
     product = apply(model, "*", x, y)
     nonlinear = apply(model, "sin", x)
@@ -87,11 +88,11 @@ end
     block = JuMPyHiGHS.jumpy_variables(m, Clonglong(2))
     @test block != C_NULL
     # bounds are VariableIndex-in-GreaterThan constraints, as in MOI
-    @test add_constraint(m, variable(m, block, 1), MOI.GreaterThan(0.0)) == 0
-    @test add_constraint(m, variable(m, block, 2), MOI.GreaterThan(0.0)) == 0
+    @test add_constraint(m, variable(m, block, 1), MOI.GreaterThan(0.0)) != C_NULL
+    @test add_constraint(m, variable(m, block, 2), MOI.GreaterThan(0.0)) != C_NULL
     f = apply(m, "+", variable(m, block, 1), variable(m, block, 2))
     @test f != C_NULL
-    @test add_constraint(m, f, MOI.GreaterThan(10.0)) == 0
+    @test add_constraint(m, f, MOI.GreaterThan(10.0)) != C_NULL
     @test set_objective(m, 0, f)
     @test JuMPyHiGHS.jumpy_optimize(m) == 1  # MOI.OPTIMAL
     out = [value(m, variable(m, block, k)) for k = 1:2]
@@ -105,8 +106,8 @@ end
     m = JuMPyHiGHS.jumpy_new_model()
     block = JuMPyHiGHS.jumpy_variables(m, Clonglong(1))
     @test block != C_NULL
-    @test add_constraint(m, variable(m, block, 1), MOI.GreaterThan(0.0)) == 0
-    @test add_constraint(m, variable(m, block, 1), MOI.LessThan(42.0)) == 0
+    @test add_constraint(m, variable(m, block, 1), MOI.GreaterThan(0.0)) != C_NULL
+    @test add_constraint(m, variable(m, block, 1), MOI.LessThan(42.0)) != C_NULL
     @test set_objective(m, 1, variable(m, block, 1))
     @test JuMPyHiGHS.jumpy_optimize(m) == 1
     @test value(m, variable(m, block, 1)) ≈ 42.0 atol = 1e-6
@@ -121,9 +122,9 @@ end
     block = JuMPyHiGHS.jumpy_variables(m, Clonglong(1))
     @test block != C_NULL
     x = variable(m, block, 1)
-    @test add_constraint(m, apply(m, "+", x, constant(m, 1.0)), MOI.EqualTo(5.0)) == 0
+    @test add_constraint(m, apply(m, "+", x, constant(m, 1.0)), MOI.EqualTo(5.0)) != C_NULL
     scaled = apply(m, "*", constant(m, 2.0), apply(m, "+", x, constant(m, 3.0)))
-    @test add_constraint(m, scaled, MOI.LessThan(14.0)) == 0
+    @test add_constraint(m, scaled, MOI.LessThan(14.0)) != C_NULL
     @test set_objective(m, 0, x)
     @test JuMPyHiGHS.jumpy_optimize(m) == 1
     @test value(m, x) ≈ 4.0 atol = 1e-6
@@ -167,7 +168,7 @@ end
     block = JuMPyHiGHS.jumpy_variables(m, Clonglong(3))
     @test block != C_NULL
     for k = 0:2
-        @test add_constraint(m, variable(m, block, k+1), MOI.GreaterThan(0.0)) == 0
+        @test add_constraint(m, variable(m, block, k+1), MOI.GreaterThan(0.0)) != C_NULL
     end
     values = Clonglong[0, 1, 2]  # Python-style 0-based iterator values
     demand = Cdouble[1.0, 2.0, 3.0]
@@ -186,8 +187,8 @@ end
     set = JuMPyHiGHS.jumpy_greater_than(0.0)
     status = JuMPyHiGHS.jumpy_add_constraint(m, template, set)
     @test JuMPyHiGHS.jumpy_free_set(set) == 0
-    @test JuMPyHiGHS.jumpy_add_constraint(m, template, set) == -1
-    @test status == 0
+    @test JuMPyHiGHS.jumpy_add_constraint(m, template, set) == C_NULL
+    @test status != C_NULL
     # GenOpt's JuMP build_constraint shifts the set into the expression;
     # its function-generator type records the resulting affine row.
     direct = apply(m, "getindex", x, i1)
@@ -199,15 +200,15 @@ end
     # Integer literals remain integer until JuMP/GenOpt promotes coefficients.
     affine = apply(m, "+", direct, constant(m, 0))
     for native_set in (MOI.LessThan(4.0), MOI.GreaterThan(1.0))
-        @test add_constraint(m, affine, native_set) == 0
+        @test add_constraint(m, affine, native_set) != C_NULL
     end
     scaled = apply(m, "*", constant(m, 2), direct)
-    @test add_constraint(m, scaled, MOI.LessThan(8.0)) == 0
+    @test add_constraint(m, scaled, MOI.LessThan(8.0)) != C_NULL
     quadratic = apply(m, "*", direct, direct)
     @test JuMPyHiGHS._unbox(quadratic) isa
           JuMPyHiGHS.GenOpt.ExprTemplate{JuMPyHiGHS.NativeQuadratic}
     set = JuMPyHiGHS.jumpy_greater_than(1.0)
-    @test JuMPyHiGHS.jumpy_add_constraint(m, direct, set) == 0
+    @test JuMPyHiGHS.jumpy_add_constraint(m, direct, set) != C_NULL
     @test JuMPyHiGHS.jumpy_free_set(set) == 0
     obj = apply(
         m,
@@ -226,13 +227,13 @@ end
     m = JuMPyHiGHS.jumpy_new_model()
     block = JuMPyHiGHS.jumpy_variables(m, Clonglong(2))
     @test block != C_NULL
-    @test add_constraint(m, variable(m, block, 1), MOI.ZeroOne()) == 0
-    @test add_constraint(m, variable(m, block, 2), MOI.ZeroOne()) == 0
+    @test add_constraint(m, variable(m, block, 1), MOI.ZeroOne()) != C_NULL
+    @test add_constraint(m, variable(m, block, 2), MOI.ZeroOne()) != C_NULL
     @test add_constraint(
         m,
         apply(m, "+", variable(m, block, 1), variable(m, block, 2)),
         MOI.LessThan(1.0),
-    ) == 0
+    ) != C_NULL
     obj = apply(
         m,
         "+",
@@ -252,9 +253,10 @@ end
     block = JuMPyHiGHS.jumpy_variables(m, Clonglong(1))
     @test block != C_NULL
     x = variable(m, block, 1)
-    @test add_constraint(m, x, MOI.GreaterThan(0.0)) == 0  # bound: raw VariableIndex
+    @test add_constraint(m, x, MOI.GreaterThan(0.0)) != C_NULL  # bound: raw VariableIndex
     # constraint: x - 0 >= 0, simplifies to an affine row, no bound clash
-    @test add_constraint(m, apply(m, "-", x, constant(m, 0.0)), MOI.GreaterThan(0.0)) == 0
+    @test add_constraint(m, apply(m, "-", x, constant(m, 0.0)), MOI.GreaterThan(0.0)) !=
+          C_NULL
     @test set_objective(m, 0, x)
     @test JuMPyHiGHS.jumpy_optimize(m) == 1
     @test JuMPyHiGHS.jumpy_free_model(m) == 0
@@ -271,7 +273,7 @@ end
             m,
             apply(m, "sin", variable(m, block, 1)),
             MOI.LessThan(1.0),
-        ) == -1
+        ) == C_NULL
         # NULL pointers (any other invalid pointer is undefined behavior,
         # as in any C API)
         @test JuMPyHiGHS.jumpy_optimize(C_NULL) == -1

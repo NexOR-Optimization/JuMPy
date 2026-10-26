@@ -11,6 +11,7 @@ installation needed) or through juliacall.
 
 from jumpy.expressions import (
     Constraint,
+    ConstraintRef,
     Node,
     Objective,
     Parameter,
@@ -26,6 +27,7 @@ __all__ = [
     "VariableVector",
     "Parameter",
     "Constraint",
+    "ConstraintRef",
     "Objective",
     "minimize",
     "maximize",

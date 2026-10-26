@@ -65,4 +65,13 @@ function set_time_limit_sec(model, seconds::Float64)
     return
 end
 
+function dual(model, constraint)
+    JuMP.owner_model(constraint) === model ||
+        throw(ArgumentError("Constraint does not belong to this model"))
+    has_duals(model) || error("No dual solution is available")
+    value = JuMP.dual(constraint)
+    value isa Real || error("Expected a scalar constraint dual")
+    return value
+end
+
 end # module JuMPyModel

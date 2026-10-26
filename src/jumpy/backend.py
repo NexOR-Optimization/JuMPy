@@ -90,6 +90,10 @@ def _init_lib(path):
         lib.jumpy_integer_constant.restype = ctypes.c_void_p
         lib.jumpy_integer_iterator.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_longlong), ctypes.c_longlong]
         lib.jumpy_integer_iterator.restype = ctypes.c_void_p
+        lib.jumpy_add_constraint.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint64]
+        lib.jumpy_add_constraint.restype = ctypes.c_void_p
+        lib.jumpy_dual.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        lib.jumpy_dual.restype = ctypes.c_double
         lib.jumpy_objective_value.argtypes = [ctypes.c_void_p]
         lib.jumpy_objective_value.restype = ctypes.c_double
         for name in ("jumpy_has_values", "jumpy_has_duals", "jumpy_termination_status"):
@@ -142,8 +146,6 @@ def _init_lib(path):
     lib.jumpy_iterator.restype = c_void_p
     lib.jumpy_float_array.argtypes = [c_void_p, p_double, c_longlong]
     lib.jumpy_float_array.restype = c_void_p
-    lib.jumpy_add_constraint.argtypes = [c_void_p, c_void_p, ctypes.c_uint64]
-    lib.jumpy_add_constraint.restype = c_int
     lib.jumpy_set_objective_sense.argtypes = [c_void_p, c_int]
     lib.jumpy_set_objective_sense.restype = c_int
     lib.jumpy_set_objective_function.argtypes = [c_void_p, c_void_p]
@@ -222,8 +224,10 @@ class JuliacOps:
         return set_.handle
 
     def add_constraint(self, func, set_):
-        if self._lib.jumpy_add_constraint(self._m, func, self._set_handle(set_)) != 0:
+        constraint = self._lib.jumpy_add_constraint(self._m, func, self._set_handle(set_))
+        if not constraint:
             raise RuntimeError("Failed to add constraint")
+        return constraint
 
     def set_objective(self, sense, func):
         if self._lib.jumpy_set_objective_sense(self._m, 0 if sense == "min" else 1) != 0:
@@ -266,6 +270,12 @@ class JuliacOps:
             self._m, math.nan if seconds is None else seconds
         ) != 0:
             raise RuntimeError("Failed to set time limit")
+
+    def dual(self, constraint):
+        value = self._lib.jumpy_dual(self._m, constraint)
+        if math.isnan(value):
+            raise RuntimeError("Failed to query scalar constraint dual")
+        return value
 
     def value(self, func):
         value = self._lib.jumpy_value(self._m, func)

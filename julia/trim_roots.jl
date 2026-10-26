@@ -74,6 +74,11 @@ let J = JuMPyHiGHS, D = JuMPyHiGHS.JuMPyDirect, MOI = MathOptInterface
     for F in (scalar_types..., template_types...), S in set_types
         Base.Experimental.entrypoint(D.add_constraint, (J.NativeModel, F, S))
     end
+    # Opaque constraint pointers erase their function and set types before
+    # querying duals. Retain the finite scalar constraint domain explicitly.
+    for F in (MOI.VariableIndex, MOI.ScalarAffineFunction{Float64}), S in set_types
+        Base.Experimental.entrypoint(D.dual, (J.NativeModel, MOI.ConstraintIndex{F,S}))
+    end
     for F in scalar_types
         Base.Experimental.entrypoint(D.set_objective_function, (J.NativeModel, F))
         Base.Experimental.entrypoint(D.value, (F,))
