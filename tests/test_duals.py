@@ -27,6 +27,14 @@ def native_backend():
     return jp
 
 
+def _model(jp):
+    if os.environ.get("JUMPY_BACKEND", "juliac") == "juliacall":
+        jl = bridge_juliacall._julia()
+        jl.seval("import HiGHS")
+        return jp.Model(jl.HiGHS.Optimizer)
+    return jp.Model()
+
+
 @pytest.mark.parametrize("form", ["comparison", "explicit", "group"])
 def test_constraint_returns_native_reference(form):
     ops = MockOps()
@@ -105,12 +113,13 @@ def test_juliacall_returns_and_queries_actual_constraint():
     ("minimize", "EqualTo", 1.0),
     ("maximize", "EqualTo", -1.0),
 ])
-def test_native_scalar_dual_signs_and_dirty_results(native_backend, sense, constructor, expected):
+@pytest.mark.parametrize("affine", [False, True], ids=["bound", "affine-row"])
+def test_native_scalar_dual_signs_and_dirty_results(native_backend, sense, constructor, expected, affine):
     jp = native_backend
-    model = jp.Model()
+    model = _model(jp)
     try:
         x = model.variable()
-        row = model.constraint(x + 0, getattr(jp.MOI, constructor)(2.0))
+        row = model.constraint(x + 0 if affine else x, getattr(jp.MOI, constructor)(2.0))
         model.objective = getattr(jp, sense)(x)
         with pytest.raises(Exception):
             model.dual(row)
@@ -132,7 +141,7 @@ def test_native_scalar_dual_signs_and_dirty_results(native_backend, sense, const
 
 def test_native_group_and_foreign_references_are_rejected(native_backend):
     jp = native_backend
-    model, other = jp.Model(), jp.Model()
+    model, other = _model(jp), _model(jp)
     try:
         x = model.variables(2, lower=0, upper=4)
         row = model.constraint(x[0] + 0 <= 2)
@@ -150,16 +159,24 @@ def test_native_group_and_foreign_references_are_rejected(native_backend):
         other.close()
 
 
-def test_native_mip_has_no_scalar_dual(native_backend):
+@pytest.mark.parametrize("constructor", ["Integer", "ZeroOne"])
+def test_native_mip_has_no_scalar_dual(native_backend, constructor):
     jp = native_backend
-    model = jp.Model()
+    model = _model(jp)
+    error_type = RuntimeError
+    if os.environ.get("JUMPY_BACKEND", "juliac") == "juliacall":
+        from juliacall import JuliaError
+        error_type = JuliaError
     try:
-        x = model.variable(binary=True)
+        x = model.variable()
+        integral = model.constraint(x, getattr(jp.MOI, constructor)())
         row = model.constraint(x + 0 <= 1)
         model.objective = jp.maximize(x)
         model.optimize()
         assert not model.has_duals()
-        with pytest.raises(Exception):
-            model.dual(row)
+        message = "scalar constraint dual" if error_type is RuntimeError else "No dual solution"
+        for constraint in (row, integral):
+            with pytest.raises(error_type, match=message):
+                model.dual(constraint)
     finally:
         model.close()

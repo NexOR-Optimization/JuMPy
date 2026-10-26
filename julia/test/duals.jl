@@ -1,17 +1,21 @@
 using Test
+import HiGHS
 import JuMPyHiGHS
 import JuMP
 import MathOptInterface as MOI
 
 @testset "scalar constraint duals" begin
-    for J in (JuMPyHiGHS.JuMPyModel, JuMPyHiGHS.JuMPyDirect)
+    for (J, optimizer_argument) in (
+        (JuMPyHiGHS.JuMPyModel, () -> HiGHS.Optimizer),
+        (JuMPyHiGHS.JuMPyDirect, HiGHS.Optimizer),
+    )
         for (sense, set, expected) in (
             (MOI.MIN_SENSE, MOI.GreaterThan(2.0), 1.0),
             (MOI.MAX_SENSE, MOI.LessThan(2.0), -1.0),
             (MOI.MIN_SENSE, MOI.EqualTo(2.0), 1.0),
             (MOI.MAX_SENSE, MOI.EqualTo(2.0), -1.0),
         )
-            model = J.model(JuMPyHiGHS.Optimizer())
+            model = J.model(optimizer_argument())
             x = only(J.add_variables(model, 1))
             row = J.add_constraint(model, x + 0.0, set)
             J.set_objective_sense(model, sense)
@@ -28,7 +32,7 @@ import MathOptInterface as MOI
                 @test_throws Exception J.dual(model, row)
             end
         end
-        model = J.model(JuMPyHiGHS.Optimizer())
+        model = J.model(optimizer_argument())
         x = only(J.add_variables(model, 1))
         J.add_constraint(model, x, MOI.ZeroOne())
         row = J.add_constraint(model, x + 0.0, MOI.LessThan(1.0))
