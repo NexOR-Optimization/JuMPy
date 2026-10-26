@@ -77,21 +77,59 @@ def test_highs_model_selects_compiled_ops(monkeypatch):
         model.close()
 
 
-def test_juliacall_model_selects_juliacall_ops(monkeypatch):
-    ops = MockOps()
-    monkeypatch.setattr(bridge_juliacall, "JuliaCallOps", lambda: ops)
-    model = juliacall.Model()
+@pytest.mark.parametrize("with_factory", [False, True])
+def test_juliacall_model_forwards_factory_and_options(monkeypatch, with_factory):
+    ops, native_model, factory = MockOps(), object(), object()
+    calls = []
+
+    def construct(optimizer, **kwargs):
+        calls.append((optimizer, kwargs))
+        return native_model
+
+    jl = SimpleNamespace(JuMPyModel=SimpleNamespace(model=construct))
+    monkeypatch.setattr(bridge_juliacall, "_julia", lambda: jl)
+    monkeypatch.setattr(
+        bridge_juliacall, "JuliaCallOps",
+        lambda model: ops if model is native_model else pytest.fail("Wrong native model"),
+    )
+    model = juliacall.Model(factory, add_bridges=False) if with_factory else juliacall.Model()
     try:
         assert isinstance(model, Model)
         assert model._ops is ops
+        expected = (factory, {"add_bridges": False}) if with_factory else (None, {})
+        assert calls == [expected]
     finally:
         model.close()
 
 
-@pytest.mark.parametrize("facade", [highs, juliacall])
-def test_facade_model_does_not_accept_backend_argument(facade):
+def test_juliacall_direct_model_forwards_optimizer_unchanged(monkeypatch):
+    optimizer, native_model, ops = object(), object(), MockOps()
+    calls = []
+
+    def construct(selected, **kwargs):
+        calls.append((selected, kwargs))
+        return native_model
+
+    monkeypatch.setattr(
+        bridge_juliacall, "_julia",
+        lambda: SimpleNamespace(JuMP=SimpleNamespace(direct_model=construct)),
+    )
+    monkeypatch.setattr(
+        bridge_juliacall, "JuliaCallOps",
+        lambda model: ops if model is native_model else pytest.fail("Wrong native model"),
+    )
+    model = juliacall.direct_model(optimizer)
+    try:
+        assert isinstance(model, Model)
+        assert model._ops is ops
+        assert calls == [(optimizer, {})]
+    finally:
+        model.close()
+
+
+def test_compiled_facade_does_not_accept_backend_argument():
     with pytest.raises(TypeError):
-        facade.Model(backend="juliac")
+        highs.Model(backend="juliac")
 
 
 def test_juliacall_moi_is_the_actual_lazy_julia_module(monkeypatch):

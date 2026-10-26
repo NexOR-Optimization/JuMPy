@@ -85,11 +85,14 @@ def test_time_limit_can_be_set_cleared_and_solved():
         if importlib.util.find_spec("juliacall") is None:
             pytest.skip("the juliacall backend is not available")
         import jumpy.juliacall as jp
+        jl = bridge_juliacall._julia()
+        jl.seval("import HiGHS")
+        model = jp.Model(jl.HiGHS.Optimizer)
     else:
         if backend.find_lib() is None:
             pytest.skip("the juliac backend is not available")
         import jumpy.highs as jp
-    model = jp.Model()
+        model = jp.Model()
     try:
         x = model.variable(lower=1)
         model.objective = jp.minimize(x)

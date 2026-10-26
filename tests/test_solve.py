@@ -19,7 +19,7 @@ import sys
 
 import pytest
 
-from jumpy import backend, minimize, maximize
+from jumpy import backend, bridge_juliacall, minimize, maximize
 
 BACKEND = os.environ.get("JUMPY_BACKEND", "juliac")
 if BACKEND == "juliacall":
@@ -42,6 +42,10 @@ pytestmark = pytest.mark.skipif(
 
 
 def _model():
+    if BACKEND == "juliacall":
+        jl = bridge_juliacall._julia()
+        jl.seval("import HiGHS")
+        return jp.Model(jl.HiGHS.Optimizer)
     return jp.Model()
 
 
@@ -252,7 +256,7 @@ def test_native_set_normalizes_expression_constant(constructor, rhs, direction):
 
 @pytest.mark.parametrize("explicit", [False, True])
 def test_constraint_normalization_does_not_mutate_reused_expression(explicit):
-    model = jp.Model()
+    model = _model()
     try:
         x = model.variable(lower=0)
         expr = x + 3
@@ -322,7 +326,7 @@ def test_native_numeric_constraint(value):
 
 def test_native_quadratic_objective():
     """Ordinary arithmetic must create a JuMP quadratic, not a nonlinear tree."""
-    model = jp.Model()
+    model = _model()
     try:
         x = model.variable(lower=0, upper=5)
         model.objective = jp.minimize((x - 2) ** 2)
@@ -333,7 +337,7 @@ def test_native_quadratic_objective():
 
 
 def test_native_variable_arrays_keep_independent_local_indices():
-    model = jp.Model()
+    model = _model()
     try:
         x = model.variables(2, lower=0, upper=5)
         y = model.variables(3, lower=10, upper=20)
@@ -354,7 +358,7 @@ def test_native_variable_arrays_keep_independent_local_indices():
 
 
 def test_native_value_queries_expressions_after_resolving():
-    model = jp.Model()
+    model = _model()
     try:
         x = model.variable(lower=1, upper=3)
         expr = 2 * x + 3
@@ -370,7 +374,7 @@ def test_native_value_queries_expressions_after_resolving():
 @pytest.mark.parametrize("name", ["sin", "cos", "exp", "log", "sqrt", "jp_abs"])
 def test_native_value_queries_nonlinear_expressions(name):
     """Evaluating an expression does not require nonlinear solver support."""
-    model = jp.Model()
+    model = _model()
     try:
         x = model.variable()
         model.constraint(x == 2.0)
@@ -385,7 +389,7 @@ def test_native_value_queries_nonlinear_expressions(name):
 
 
 def test_native_value_before_solving_reports_error():
-    model = jp.Model()
+    model = _model()
     try:
         x = model.variable(lower=0, upper=1)
         if BACKEND == "juliacall":
@@ -431,7 +435,7 @@ finally:
             "unsupported", "not supported", "does not support",
         )), detail
         return
-    model = jp.Model()
+    model = _model()
     try:
         variables = model.variables(2, lower=0, upper=5)
         x = variables[model.iterator(range(2))] if group else variables[0]

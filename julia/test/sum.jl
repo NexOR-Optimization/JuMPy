@@ -1,4 +1,5 @@
 using Test
+import HiGHS
 import JuMPyHiGHS
 import JuMP
 import GenOpt
@@ -6,8 +7,9 @@ import MathOptInterface as MOI
 
 @testset "native lazy sums preserve templates" begin
     J = JuMPyHiGHS.JuMPyModel
-    for builder in (J, JuMPyHiGHS.JuMPyDirect)
-        model = builder.model(JuMPyHiGHS.Optimizer())
+    for (builder, optimizer_argument) in
+        ((J, HiGHS.Optimizer), (JuMPyHiGHS.JuMPyDirect, HiGHS.Optimizer()))
+        model = builder.model(optimizer_argument)
         x = J.add_variables(model, 2)
         i = J.iterator([1, 2])
         for (template, F, G) in (
@@ -63,8 +65,9 @@ end
 
 @testset "lazy LP and QP objectives use GenOpt lowering" begin
     J = JuMPyHiGHS.JuMPyModel
-    for builder in (J, JuMPyHiGHS.JuMPyDirect)
-        model = builder.model(JuMPyHiGHS.Optimizer())
+    for (builder, optimizer_argument) in
+        ((J, HiGHS.Optimizer), (JuMPyHiGHS.JuMPyDirect, HiGHS.Optimizer()))
+        model = builder.model(optimizer_argument)
         x = builder.add_variables(model, 3)
         i = J.iterator([1, 2, 3])
         group = builder.add_constraint(model, x[i] - i, MOI.GreaterThan(0.0))
@@ -113,8 +116,9 @@ end
 
 @testset "lazy objective lowering preserves linear integer models" begin
     J = JuMPyHiGHS.JuMPyModel
-    for builder in (J, JuMPyHiGHS.JuMPyDirect)
-        model = builder.model(JuMPyHiGHS.Optimizer())
+    for (builder, optimizer_argument) in
+        ((J, HiGHS.Optimizer), (JuMPyHiGHS.JuMPyDirect, HiGHS.Optimizer()))
+        model = builder.model(optimizer_argument)
         x = builder.add_variables(model, 3)
         for variable in x
             builder.add_constraint(model, variable, MOI.ZeroOne())

@@ -2,8 +2,9 @@
 
 This branch's native JuMP/GenOpt integration is a prototype. Both building the
 compiled backend and using JuliaCall currently require the patched development
-checkout of GenOpt; released GenOpt 0.2.1 is not sufficient. Building the compiled
-backend also requires the concrete-model JuMP development patch. Follow the
+checkout of GenOpt; released GenOpt 0.2.3 lacks the required lazy-sum bridge.
+Building the compiled backend also requires the concrete-model JuMP development
+patch. Follow the
 [development environment setup](https://github.com/NexOR-Optimization/JuMPy/blob/main/julia/README.md#building)
 to select that checkout without changing the repository manifest.
 
@@ -33,12 +34,30 @@ pip install 'jumpy[juliacall]'
 ```python
 import jumpy.juliacall as jp
 
-model = jp.Model()
+model = jp.Model()  # A JuMP model without a solver
+```
+
+Install and load a solver in the JuliaCall environment explicitly. For example,
+with HiGHS:
+
+```python
+from juliacall import Main as jl
+
+jl.seval('using Pkg; Pkg.add("HiGHS"); import HiGHS')
+model = jp.Model(jl.HiGHS.Optimizer)
+```
+
+This forwards the optimizer factory to `JuMP.Model`. To use an existing optimizer
+instance with JuMP's direct mode:
+
+```python
+model = jp.direct_model(jl.HiGHS.Optimizer())
 ```
 
 This interface loads Julia and uses the same native JuMP/GenOpt expression
-operations as the compiled backend. JuliaCall uses normal JuMP caching and
-bridges; compiled HiGHS uses a concrete direct model over raw MOI, without
+operations as the compiled backend. JuliaCall's `Model` uses normal JuMP
+caching and GenOpt bridges. Its `direct_model` uses the optimizer without added
+layers. Compiled HiGHS uses a concrete direct model over raw MOI, without
 bridges. `jp.MOI` is Julia's actual MathOptInterface module. It
 does not need the compiled JuMPy library. Both interfaces expose the same
 modeling helpers and `jp.MOI`, but they are alternatives: choose one per Python
