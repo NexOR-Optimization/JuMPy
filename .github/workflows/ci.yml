@@ -42,6 +42,19 @@ jobs:
 
       - uses: julia-actions/cache@v2
 
+      - name: Install development GenOpt for JuliaCall
+        run: |
+          uv run --group tests --extra juliacall python - <<'PYTHON'
+          from juliacall import Main as jl
+          jl.seval("""
+              using Pkg
+              Pkg.add(PackageSpec(
+                  url="https://github.com/blegat/GenOpt.jl.git",
+                  rev="bl/juliac-safe",
+              ))
+          """)
+          PYTHON
+
       - name: Run tests
         run: uv run --group tests --extra juliacall pytest
         env:

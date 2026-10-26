@@ -35,9 +35,37 @@ const NativeVariable = JuMP.variable_ref_type(NativeModel)
 const NativeAffine = JuMP.GenericAffExpr{Float64,NativeVariable}
 const NativeQuadratic = JuMP.GenericQuadExpr{Float64,NativeVariable}
 const NativeNonlinear = JuMP.GenericNonlinearExpr{NativeVariable}
+const NativePolynomial = Union{
+    GenOpt.PolynomialExpr{Int64,NativeVariable},
+    GenOpt.PolynomialExpr{Float64,NativeVariable},
+    GenOpt.PolynomialExpr{NativeVariable,NativeVariable},
+    GenOpt.PolynomialExpr{NativeAffine,NativeVariable},
+    GenOpt.PolynomialExpr{NativeQuadratic,NativeVariable},
+    GenOpt.PolynomialExpr{Int64,JuMP.VariableRef},
+    GenOpt.PolynomialExpr{Float64,JuMP.VariableRef},
+}
 
-const NativeScalar =
-    Union{Int64,Float64,NativeVariable,NativeAffine,NativeQuadratic,NativeNonlinear}
+const NativeLazySum = Union{
+    GenOpt.LazySum{Int64,NativeVariable},
+    GenOpt.LazySum{Float64,NativeVariable},
+    GenOpt.LazySum{NativeVariable,NativeVariable},
+    GenOpt.LazySum{NativeAffine,NativeVariable},
+    GenOpt.LazySum{NativeQuadratic,NativeVariable},
+    GenOpt.LazySum{NativeNonlinear,NativeVariable},
+    GenOpt.LazySum{Int64,JuMP.VariableRef},
+    GenOpt.LazySum{Float64,JuMP.VariableRef},
+}
+const NativeScalar = Union{
+    Int64,
+    Float64,
+    NativeVariable,
+    NativeAffine,
+    NativeQuadratic,
+    NativeNonlinear,
+    JuMP.NonlinearExpr,
+    NativeLazySum,
+    NativePolynomial,
+}
 const NativeTemplate = Union{
     GenOpt.ExprTemplate{Int64,NativeVariable},
     GenOpt.ExprTemplate{Float64,NativeVariable},
