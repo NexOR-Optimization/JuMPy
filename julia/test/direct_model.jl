@@ -323,14 +323,14 @@ end
         pointer(pairs),
         Clonglong(length(pairs)),
     )
-    pair_index = apply_native("+", pair_iterator, integer(1))
     endpoints = map((Cdouble[0, 2], Cdouble[1, 0])) do values
         data = GC.@preserve values J.jumpy_float_array(
             model,
             pointer(values),
             Clonglong(length(values)),
         )
-        mapped = apply_native("getindex", data, pair_index)
+        index = apply_native("+", pair_iterator, integer(1))
+        mapped = apply_native("getindex", data, index)
         @test mapped != C_NULL
         return apply_native("getindex", block, apply_native("+", mapped, integer(1)))
     end

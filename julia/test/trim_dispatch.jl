@@ -8,6 +8,12 @@ function _validate_trim_entrypoint(f, types)
     return @test hasmethod(f, Tuple{types...})
 end
 
+function _validate_trim_entrypoint(signature::Type{<:Tuple})
+    F, types... = signature.parameters
+    f = F <: Type ? only(F.parameters) : getfield(F, :instance)
+    return _validate_trim_entrypoint(f, types)
+end
+
 @testset "finite roots reference existing methods" begin
     path = joinpath(@__DIR__, "..", "trim_roots.jl")
     # entrypoint is a no-op outside image generation. Check its registrations
@@ -89,7 +95,10 @@ end
             Base.Generator{Vector{Tuple{Int64}},F},
         }
         write(trace, "precompile(" * repr(observed) * ")")
-        @test G.generate(output, [trace]) == 1 + 3 * length(G.ITERATOR_TUPLES)
+        storage_roots = String[]
+        G._supplement_storage_roots!(storage_roots, observed)
+        @test G.generate(output, [trace]) ==
+              1 + 3 * length(G.ITERATOR_TUPLES) + length(storage_roots)
         supplemented = G.dispatch_roots([trace])
         @test all(
             T -> "Base.Experimental.entrypoint(" * repr(Tuple{F,T}) * ")" in supplemented,
@@ -116,6 +125,35 @@ end
             ")" in supplemented,
             G.ITERATOR_TUPLES,
         )
+
+        for T in (Tuple{Int64,Float64,Float64}, Tuple{Int64,Float64,Float64,Float64})
+            observed = Tuple{Type{GenOpt.Iterator},Vector{T},Base.RefValue{Nothing}}
+            write(trace, "precompile(" * repr(observed) * ")")
+            @test G.generate(output, [trace]) > 1
+            supplemented = G.dispatch_roots([trace])
+            for constructor in (
+                Tuple{Type{Vector{T}},UndefInitializer,Int64},
+                Tuple{Type{Vector{T}},UndefInitializer,Tuple{Int64}},
+            )
+                @test "Base.Experimental.entrypoint(" * repr(constructor) * ")" in
+                      supplemented
+            end
+            @test hasmethod(Vector{T}, Tuple{UndefInitializer,Tuple{Int64}})
+            @test Base.include(G, output) === nothing
+            source = replace(
+                read(output, String),
+                "Base.Experimental.entrypoint" => "_validate_trim_entrypoint",
+            )
+            include_string(@__MODULE__, source, output)
+            @test G.dispatch_roots([trace, trace]) == supplemented
+            retained = String[]
+            seen = Set{Any}()
+            G._supplement_storage_roots!(retained, observed, seen)
+            @test seen == Set([T])
+            count = length(retained)
+            G._supplement_storage_roots!(retained, observed, seen)
+            @test length(retained) == count
+        end
 
         destination = Vector{Bool}
         iterator = Base.Generator{Vector{Tuple{Int64}},typeof(G.GenOpt._is_numeric)}
