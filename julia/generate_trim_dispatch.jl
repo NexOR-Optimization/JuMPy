@@ -49,11 +49,12 @@ function _supplement_generator_roots!(roots::Vector{String}, signature)
         F isa DataType &&
         parentmodule(F) === GenOpt &&
         startswith(string(nameof(F)), "#_new_values") || continue
-        # map's abstract Function path reaches _collect dynamically, even
-        # when ordinary Julia inlines both the closure and collection loop.
+        # map's abstract Function path reaches the Generator constructor and
+        # _collect dynamically, even when ordinary Julia inlines both calls.
         for T in ITERATOR_TUPLES
             for root in (
                 Tuple{F,T},
+                Tuple{Type{Base.Generator},F,Vector{T}},
                 Tuple{
                     typeof(Base._collect),
                     Vector{T},

@@ -89,7 +89,7 @@ end
             Base.Generator{Vector{Tuple{Int64}},F},
         }
         write(trace, "precompile(" * repr(observed) * ")")
-        @test G.generate(output, [trace]) == 1 + 2 * length(G.ITERATOR_TUPLES)
+        @test G.generate(output, [trace]) == 1 + 3 * length(G.ITERATOR_TUPLES)
         supplemented = G.dispatch_roots([trace])
         @test all(
             T -> "Base.Experimental.entrypoint(" * repr(Tuple{F,T}) * ")" in supplemented,
@@ -106,6 +106,13 @@ end
                     Base.HasShape{1},
                 },
             ) *
+            ")" in supplemented,
+            G.ITERATOR_TUPLES,
+        )
+
+        @test all(
+            T -> "Base.Experimental.entrypoint(" *
+            repr(Tuple{Type{Base.Generator},F,Vector{T}}) *
             ")" in supplemented,
             G.ITERATOR_TUPLES,
         )

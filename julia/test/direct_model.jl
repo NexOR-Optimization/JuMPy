@@ -315,6 +315,48 @@ end
         }(),
     ) == 3
     scalar_variables = [apply_native("getindex", block, integer(i)) for i = 1:3]
+    # Two data lookups append columns to the same iterator. The second lookup
+    # must retain the Generator constructor for the widened iterator values.
+    pairs = Clonglong[0, 1]
+    pair_iterator = GC.@preserve pairs J.jumpy_integer_iterator(
+        model,
+        pointer(pairs),
+        Clonglong(length(pairs)),
+    )
+    pair_index = apply_native("+", pair_iterator, integer(1))
+    endpoints = map((Cdouble[0, 2], Cdouble[1, 0])) do values
+        data = GC.@preserve values J.jumpy_float_array(
+            model,
+            pointer(values),
+            Clonglong(length(values)),
+        )
+        mapped = apply_native("getindex", data, pair_index)
+        @test mapped != C_NULL
+        return apply_native("getindex", block, apply_native("+", mapped, integer(1)))
+    end
+    set = J.jumpy_less_than(100.0)
+    grouped = J.jumpy_add_constraint(model, apply_native("+", endpoints...), set)
+    @test grouped != C_NULL
+    @test J.jumpy_free_set(set) == 0
+    grouped_rows = MOI.get(
+        backend,
+        MOI.ListOfConstraintIndices{
+            MOI.ScalarAffineFunction{Float64},
+            MOI.LessThan{Float64},
+        }(),
+    )
+    @test length(grouped_rows) == 2
+    for (row, (a, b)) in zip(grouped_rows, ((1, 2), (3, 1)))
+        expected = MOI.ScalarAffineFunction(
+            [
+                MOI.ScalarAffineTerm(1.0, JuMP.index(J._unbox(scalar_variables[k]))) for
+                k in (a, b)
+            ],
+            0.0,
+        )
+        @test MOI.get(backend, MOI.ConstraintFunction(), row) ≈ expected
+        @test MOI.get(backend, MOI.ConstraintSet(), row) == MOI.LessThan(100.0)
+    end
     objective = foldl(scalar_variables) do left, right
         apply_native("+", left, right)
     end
