@@ -49,11 +49,12 @@ function _supplement_generator_roots!(roots::Vector{String}, signature)
         F isa DataType &&
         parentmodule(F) === GenOpt &&
         startswith(string(nameof(F)), "#_new_values") || continue
-        # map's abstract Function path reaches _collect dynamically, even
-        # when ordinary Julia inlines both the closure and collection loop.
+        # map's abstract Function path reaches the Generator constructor and
+        # _collect dynamically, even when ordinary Julia inlines both calls.
         for T in ITERATOR_TUPLES
             for root in (
                 Tuple{F,T},
+                Tuple{Type{Base.Generator},F,Vector{T}},
                 Tuple{
                     typeof(Base._collect),
                     Vector{T},
@@ -64,6 +65,56 @@ function _supplement_generator_roots!(roots::Vector{String}, signature)
             )
                 push!(roots, "Base.Experimental.entrypoint(" * repr(root) * ")")
             end
+        end
+    end
+    return nothing
+end
+
+function _supplement_storage_roots!(
+    roots::Vector{String},
+    signature,
+    seen::Set{Any} = Set{Any}(),
+)
+    signature isa DataType || return nothing
+    for A in signature.parameters
+        A isa DataType && A <: Vector || continue
+        T = eltype(A)
+        isconcretetype(T) && T <: Tuple || continue
+        T in seen && continue
+        push!(seen, T)
+        # Data lookups append columns to iterator tuples. Retain storage for
+        # observed shapes instead of enumerating every possible tuple arity.
+        for root in (
+            Tuple{Type{A},UndefInitializer,Int64},
+            Tuple{Type{A},UndefInitializer,Tuple{Int64}},
+            Tuple{
+                typeof(Base._array_for_inner),
+                Type{T},
+                Base.HasShape{1},
+                Tuple{Base.OneTo{Int64}},
+            },
+            Tuple{typeof(setindex!),A,T,Int64},
+            Tuple{typeof(GenOpt._arity),GenOpt.Iterator{T}},
+        )
+            push!(roots, "Base.Experimental.entrypoint(" * repr(root) * ")")
+        end
+        for C in (A, T)
+            for f in (length, isempty, eachindex, first, last, iterate)
+                root = Tuple{typeof(f),C}
+                push!(roots, "Base.Experimental.entrypoint(" * repr(root) * ")")
+            end
+            for f in (getindex, iterate)
+                root = Tuple{typeof(f),C,Int64}
+                push!(roots, "Base.Experimental.entrypoint(" * repr(root) * ")")
+            end
+        end
+        for f in (copy, similar)
+            root = Tuple{typeof(f),A}
+            push!(roots, "Base.Experimental.entrypoint(" * repr(root) * ")")
+        end
+        for S in (Int64, Float64, Bool)
+            root = Tuple{typeof(Base.setindex_widen_up_to),A,S,Int64}
+            push!(roots, "Base.Experimental.entrypoint(" * repr(root) * ")")
         end
     end
     return nothing
@@ -133,6 +184,7 @@ end
 function dispatch_roots(paths::Vector{String})
     roots = String[]
     native_dispatches = Set{Any}()
+    storage_types = Set{Any}()
     for path in paths
         for (line_number, original) in enumerate(eachline(path))
             startswith(original, "precompile(Tuple{") || continue
@@ -149,6 +201,7 @@ function dispatch_roots(paths::Vector{String})
                 _supplement_iterator_roots!(roots, signature)
                 _supplement_generator_roots!(roots, signature)
                 _supplement_collect_roots!(roots, signature)
+                _supplement_storage_roots!(roots, signature, storage_types)
                 _supplement_native_dispatch_roots!(roots, signature, native_dispatches)
             catch err
                 error(
