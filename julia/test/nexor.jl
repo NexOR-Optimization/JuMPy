@@ -48,9 +48,19 @@ end
             @test optimizer.api_key == "test-key"
             @test optimizer.solver.optimizer == "Ipopt"
             @test MOI.get(optimizer, MOI.Silent())
+            @test MOI.get(cache(m).model_cache, MOI.TimeLimitSec()) === nothing
             @test Backend.jumpy_set_time_limit_sec(m, 30.0) == 0
             @test MOI.get(optimizer, MOI.TimeLimitSec()) == 30.0
+            @test MOI.get(cache(m).model_cache, MOI.TimeLimitSec()) == 30.0
+            @test MOI.TimeLimitSec() in
+                  MOI.get(cache(m).model_cache, MOI.ListOfOptimizerAttributesSet())
+            MOI.Utilities.attach_optimizer(cache(m))
+            @test MOI.get(optimizer, MOI.TimeLimitSec()) == 30.0
             @test Backend.jumpy_set_time_limit_sec(m, NaN) == 0
+            @test MOI.get(optimizer, MOI.TimeLimitSec()) === nothing
+            @test MOI.get(cache(m).model_cache, MOI.TimeLimitSec()) === nothing
+            MOI.Utilities.reset_optimizer(cache(m))
+            MOI.Utilities.attach_optimizer(cache(m))
             @test MOI.get(optimizer, MOI.TimeLimitSec()) === nothing
         finally
             @test Backend.jumpy_free_model(m) == 0

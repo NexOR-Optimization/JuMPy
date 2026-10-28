@@ -24,9 +24,21 @@ function MOI.set(model::ScalarModel, ::MOI.Silent, value::Bool)
     return
 end
 MOI.get(model::ScalarModel, ::MOI.Silent) = get(model.ext, :jumpy_silent, false)::Bool
+
+MOI.supports(::ScalarModel, ::MOI.TimeLimitSec) = true
+function MOI.set(model::ScalarModel, ::MOI.TimeLimitSec, value::Union{Nothing,Real})
+    model.ext[:jumpy_time_limit] = value === nothing ? nothing : Float64(value)
+    return
+end
+function MOI.get(model::ScalarModel, ::MOI.TimeLimitSec)
+    return get(model.ext, :jumpy_time_limit, nothing)::Union{Nothing,Float64}
+end
+
 function MOI.get(model::ScalarModel, ::MOI.ListOfOptimizerAttributesSet)
-    return haskey(model.ext, :jumpy_silent) ? MOI.AbstractOptimizerAttribute[MOI.Silent()] :
-           MOI.AbstractOptimizerAttribute[]
+    attributes = MOI.AbstractOptimizerAttribute[]
+    haskey(model.ext, :jumpy_silent) && push!(attributes, MOI.Silent())
+    haskey(model.ext, :jumpy_time_limit) && push!(attributes, MOI.TimeLimitSec())
+    return attributes
 end
 
 function _copy_rows!(dest, src, map, ::Type{F}, ::Type{S}) where {F,S}

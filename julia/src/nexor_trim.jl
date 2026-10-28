@@ -265,7 +265,9 @@ for T in (Base.OneTo{Int}, UnitRange{Int})
 end
 
 Base.Experimental.entrypoint(MOI.supports, (NexOR.Optimizer, MOI.Silent))
-Base.Experimental.entrypoint(MOI.get, (ScalarModel{Float64}, MOI.Silent))
+for A in (MOI.Silent, MOI.TimeLimitSec)
+    Base.Experimental.entrypoint(MOI.get, (ScalarModel{Float64}, A))
+end
 Base.Experimental.entrypoint(
     MOI.Utilities.map_indices,
     (MOI.Utilities.IndexMap, MOI.Silent, Bool),
