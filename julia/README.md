@@ -285,6 +285,9 @@ julia --project=@juliac -m JuliaC \
     --verbose nexor_entry.jl
 ```
 
+`test/Manifest.toml` is generated locally and ignored. After changing the test
+project, refresh an existing manifest with `Pkg.resolve()` before instantiating.
+
 Select it with `import jumpy.nexor as jp`, then `jp.Model()`. Models read
 `NEXOR_API_KEY`, `NEXOR_SERVER_URL` (default `https://api.nexoropt.com`) and
 `NEXOR_SOLVER` (default `HiGHS`) when created. Use one runtime per Python
