@@ -259,11 +259,13 @@ def test_compiled_integer_overflow_is_rejected_before_ffi(lib, value):
     ops.free()
 
 
-def test_compiled_ops_reject_foreign_or_non_native_set(lib):
+@pytest.mark.parametrize("solver", ["highs", "nexor"])
+def test_compiled_ops_reject_foreign_or_non_native_set(lib, monkeypatch, solver):
+    monkeypatch.setattr(backend, "_LIB_SOLVER", solver)
     ops = backend.JuliacOps(lib)
     with NativeSet(FakeLib(), 1) as foreign:
         for set_ in (foreign, object(), 123):
-            with pytest.raises(TypeError, match="jumpy.highs"):
+            with pytest.raises(TypeError, match=rf"jumpy\.{solver}"):
                 ops.add_constraint(123, set_)
     assert lib.calls == []
     ops.free()

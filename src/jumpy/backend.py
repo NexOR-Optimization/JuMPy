@@ -230,7 +230,7 @@ class JuliacOps:
         from jumpy._highs_moi import NativeSet
 
         if not isinstance(set_, NativeSet) or set_._lib is not self._lib:
-            raise TypeError("Expected an MOI set created by this compiled backend")
+            raise TypeError(f"Expected an MOI set created by jumpy.{self.MOI._solver}")
         return set_.handle
 
     def add_constraint(self, func, set_):
