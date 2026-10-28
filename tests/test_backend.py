@@ -95,3 +95,53 @@ def test_juliacall_ops_wraps_an_existing_jump_model(monkeypatch):
     assert ops._model is native_model
     assert ops._jl is jl
     assert ops._jump is jl.JuMPyModel
+
+
+def test_nexor_library_paths():
+    assert all("libjumpy_nexor" in path for path in backend._default_paths("nexor"))
+    assert all("libjumpy_highs" in path for path in backend._default_paths())
+
+
+def test_nexor_library_override(monkeypatch):
+    monkeypatch.setenv("JUMPY_LIB", "/custom/libjumpy_nexor.so")
+    assert backend.find_lib("nexor") == "/custom/libjumpy_nexor.so"
+
+
+def test_nexor_facade_uses_native_model_api(monkeypatch):
+    import jumpy
+    import jumpy.nexor as nexor
+    from mock_ops import MockOps
+
+    ops, lib, calls = MockOps(), object(), []
+    monkeypatch.setattr(backend, "_load_lib", lambda solver: calls.append(solver) or lib)
+    monkeypatch.setattr(backend, "JuliacOps", lambda selected: ops if selected is lib else None)
+    m = nexor.Model()
+    try:
+        x = m.variables(2, lower=0)
+        assert calls == ["nexor"]
+        assert ops.constraints == [(("getindex", x.ref, k), ("GreaterThan", 0.0)) for k in (1, 2)]
+        for name in jumpy.__all__:
+            assert getattr(nexor, name) is getattr(jumpy, name)
+    finally:
+        m.close()
+
+
+def test_nexor_sets_load_the_nexor_library(monkeypatch):
+    import jumpy.nexor as nexor
+
+    calls = []
+    lib = SimpleNamespace(jumpy_less_than=lambda rhs: 42, jumpy_free_set=lambda handle: 0)
+    monkeypatch.setattr(backend, "_load_lib", lambda solver: calls.append(solver) or lib)
+    with nexor.MOI.LessThan(1.0) as set_:
+        assert set_._lib is lib
+        assert set_.handle == 42
+    assert calls == ["nexor"]
+
+
+def test_compiled_backends_cannot_mix_runtimes(monkeypatch):
+    lib = object()
+    monkeypatch.setattr(backend, "_LIB", lib)
+    monkeypatch.setattr(backend, "_LIB_SOLVER", "nexor")
+    assert backend._load_lib("nexor") is lib
+    with pytest.raises(RuntimeError, match="separate Python processes"):
+        backend._load_lib("highs")

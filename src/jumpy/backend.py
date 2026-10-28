@@ -16,25 +16,27 @@ import sys
 
 # The Julia runtime can only be initialized once per process.
 _LIB = None
+_LIB_SOLVER = None
 
 
-def _default_paths():
+def _default_paths(solver="highs"):
     import os
     import platform
 
     soext = {"Linux": ".so", "Darwin": ".dylib", "Windows": ".dll"}[platform.system()]
-    lib_name = "libjumpy_highs" + soext
+    lib_name = "libjumpy_" + solver + soext
     pkg_dir = os.path.dirname(__file__)
     repo = os.path.dirname(os.path.dirname(pkg_dir))
     return [
         # Wheel layout: shipped inside the package.
         os.path.join(pkg_dir, "lib", lib_name),
-        # Development layout: JuliaC bundle in <repo>/julia/build.
+        os.path.join(repo, "julia", "build", solver, "lib", lib_name),
+        # Legacy development layout.
         os.path.join(repo, "julia", "build", "lib", lib_name),
     ]
 
 
-def find_lib():
+def find_lib(solver="highs"):
     """
     The compiled library _load_lib will use: $JUMPY_LIB if set (authoritative
     even if the file is missing — loading it errors rather than falling back),
@@ -44,26 +46,34 @@ def find_lib():
 
     if "JUMPY_LIB" in os.environ:
         return os.environ["JUMPY_LIB"]
-    return next((p for p in _default_paths() if os.path.exists(p)), None)
+    return next((p for p in _default_paths(solver) if os.path.exists(p)), None)
 
 
-def _load_lib():
+def _load_lib(solver="highs"):
     import os
 
+    global _LIB_SOLVER
     if _LIB is not None:
+        if solver != _LIB_SOLVER:
+            raise RuntimeError(
+                "Only one compiled solver library can be loaded per process; "
+                "run HiGHS and NexOR backends in separate Python processes."
+            )
         return _LIB
-    path = find_lib()
+    path = find_lib(solver)
     if path is None:
         raise FileNotFoundError(
             "Could not find the compiled JuMPy backend library. Searched:\n  "
-            + "\n  ".join(_default_paths()) + "\nEither:\n"
+            + "\n  ".join(_default_paths(solver)) + "\nEither:\n"
             "  1. Install the pre-built wheel: pip install jumpy\n"
             "  2. Build it locally: see julia/README.md\n"
             "  3. Use JuliaCall: import jumpy.juliacall as jp\n"
         )
     if not os.path.exists(path):
         raise FileNotFoundError(f"JUMPY_LIB points to a missing file: {path}")
-    return _init_lib(path)
+    lib = _init_lib(path)
+    _LIB_SOLVER = solver
+    return lib
 
 
 def _init_lib(path):
@@ -165,9 +175,9 @@ class JuliacOps:
     """
 
     def __init__(self, lib):
-        from jumpy._highs_moi import MOI
+        from jumpy._highs_moi import MOI, _ScalarSets
 
-        self.MOI = MOI
+        self.MOI = MOI if _LIB_SOLVER != "nexor" else _ScalarSets("nexor")
         self._lib = lib
         self._m = lib.jumpy_new_model()
         if not self._m:  # NULL
@@ -220,7 +230,7 @@ class JuliacOps:
         from jumpy._highs_moi import NativeSet
 
         if not isinstance(set_, NativeSet) or set_._lib is not self._lib:
-            raise TypeError("Expected an MOI set created by jumpy.highs")
+            raise TypeError("Expected an MOI set created by this compiled backend")
         return set_.handle
 
     def add_constraint(self, func, set_):

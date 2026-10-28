@@ -1,4 +1,6 @@
 [deps]
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+NexOR = "8018e1f0-eec4-4af0-933d-cc21e2f6b695"
 GenOpt = "f2c049d8-7489-4223-990c-4f1c121a4cde"
 HiGHS = "87dc4568-4c63-4d18-b0c0-bb2238e4078b"
 JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
@@ -7,6 +9,9 @@ MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [sources]
+MathOptInterface = {url = "https://github.com/jump-dev/MathOptInterface.jl", rev = "bl/juliac"}
 GenOpt = {url = "https://github.com/blegat/GenOpt.jl.git", rev = "bl/juliac-safe"}
 JuMP = {url = "https://github.com/jump-dev/JuMP.jl.git", rev = "bl/juliac"}
 JuMPyHiGHS = {path = ".."}
+
+NexOR = {url = "https://github.com/NexOR-Optimization/NexOR.jl"}

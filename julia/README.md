@@ -46,7 +46,7 @@ handles, not duplicate set definitions. JuliaCall exposes the actual MOI module.
 
 ## C ABI
 
-See `src/JuMPyHiGHS.jl` for the full conventions.
+See `src/entrypoints.jl` for the full conventions.
 
 Rebuild existing compiled libraries for this ABI. The old column-index and
 bulk-solution entry points are removed; the Python loader rejects binaries
@@ -259,3 +259,39 @@ export PYTHON_JULIACALL_EXE="$(julia -e 'print(joinpath(Sys.BINDIR, Base.julia_e
 Install solver packages in that same JuliaCall environment when needed, for
 example `Pkg.add("HiGHS")`. Then import the solver through JuliaCall and pass
 its constructor to `jp.Model`, or an instance to `jp.direct_model`.
+
+## NexOR client
+
+`src/JuMPyNexOR.jl` uses the same native ABI in `src/entrypoints.jl` as HiGHS.
+Its direct JuMP model wraps a scalar MOI cache, which copies each completed
+model into NexOR.jl for remote execution. This preserves incremental model
+building while keeping solver packages on the server. `jumpy.nexor` exports
+the common modeling API and native scalar MOI sets, including the time-limit,
+termination-status and result queries available in `jumpy.highs`.
+
+The test environment combines the development GenOpt and JuMP branches used
+above with MathOptInterface's `bl/juliac` MOF writer and NexOR.jl. From this
+`julia/` directory, instantiate it and build the NexOR client:
+
+```sh
+julia --project=test -e 'using Pkg; Pkg.instantiate()'
+mkdir -p build
+julia --project=test --trace-dispatch=build/nexor.trace test/nexor.jl
+JUMPY_BACKEND=nexor julia --project=test generate_trim_dispatch.jl nexor_dispatch.jl build/nexor.trace
+julia --project=@juliac -m JuliaC \
+    --output-lib build/nexor/libjumpy_nexor --project test \
+    --compile-ccallable --trim=unsafe-warn \
+    --jl-option handle-signals=no --bundle build/nexor \
+    --verbose nexor_entry.jl
+```
+
+Select it with `import jumpy.nexor as jp`, then `jp.Model()`. Models read
+`NEXOR_API_KEY`, `NEXOR_SERVER_URL` (default `https://api.nexoropt.com`) and
+`NEXOR_SOLVER` (default `HiGHS`) when created. Use one runtime per Python
+process. The loader searches `JUMPY_LIB`, the package's `lib/` directory,
+`julia/build/<solver>/lib/`, then the legacy `julia/build/lib/` location.
+
+`julia --project=test test/nexor.jl` exercises the native ABI and MOF round trip
+with a mock transport, without contacting production. After building, run
+`JUMPY_BACKEND=nexor uv run --group tests pytest tests/test_nexor.py` from the
+repository root to test the compiled client against a local HTTP fixture.

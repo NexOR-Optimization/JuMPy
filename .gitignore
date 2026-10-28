@@ -8,3 +8,6 @@ build-trim/
 julia/trim_dispatch.jl
 docs/build/
 docs/source/generated/
+julia/test/Manifest.toml
+julia/nexor/Manifest.toml
+julia/nexor_dispatch.jl

@@ -78,6 +78,17 @@ Cached JuliaCall models register GenOpt's bridges. `direct_model` uses the
 optimizer as supplied, without a cache or added bridges. The constructors
 preserve JuMP's solver-output defaults.
 
+## Remote solvers through NexOR
+
+Use `import jumpy.nexor as jp` to select the compiled NexOR client. It exposes
+the same modeling helpers, native MOI scalar sets and result queries as
+`jumpy.highs`. Each model reads `NEXOR_API_KEY`, `NEXOR_SERVER_URL` (default
+`https://api.nexoropt.com`) and `NEXOR_SOLVER` (default `HiGHS`). The solver runs
+on the server; the Python process loads a compiled client library.
+
+Build instructions are in [julia/README.md](julia/README.md#nexor-client).
+Use a separate Python process for each compiled backend or JuliaCall runtime.
+
 ## Quick start
 
 ```python
