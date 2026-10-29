@@ -80,7 +80,7 @@ end
         x, y, z = (variable(m, block, i) for i = 1:3)
         @test add_constraint(m, x, MOI.ZeroOne()) != C_NULL
         @test add_constraint(m, y, MOI.Integer()) != C_NULL
-        values = Clonglong[1, 2, 3]
+        values = Clonglong[0, 1, 2]
         demand = Cdouble[1, 2, 3]
         i = GC.@preserve values Backend.jumpy_integer_iterator(
             m,
@@ -88,7 +88,12 @@ end
             Clonglong(3),
         )
         d = GC.@preserve demand Backend.jumpy_float_array(m, pointer(demand), Clonglong(3))
-        template = apply(m, "-", apply(m, "getindex", block, i), apply(m, "getindex", d, i))
+        # Python shifts symbolic indices before indexing variables and data.
+        index = apply(m, "+", i, constant(m, 1))
+        data = apply(m, "getindex", d, index)
+        @test data != C_NULL
+        @test Backend._unbox(data) isa Backend.GenOpt.IteratorValues{Float64}
+        template = apply(m, "-", apply(m, "getindex", block, index), data)
         @test add_constraint(m, template, MOI.GreaterThan(0.0)) != C_NULL
         objective = apply(m, "+", x, apply(m, "+", y, z))
         @test Backend.jumpy_set_objective_sense(m, Cint(0)) == 0
