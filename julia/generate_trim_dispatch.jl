@@ -17,6 +17,7 @@ module JuMPyTrimDispatch
 import GenOpt
 import JuMP
 if get(ENV, "JUMPY_BACKEND", "") == "nexor"
+    import NexOR
     import Main.JuMPyNexOR
     const JuMPyHiGHS = JuMPyNexOR
 else
@@ -175,9 +176,15 @@ end
 
 function _is_backend_signature(line::String)
     occursin(
-        r"Main\.|Test\.|Base\.Compiler|\.Bridges\.|FunctionGeneratorBridge|JuMPyModel\.model\)|JuMP\.Containers\.|JuMP\._finalize_macro|Base\.Experimental\.entrypoint",
+        r"Main\.|Tests?\.|Base\.Compiler|\.Bridges\.|FunctionGeneratorBridge|JuMPyModel\.model\)|JuMP\.Containers\.|JuMP\._finalize_macro|Base\.Experimental\.entrypoint",
         line,
     ) && return false
+    # Shared test traces can contain calls from both backends.
+    if get(ENV, "JUMPY_BACKEND", "") == "nexor"
+        occursin(r"(?:JuMPyHiGHS|HiGHS)\.", line) && return false
+    else
+        occursin(r"(?:JuMPyNexOR|NexOR)\.", line) && return false
+    end
     occursin("CachingOptimizer", line) &&
         get(ENV, "JUMPY_BACKEND", "") != "nexor" &&
         return false

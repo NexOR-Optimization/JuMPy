@@ -3,6 +3,7 @@ include("src/JuMPyNexOR.jl")
 import GenOpt
 import JuMP
 import MathOptInterface
+import NexOR
 
 if Base.JLOptions().trim != 0
     include("trim_roots.jl")
