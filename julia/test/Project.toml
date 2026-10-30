@@ -14,4 +14,4 @@ GenOpt = {url = "https://github.com/blegat/GenOpt.jl.git", rev = "bl/juliac-safe
 JuMP = {url = "https://github.com/jump-dev/JuMP.jl.git", rev = "bl/juliac"}
 JuMPyHiGHS = {path = ".."}
 
-NexOR = {url = "https://github.com/NexOR-Optimization/NexOR.jl"}
+NexOR = {url = "https://github.com/NexOR-Optimization/NexOR.jl", rev = "bl/incremental-api"}

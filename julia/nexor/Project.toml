@@ -8,7 +8,7 @@ NexOR = "8018e1f0-eec4-4af0-933d-cc21e2f6b695"
 GenOpt = {url = "https://github.com/blegat/GenOpt.jl.git", rev = "bl/juliac-safe"}
 JuMP = {url = "https://github.com/jump-dev/JuMP.jl.git", rev = "bl/juliac"}
 MathOptInterface = {url = "https://github.com/jump-dev/MathOptInterface.jl", rev = "bl/juliac"}
-NexOR = {url = "https://github.com/NexOR-Optimization/NexOR.jl"}
+NexOR = {url = "https://github.com/NexOR-Optimization/NexOR.jl", rev = "bl/incremental-api"}
 
 [compat]
 GenOpt = "0.2.1"

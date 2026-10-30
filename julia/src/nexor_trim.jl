@@ -124,26 +124,6 @@ let mock = NexOR.Optimizer().model
     end
 end
 
-# Incremental edits after a solve reset NexOR's non-incremental optimizer.
-Base.Experimental.entrypoint(
-    MOI.Utilities._rethrow_if_not_NotAllowedError,
-    (MOI.AddVariableNotAllowed,),
-)
-Base.Experimental.entrypoint(
-    MOI.Utilities._rethrow_if_not_NotAllowedError,
-    (MOI.SetAttributeNotAllowed{MOI.ObjectiveSense},),
-)
-for F in (
-    MOI.ScalarAffineFunction{Float64},
-    MOI.ScalarQuadraticFunction{Float64},
-    MOI.ScalarNonlinearFunction,
-)
-    Base.Experimental.entrypoint(
-        MOI.Utilities._rethrow_if_not_NotAllowedError,
-        (MOI.SetAttributeNotAllowed{MOI.ObjectiveFunction{F}},),
-    )
-end
-
 for A in (MOI.Silent, MOI.TimeLimitSec, MOI.NumberOfThreads, MOI.RawOptimizerAttribute)
     Base.Experimental.entrypoint(NexOR._parameter_name, (A,))
 end
@@ -265,13 +245,6 @@ for T in (Base.OneTo{Int}, UnitRange{Int})
 end
 
 Base.Experimental.entrypoint(MOI.supports, (NexOR.Optimizer, MOI.Silent))
-for A in (MOI.Silent, MOI.TimeLimitSec)
-    Base.Experimental.entrypoint(MOI.get, (ScalarModel{Float64}, A))
-end
-Base.Experimental.entrypoint(
-    MOI.Utilities.map_indices,
-    (MOI.Utilities.IndexMap, MOI.Silent, Bool),
-)
 Base.Experimental.entrypoint(Float64, (Float64,))
 Base.Experimental.entrypoint(Float64, (Int,))
 
@@ -450,12 +423,11 @@ Base.Experimental.entrypoint(iterate, (Core.SimpleVector,))
 Base.Experimental.entrypoint(iterate, (Core.SimpleVector, Int))
 Base.Experimental.entrypoint(in, (Symbol, Tuple{Symbol}))
 
-# Re-copying a model leaves constraint containers allocated. Adding the
-# replacement variables visits those containers through MOI's broadcaster.
+# Adding variables after constraints exist visits MOF's allocated
+# constraint containers through MOI's broadcaster.
 let
-    cache = ScalarModel{Float64}()
     mof = NexOR.Optimizer().model.inner_model.model
-    pending = Any[typeof(cache.constraints), typeof(mof.constraints)]
+    pending = Any[typeof(mof.constraints)]
     seen = Set{Any}()
     while !isempty(pending)
         for T in Base.uniontypes(pop!(pending))

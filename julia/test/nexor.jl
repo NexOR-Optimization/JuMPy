@@ -9,7 +9,7 @@ import NexOR
 import ..JuMPyNexOR
 const Backend = JuMPyNexOR
 
-cache(m) = Backend.JuMP.backend(Backend._get(m).model)
+optimizer(m) = Backend.JuMP.backend(Backend._get(m).model)
 constant(m, value::Integer) = Backend.jumpy_integer_constant(m, Clonglong(value))
 constant(m, value) = Backend.jumpy_constant(m, Cdouble(value))
 
@@ -43,31 +43,24 @@ end
         m = Backend.jumpy_new_model()
         @test m != C_NULL
         try
-            optimizer = cache(m).optimizer
-            @test optimizer.server_url == "https://example.test"
-            @test optimizer.api_key == "test-key"
-            @test optimizer.solver.optimizer == "Ipopt"
-            @test MOI.get(optimizer, MOI.Silent())
-            @test MOI.get(cache(m).model_cache, MOI.TimeLimitSec()) === nothing
+            client = optimizer(m)
+            @test client.server_url == "https://example.test"
+            @test client.api_key == "test-key"
+            @test client.solver.optimizer == "Ipopt"
+            @test MOI.get(client, MOI.Silent())
+            @test optimizer(m) isa NexOR.Optimizer
+            @test MOI.supports_incremental_interface(client)
+            @test MOI.get(client, MOI.TimeLimitSec()) === nothing
             @test Backend.jumpy_set_time_limit_sec(m, 30.0) == 0
-            @test MOI.get(optimizer, MOI.TimeLimitSec()) == 30.0
-            @test MOI.get(cache(m).model_cache, MOI.TimeLimitSec()) == 30.0
-            @test MOI.TimeLimitSec() in
-                  MOI.get(cache(m).model_cache, MOI.ListOfOptimizerAttributesSet())
-            MOI.Utilities.attach_optimizer(cache(m))
-            @test MOI.get(optimizer, MOI.TimeLimitSec()) == 30.0
+            @test MOI.get(client, MOI.TimeLimitSec()) == 30.0
             @test Backend.jumpy_set_time_limit_sec(m, NaN) == 0
-            @test MOI.get(optimizer, MOI.TimeLimitSec()) === nothing
-            @test MOI.get(cache(m).model_cache, MOI.TimeLimitSec()) === nothing
-            MOI.Utilities.reset_optimizer(cache(m))
-            MOI.Utilities.attach_optimizer(cache(m))
-            @test MOI.get(optimizer, MOI.TimeLimitSec()) === nothing
+            @test MOI.get(client, MOI.TimeLimitSec()) === nothing
         finally
             @test Backend.jumpy_free_model(m) == 0
         end
     end
     withenv("NEXOR_SOLVER" => nothing) do
-        @test Backend._new_optimizer().optimizer.solver.optimizer == "HiGHS"
+        @test Backend._new_optimizer().solver.optimizer == "HiGHS"
     end
 end
 
@@ -77,6 +70,19 @@ end
     try
         block = Backend.jumpy_variables(m, Clonglong(3))
         @test block != C_NULL
+        variables = Backend._unbox(block)
+        generated = Backend.GenOpt.to_generator(variables)
+        @test collect(generated) == variables
+        @test Backend.JuMP.moi_function(generated) == Backend.JuMP.index.(variables)
+        other = Backend.jumpy_new_model()
+        try
+            @test_throws Backend.JuMP.VariableNotOwned Backend.JuMP.moi_function(
+                Backend._get(other).model,
+                generated,
+            )
+        finally
+            @test Backend.jumpy_free_model(other) == 0
+        end
         x, y, z = (variable(m, block, i) for i = 1:3)
         @test add_constraint(m, x, MOI.ZeroOne()) != C_NULL
         @test add_constraint(m, y, MOI.Integer()) != C_NULL
@@ -98,10 +104,8 @@ end
         objective = apply(m, "+", x, apply(m, "+", y, z))
         @test Backend.jumpy_set_objective_sense(m, Cint(0)) == 0
         @test Backend.jumpy_set_objective_function(m, objective) == 0
-        optimizer_cache = cache(m)
-        MOI.Utilities.attach_optimizer(optimizer_cache)
-        optimizer = optimizer_cache.optimizer
-        envelope = JSON.parse(NexOR._submission(optimizer))
+        client = optimizer(m)
+        envelope = JSON.parse(NexOR._submission(client))
         @test envelope["problem_type"] == "opaque/1"
         @test envelope["solver"] == "highs-mof"
         @test envelope["options"]["solver_options"]["highs-mof"]["silent"]
@@ -122,6 +126,20 @@ end
                 MOI.GreaterThan{Float64},
             }(),
         ) == 3
+        rows = MOI.get(
+            restored,
+            MOI.ListOfConstraintIndices{
+                MOI.ScalarAffineFunction{Float64},
+                MOI.GreaterThan{Float64},
+            }(),
+        )
+        for (i, row) in enumerate(rows)
+            func = MOI.get(restored, MOI.ConstraintFunction(), row)
+            @test only(func.terms).variable == MOI.VariableIndex(i)
+            @test only(func.terms).coefficient == 1
+            @test func.constant == 0
+            @test MOI.get(restored, MOI.ConstraintSet(), row).lower == i
+        end
         requests = String[]
         function request(model, method, path; body = "")
             push!(requests, method * " " * path)
@@ -146,7 +164,7 @@ end
                 ),
             )
         end
-        NexOR._optimize!(optimizer, request)
+        NexOR._optimize!(client, request)
         # The mock transport bypasses the JuMP optimize wrapper.
         Backend._get(m).model.is_model_dirty = false
         @test length(requests) == 3
@@ -155,10 +173,13 @@ end
         @test Backend.jumpy_has_duals(m) == 0
         @test Backend.jumpy_objective_value(m) == 6.0
         @test [Backend.jumpy_value(m, v) for v in (x, y, z)] == [1.0, 2.0, 3.0]
-        # Adding another native expression invalidates the copied result.
+        # Editing the model invalidates the previous result.
         @test add_constraint(m, apply(m, "sin", z), MOI.LessThan(1.0)) != C_NULL
-        MOI.Utilities.attach_optimizer(optimizer_cache)
-        problem = NexOR._problem(optimizer)
+        @test MOI.get(client, MOI.TerminationStatus()) == MOI.OPTIMIZE_NOT_CALLED
+        @test MOI.get(client, MOI.ResultCount()) == 0
+        @test Backend.jumpy_has_values(m) == 0
+        @test client.problem_id === nothing
+        problem = NexOR._problem(client)
         @test problem["has_scalar_nonlinear"]
         @test any(
             c -> c["function"]["type"] == "ScalarNonlinearFunction",
@@ -200,8 +221,7 @@ end
             end
             @test Backend.jumpy_set_objective_sense(m, Cint(1)) == 0
             @test Backend.jumpy_set_objective_function(m, func) == 0
-            MOI.Utilities.attach_optimizer(cache(m))
-            objective = NexOR._problem(cache(m).optimizer)["objective"]
+            objective = NexOR._problem(optimizer(m))["objective"]
             @test objective["sense"] == "max"
             @test objective["function"]["type"] == expected
         finally
@@ -234,7 +254,7 @@ end
         template = apply(m, "getindex", block, offset)
         @test add_constraint(m, template, MOI.GreaterThan(0.0)) != C_NULL
         @test MOI.get(
-            cache(m),
+            optimizer(m),
             MOI.NumberOfConstraints{
                 MOI.ScalarAffineFunction{Float64},
                 MOI.GreaterThan{Float64},
@@ -252,7 +272,7 @@ end
             MOI.GreaterThan(0.0),
         ) != C_NULL
         @test MOI.get(
-            cache(m),
+            optimizer(m),
             MOI.NumberOfConstraints{
                 MOI.ScalarAffineFunction{Float64},
                 MOI.GreaterThan{Float64},

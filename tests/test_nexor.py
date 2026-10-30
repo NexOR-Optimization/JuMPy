@@ -94,8 +94,9 @@ def test_compiled_nexor_solve(remote):
         assert submission["options"]["solver_options"]["highs-mof"]["silent"]
         assert len(submission["problem"]["variables"]) == 3
         assert len(submission["problem"]["constraints"]) == 6
-        # Changing a copied model must invalidate the cache and submit again.
+        # Editing the direct model must invalidate its solution and submit again.
         m.constraint(sin(x[0]) <= 1)
+        assert not m.has_values()
         m.optimize()
         assert remote.submission["problem"]["has_scalar_nonlinear"]
         assert [m.value(v) for v in x] == [1.0, 2.0, 3.0]

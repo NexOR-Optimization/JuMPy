@@ -263,7 +263,7 @@ end
                 [
                     "precompile(Tuple{typeof(NexOR.solver_id), String})",
                     "precompile(Tuple{typeof(Main.JuMPyNexOR._new_optimizer)})",
-                    "precompile(Tuple{typeof(MathOptInterface.get), JuMPyNexOR.ScalarModel{Float64}, MathOptInterface.TimeLimitSec})",
+                    "precompile(Tuple{typeof(MathOptInterface.get), NexOR.Optimizer, MathOptInterface.TimeLimitSec})",
                     "precompile(Tuple{typeof(NexORTests.test_helper), GenOpt.IteratorIndex})",
                     "precompile(Tuple{typeof(NexOR._optimize!), NexOR.Optimizer, NexORTests.MockRequest})",
                     "precompile(Tuple{Type{HiGHS.Optimizer}})",
@@ -283,7 +283,7 @@ end
         @test roots == sort([
             "Base.Experimental.entrypoint(Tuple{typeof(NexOR.solver_id), String})",
             "Base.Experimental.entrypoint(Tuple{typeof(JuMPyNexOR._new_optimizer)})",
-            "Base.Experimental.entrypoint(Tuple{typeof(MathOptInterface.get), JuMPyNexOR.ScalarModel{Float64}, MathOptInterface.TimeLimitSec})",
+            "Base.Experimental.entrypoint(Tuple{typeof(MathOptInterface.get), NexOR.Optimizer, MathOptInterface.TimeLimitSec})",
         ])
         entrypoint = joinpath(@__DIR__, "..", "nexor_entry.jl")
         load_roots = `$(Base.julia_cmd()) --startup-file=no --project=$project -e 'include(ARGS[1]); include(ARGS[2])' $entrypoint $output`

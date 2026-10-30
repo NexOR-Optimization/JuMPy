@@ -185,9 +185,7 @@ function _is_backend_signature(line::String)
     else
         occursin(r"(?:JuMPyNexOR|NexOR)\.", line) && return false
     end
-    occursin("CachingOptimizer", line) &&
-        get(ENV, "JUMPY_BACKEND", "") != "nexor" &&
-        return false
+    occursin("CachingOptimizer", line) && return false
     occursin(
         r"(?:JuMPyHiGHS|JuMPyNexOR|NexOR|GenOpt|HiGHS|JuMP|MathOptInterface|MutableArithmetics)\.",
         line,

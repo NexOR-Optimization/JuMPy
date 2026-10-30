@@ -3,110 +3,41 @@ module JuMPyNexOR
 import MathOptInterface as MOI
 import NexOR
 
-# Restrict the cache to the scalar functions and rows exposed by the ABI.
-MOI.Utilities.@model(
-    ScalarModel,
-    (),
-    (MOI.LessThan, MOI.GreaterThan, MOI.EqualTo),
-    (),
-    (),
-    (MOI.ScalarNonlinearFunction,),
-    (MOI.ScalarAffineFunction, MOI.ScalarQuadraticFunction),
-    (),
-    (),
-)
-
-const Optimizer = MOI.Utilities.CachingOptimizer{NexOR.Optimizer,ScalarModel{Float64}}
-
-MOI.supports(::ScalarModel, ::MOI.Silent) = true
-function MOI.set(model::ScalarModel, ::MOI.Silent, value::Bool)
-    model.ext[:jumpy_silent] = value
-    return
-end
-MOI.get(model::ScalarModel, ::MOI.Silent) = get(model.ext, :jumpy_silent, false)::Bool
-
-MOI.supports(::ScalarModel, ::MOI.TimeLimitSec) = true
-function MOI.set(model::ScalarModel, ::MOI.TimeLimitSec, value::Union{Nothing,Real})
-    model.ext[:jumpy_time_limit] = value === nothing ? nothing : Float64(value)
-    return
-end
-function MOI.get(model::ScalarModel, ::MOI.TimeLimitSec)
-    return get(model.ext, :jumpy_time_limit, nothing)::Union{Nothing,Float64}
-end
-
-function MOI.get(model::ScalarModel, ::MOI.ListOfOptimizerAttributesSet)
-    attributes = MOI.AbstractOptimizerAttribute[]
-    haskey(model.ext, :jumpy_silent) && push!(attributes, MOI.Silent())
-    haskey(model.ext, :jumpy_time_limit) && push!(attributes, MOI.TimeLimitSec())
-    return attributes
-end
-
-function _copy_rows!(dest, src, map, ::Type{F}, ::Type{S}) where {F,S}
-    for ci in MOI.get(src, MOI.ListOfConstraintIndices{F,S}())
-        f = MOI.get(src, MOI.ConstraintFunction(), ci)
-        set = MOI.get(src, MOI.ConstraintSet(), ci)
-        map[ci] = MOI.add_constraint(dest, MOI.Utilities.map_indices(map, f), set)
-    end
-    return
-end
-
-function _copy_rows!(dest, src, map, ::Type{F}) where {F}
-    _copy_rows!(dest, src, map, F, MOI.LessThan{Float64})
-    _copy_rows!(dest, src, map, F, MOI.GreaterThan{Float64})
-    _copy_rows!(dest, src, map, F, MOI.EqualTo{Float64})
-    return
-end
-
-function _copy_objective!(dest, src, map, ::Type{F}) where {F}
-    f = MOI.get(src, MOI.ObjectiveFunction{F}())
-    MOI.set(dest, MOI.ObjectiveFunction{F}(), MOI.Utilities.map_indices(map, f))
-    return
-end
-
-# Copy only the attributes and scalar combinations available through the
-# C ABI. The fixed calls avoid dispatching on runtime function/set types.
-function MOI.copy_to(dest::NexOR.Optimizer, src::ScalarModel{Float64})
-    MOI.empty!(dest)
-    mock = dest.model
-    map = MOI.Utilities.IndexMap()
-    for vi in MOI.get(src, MOI.ListOfVariableIndices())
-        map[vi] = MOI.add_variable(mock)
-    end
-    sense = MOI.get(src, MOI.ObjectiveSense())
-    MOI.set(mock, MOI.ObjectiveSense(), sense)
-    if sense != MOI.FEASIBILITY_SENSE
-        F = MOI.get(src, MOI.ObjectiveFunctionType())
-        if F == MOI.ScalarAffineFunction{Float64}
-            _copy_objective!(mock, src, map, MOI.ScalarAffineFunction{Float64})
-        elseif F == MOI.ScalarQuadraticFunction{Float64}
-            _copy_objective!(mock, src, map, MOI.ScalarQuadraticFunction{Float64})
-        else
-            _copy_objective!(mock, src, map, MOI.ScalarNonlinearFunction)
-        end
-    end
-    _copy_rows!(mock, src, map, MOI.VariableIndex)
-    _copy_rows!(mock, src, map, MOI.VariableIndex, MOI.ZeroOne)
-    _copy_rows!(mock, src, map, MOI.VariableIndex, MOI.Integer)
-    _copy_rows!(mock, src, map, MOI.ScalarAffineFunction{Float64})
-    _copy_rows!(mock, src, map, MOI.ScalarQuadraticFunction{Float64})
-    _copy_rows!(mock, src, map, MOI.ScalarNonlinearFunction)
-    return map
-end
+const Optimizer = NexOR.Optimizer
 
 function _new_optimizer()
-    optimizer = NexOR.Optimizer()
+    optimizer = Optimizer()
     MOI.set(
         optimizer,
         MOI.RawOptimizerAttribute("solver"),
         get(ENV, "NEXOR_SOLVER", "HiGHS"),
     )
-    # NexOR accepts a whole model via copy_to, so keep incremental edits in
-    # the scalar cache and copy them to the remote optimizer at optimize!.
-    return MOI.Utilities.CachingOptimizer(ScalarModel{Float64}(), optimizer)
+    return optimizer
 end
 
 include("entrypoints.jl")
-include("nexor_trim.jl")
 
+# MockOptimizer scrambles MOI indices. Keep the actual variable references
+# when GenOpt builds a generator instead of assuming consecutive indices.
+struct IndexedVariables <: AbstractVector{NativeVariable}
+    data::Vector{NativeVariable}
+end
+Base.size(array::IndexedVariables) = size(array.data)
+Base.getindex(array::IndexedVariables, i::Int) = array.data[i]
+GenOpt.to_generator(array::Vector{NativeVariable}) = IndexedVariables(array)
+JuMP._is_real(::IndexedVariables) = true
+JuMP.moi_function(array::IndexedVariables) = JuMP.index.(array.data)
+function JuMP.check_belongs_to_model(array::IndexedVariables, model::JuMP.AbstractModel)
+    for variable in array.data
+        JuMP.check_belongs_to_model(variable, model)
+    end
+    return
+end
+function JuMP.moi_function(model::JuMP.ConcreteModel, array::IndexedVariables)
+    JuMP.check_belongs_to_model(array, model)
+    return JuMP.moi_function(array)
+end
+
+include("nexor_trim.jl")
 
 end # module JuMPyNexOR
