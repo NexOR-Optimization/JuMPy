@@ -6,11 +6,19 @@ compiled library is needed.
 """
 
 import os
+import sys
 from types import SimpleNamespace
 
 import pytest
 
 from jumpy import backend, bridge_juliacall
+
+
+@pytest.fixture(autouse=True)
+def without_juliacall(monkeypatch):
+    """These loader paths stop before starting Julia, so they also apply in a
+    test process where another test file has already initialized JuliaCall."""
+    monkeypatch.delitem(sys.modules, "juliacall", raising=False)
 
 
 def _fresh_load(jumpy_lib):
