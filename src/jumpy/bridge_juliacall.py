@@ -30,7 +30,7 @@ def _julia():
     except ImportError:
         raise ImportError(
             "juliacall is not installed.\n"
-            "Install it with: pip install jumpy[juliacall]\n"
+            "Install it with: pip install 'jumpy-opt[juliacall]'\n"
             "This will also install Julia automatically if needed."
         ) from None
     # Install and load Julia packages on first use

@@ -11,3 +11,4 @@ docs/source/generated/
 julia/test/Manifest.toml
 julia/nexor/Manifest.toml
 julia/nexor_dispatch.jl
+src/jumpy/_backend/

@@ -327,7 +327,7 @@ wheels = [
 ]
 
 [[package]]
-name = "jumpy"
+name = "jumpy-opt"
 version = "0.1.0"
 source = { editable = "." }
 

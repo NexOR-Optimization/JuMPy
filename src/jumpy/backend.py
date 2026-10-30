@@ -29,8 +29,9 @@ def _default_paths(name):
     pkg_dir = os.path.dirname(__file__)
     repo = os.path.dirname(os.path.dirname(pkg_dir))
     return [
-        # Wheel layout: shipped inside the package.
-        os.path.join(pkg_dir, "lib", lib_name),
+        # Wheel layout: the bundle copied by julia/package_bundle.py.
+        os.path.join(pkg_dir, "_backend", "lib", lib_name),
+        # Development layout: JuliaC bundle in <repo>/julia/build/<name>.
         os.path.join(repo, "julia", "build", name, "lib", lib_name),
         # Legacy development layout.
         os.path.join(repo, "julia", "build", "lib", lib_name),
@@ -78,7 +79,7 @@ def _load_lib(name):
         raise FileNotFoundError(
             "Could not find the compiled JuMPy backend library. Searched:\n  "
             + "\n  ".join(_default_paths(name)) + "\nEither:\n"
-            "  1. Install the pre-built wheel: pip install jumpy\n"
+            "  1. Install the pre-built wheel: pip install jumpy-opt\n"
             "  2. Build it locally: see julia/README.md\n"
             "  3. Use JuliaCall: import jumpy.juliacall as jp\n"
         )
