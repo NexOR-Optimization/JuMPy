@@ -6,6 +6,7 @@ using Test
 include("model.jl")
 include("direct_model.jl")
 include("time_limits.jl")
+include("attributes.jl")
 include("results.jl")
 include("sum.jl")
 include("trim_dispatch.jl")

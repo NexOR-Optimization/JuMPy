@@ -115,7 +115,8 @@ jobs:
         run: |
           mkdir -p julia/build
           julia --project=julia/test --trace-dispatch=julia/build/nexor.trace julia/test/nexor.jl
-          JUMPY_BACKEND=nexor julia --project=julia/test julia/generate_trim_dispatch.jl julia/nexor_dispatch.jl julia/build/nexor.trace
+          JUMPY_BACKEND=nexor julia --project=julia/test --trace-dispatch=julia/build/nexor-workload.trace julia/workload.jl
+          JUMPY_BACKEND=nexor julia --project=julia/test julia/generate_trim_dispatch.jl julia/nexor_dispatch.jl julia/build/nexor.trace julia/build/nexor-workload.trace
       - name: Install JuliaC
         run: julia --project=@juliac -e 'using Pkg; Pkg.add(PackageSpec(name="JuliaC", version="0.3.12"))'
       - name: Build shared library

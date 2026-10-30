@@ -3,7 +3,7 @@
 # JuMP models and expressions stay in Julia. Opaque expression handles
 # let Python call JuMP's arithmetic and constraint-building methods, with
 # GenOpt expanding generated constraints directly. Each backend defines
-# `Optimizer` and `_new_optimizer()` before including this file.
+# `Optimizer` before including this file.
 #
 # Conventions across the C ABI:
 #   - a model is an opaque pointer returned by jumpy_new_model; it stays
@@ -202,7 +202,7 @@ end
 
 Base.@ccallable function jumpy_new_model()::Ptr{Cvoid}
     @_catch C_NULL begin
-        model = JuMPyDirect.model(_new_optimizer())
+        model = JuMPyDirect.model(Optimizer())
         handle = ModelHandle(model, Base.RefValue{Any}[])
         Base.@lock LOCK KEEP_ALIVE[handle] = nothing
         pointer_from_objref(handle)
@@ -369,6 +369,44 @@ Base.@ccallable function jumpy_set_time_limit_sec(model::Ptr{Cvoid}, seconds::Cd
         JuMPyModel.set_time_limit_sec(_get(model).model, seconds)
         Cint(0)
     end
+end
+
+# JuMP.set_attribute(model, name, value), with one entry point per value type.
+function _set_attribute(model::Ptr{Cvoid}, name::Cstring, value)
+    JuMPyModel.set_attribute(_get(model).model, unsafe_string(name), value)
+    return Cint(0)
+end
+
+Base.@ccallable function jumpy_set_string_attribute(
+    model::Ptr{Cvoid},
+    name::Cstring,
+    value::Cstring,
+)::Cint
+    @_catch Cint(-1) _set_attribute(model, name, unsafe_string(value))
+end
+
+Base.@ccallable function jumpy_set_bool_attribute(
+    model::Ptr{Cvoid},
+    name::Cstring,
+    value::Cint,
+)::Cint
+    @_catch Cint(-1) _set_attribute(model, name, value != 0)
+end
+
+Base.@ccallable function jumpy_set_int_attribute(
+    model::Ptr{Cvoid},
+    name::Cstring,
+    value::Clonglong,
+)::Cint
+    @_catch Cint(-1) _set_attribute(model, name, Int64(value))
+end
+
+Base.@ccallable function jumpy_set_float_attribute(
+    model::Ptr{Cvoid},
+    name::Cstring,
+    value::Cdouble,
+)::Cint
+    @_catch Cint(-1) _set_attribute(model, name, Float64(value))
 end
 
 # Returns Int(MOI.TerminationStatusCode); MOI.OPTIMAL is 1.

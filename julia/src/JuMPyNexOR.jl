@@ -3,17 +3,8 @@ module JuMPyNexOR
 import MathOptInterface as MOI
 import NexOR
 
+# The remote solver is the optimizer's "solver" attribute, set by the user.
 const Optimizer = NexOR.Optimizer
-
-function _new_optimizer()
-    optimizer = Optimizer()
-    MOI.set(
-        optimizer,
-        MOI.RawOptimizerAttribute("solver"),
-        get(ENV, "NEXOR_SOLVER", "HiGHS"),
-    )
-    return optimizer
-end
 
 include("entrypoints.jl")
 

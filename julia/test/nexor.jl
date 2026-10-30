@@ -25,6 +25,22 @@ end
 
 variable(m, block, i) = apply(m, "getindex", block, constant(m, i))
 
+function set_attribute(m, name::String, value)
+    return GC.@preserve name _set_attribute(m, Cstring(pointer(name)), value)
+end
+function _set_attribute(m, name, value::String)
+    return GC.@preserve value Backend.jumpy_set_string_attribute(
+        m,
+        name,
+        Cstring(pointer(value)),
+    )
+end
+_set_attribute(m, name, value::Bool) =
+    Backend.jumpy_set_bool_attribute(m, name, Cint(value))
+_set_attribute(m, name, value::Int) =
+    Backend.jumpy_set_int_attribute(m, name, Clonglong(value))
+_set_attribute(m, name, value::Float64) = Backend.jumpy_set_float_attribute(m, name, value)
+
 function add_constraint(m, func, set)
     id = Backend._store_set(set)
     try
@@ -35,18 +51,26 @@ function add_constraint(m, func, set)
 end
 
 @testset "NexOR configuration" begin
-    withenv(
-        "NEXOR_SERVER_URL" => "https://example.test",
-        "NEXOR_API_KEY" => "test-key",
-        "NEXOR_SOLVER" => "Ipopt",
-    ) do
+    withenv("NEXOR_SERVER_URL" => "https://example.test", "NEXOR_API_KEY" => "test-key") do
         m = Backend.jumpy_new_model()
         @test m != C_NULL
         try
             client = optimizer(m)
             @test client.server_url == "https://example.test"
             @test client.api_key == "test-key"
+            # No default solver: the user selects it.
+            @test client.solver.optimizer == "undef"
+            redirect_stderr(devnull) do
+                @test Backend.jumpy_optimize(m) == -1
+            end
+            @test set_attribute(m, "solver", "Ipopt") == 0
             @test client.solver.optimizer == "Ipopt"
+            @test set_attribute(m, "print_level", 3) == 0
+            @test set_attribute(m, "tol", 1e-6) == 0
+            @test set_attribute(m, "warm_start", true) == 0
+            @test MOI.get(client, MOI.RawOptimizerAttribute("print_level")) === 3
+            @test MOI.get(client, MOI.RawOptimizerAttribute("tol")) === 1e-6
+            @test MOI.get(client, MOI.RawOptimizerAttribute("warm_start")) === true
             @test MOI.get(client, MOI.Silent())
             @test optimizer(m) isa NexOR.Optimizer
             @test MOI.supports_incremental_interface(client)
@@ -59,14 +83,12 @@ end
             @test Backend.jumpy_free_model(m) == 0
         end
     end
-    withenv("NEXOR_SOLVER" => nothing) do
-        @test Backend._new_optimizer().solver.optimizer == "HiGHS"
-    end
 end
 
 @testset "NexOR native handles and MOF round trip" begin
     m = Backend.jumpy_new_model()
     @test m != C_NULL
+    @test set_attribute(m, "solver", "HiGHS") == 0
     try
         block = Backend.jumpy_variables(m, Clonglong(3))
         @test block != C_NULL

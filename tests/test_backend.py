@@ -19,7 +19,7 @@ def _fresh_load(jumpy_lib):
     backend._LIB = None
     os.environ["JUMPY_LIB"] = jumpy_lib
     try:
-        return backend._load_lib()
+        return backend._load_lib("highs")
     finally:
         backend._LIB = saved_lib
         if saved_env is None:
@@ -41,11 +41,13 @@ def test_jumpy_lib_missing_file_errors():
         raise AssertionError("expected FileNotFoundError for missing JUMPY_LIB")
 
 
-def test_jumpy_lib_directory_errors():
+def test_jumpy_lib_directory_errors(tmp_path):
     """A directory is not a loadable library either; the existence check
     passes but CDLL must fail — never a silent fallback."""
+    directory = tmp_path / "libjumpy_highs.so"
+    directory.mkdir()
     try:
-        _fresh_load("/tmp")
+        _fresh_load(str(directory))
     except OSError:
         pass
     else:
@@ -57,7 +59,9 @@ def test_jumpy_lib_directory_errors():
                 "jumpy_variables", "jumpy_value", "jumpy_add_constraint", "jumpy_dual",
                 "jumpy_objective_value",
                 "jumpy_has_values", "jumpy_has_duals", "jumpy_termination_status",
-                "jumpy_set_time_limit_sec"],
+                "jumpy_set_time_limit_sec", "jumpy_set_string_attribute",
+                "jumpy_set_bool_attribute", "jumpy_set_int_attribute",
+                "jumpy_set_float_attribute"],
 )
 def test_old_abi_is_rejected_before_julia_initialization(monkeypatch, missing):
     def unexpected_init(*args):
@@ -72,7 +76,9 @@ def test_old_abi_is_rejected_before_julia_initialization(monkeypatch, missing):
             "jumpy_has_values", "jumpy_has_duals", "jumpy_termination_status",
             "jumpy_less_than", "jumpy_greater_than", "jumpy_equal_to",
             "jumpy_zero_one", "jumpy_integer", "jumpy_free_set",
-            "jumpy_set_time_limit_sec",
+            "jumpy_set_time_limit_sec", "jumpy_set_string_attribute",
+            "jumpy_set_bool_attribute", "jumpy_set_int_attribute",
+            "jumpy_set_float_attribute",
         )
         if name != missing
     }
@@ -99,12 +105,55 @@ def test_juliacall_ops_wraps_an_existing_jump_model(monkeypatch):
 
 def test_nexor_library_paths():
     assert all("libjumpy_nexor" in path for path in backend._default_paths("nexor"))
-    assert all("libjumpy_highs" in path for path in backend._default_paths())
+    assert all("libjumpy_highs" in path for path in backend._default_paths("highs"))
 
 
 def test_nexor_library_override(monkeypatch):
     monkeypatch.setenv("JUMPY_LIB", "/custom/libjumpy_nexor.so")
     assert backend.find_lib("nexor") == "/custom/libjumpy_nexor.so"
+
+
+def test_jumpy_lib_only_overrides_its_own_backend(monkeypatch):
+    monkeypatch.setenv("JUMPY_LIB", "/custom/libjumpy_highs.so")
+    monkeypatch.setattr(backend, "_LIB", None)
+    assert backend.find_lib("nexor") is None
+    with pytest.raises(FileNotFoundError, match="jumpy.nexor needs libjumpy_nexor"):
+        backend._load_lib("nexor")
+
+
+@pytest.mark.parametrize(
+    ("value", "setter", "sent"),
+    [
+        ("HiGHS", "jumpy_set_string_attribute", b"HiGHS"),
+        (True, "jumpy_set_bool_attribute", True),
+        (3, "jumpy_set_int_attribute", 3),
+        (1e-6, "jumpy_set_float_attribute", 1e-6),
+    ],
+)
+def test_compiled_set_attribute_selects_typed_setter(value, setter, sent):
+    calls = []
+    lib = SimpleNamespace(
+        jumpy_new_model=lambda: 1,
+        jumpy_free_model=lambda m: 0,
+        **{setter: lambda m, name, v: calls.append((m, name, v)) or 0},
+    )
+    ops = backend.JuliacOps(lib, None)
+    ops.set_attribute("solver", value)
+    assert calls == [(1, b"solver", sent)]
+    assert type(calls[0][2]) is type(sent)
+    ops.free()
+
+
+def test_compiled_set_attribute_errors():
+    lib = SimpleNamespace(
+        jumpy_new_model=lambda: 1,
+        jumpy_free_model=lambda m: 0,
+        jumpy_set_int_attribute=lambda m, name, v: -1,
+    )
+    ops = backend.JuliacOps(lib, None)
+    with pytest.raises(RuntimeError, match="'threads'"):
+        ops.set_attribute("threads", 4)
+    ops.free()
 
 
 def test_nexor_facade_uses_native_model_api(monkeypatch):
@@ -113,8 +162,10 @@ def test_nexor_facade_uses_native_model_api(monkeypatch):
     from mock_ops import MockOps
 
     ops, lib, calls = MockOps(), object(), []
-    monkeypatch.setattr(backend, "_load_lib", lambda solver: calls.append(solver) or lib)
-    monkeypatch.setattr(backend, "JuliacOps", lambda selected: ops if selected is lib else None)
+    monkeypatch.setattr(backend, "_load_lib", lambda name: calls.append(name) or lib)
+    monkeypatch.setattr(
+        backend, "JuliacOps", lambda selected, MOI: ops if selected is lib and MOI is nexor.MOI else None
+    )
     m = nexor.Model()
     try:
         x = m.variables(2, lower=0)
@@ -131,7 +182,7 @@ def test_nexor_sets_load_the_nexor_library(monkeypatch):
 
     calls = []
     lib = SimpleNamespace(jumpy_less_than=lambda rhs: 42, jumpy_free_set=lambda handle: 0)
-    monkeypatch.setattr(backend, "_load_lib", lambda solver: calls.append(solver) or lib)
+    monkeypatch.setattr(backend, "_load_lib", lambda name: calls.append(name) or lib)
     with nexor.MOI.LessThan(1.0) as set_:
         assert set_._lib is lib
         assert set_.handle == 42
@@ -141,7 +192,7 @@ def test_nexor_sets_load_the_nexor_library(monkeypatch):
 def test_compiled_backends_cannot_mix_runtimes(monkeypatch):
     lib = object()
     monkeypatch.setattr(backend, "_LIB", lib)
-    monkeypatch.setattr(backend, "_LIB_SOLVER", "nexor")
+    monkeypatch.setattr(backend, "_LIB_NAME", "nexor")
     assert backend._load_lib("nexor") is lib
-    with pytest.raises(RuntimeError, match="separate Python processes"):
+    with pytest.raises(RuntimeError, match="jumpy.nexor is already loaded"):
         backend._load_lib("highs")

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from jumpy import backend, bridge_juliacall
+from jumpy.highs import MOI
 from jumpy.model import Model
 from mock_ops import MockOps
 
@@ -55,7 +56,7 @@ def test_compiled_time_limit_encodes_none_as_nan_and_checks_errors():
         jumpy_free_model=lambda model: 0,
         jumpy_set_time_limit_sec=lambda *args: calls.append(args) or 0,
     )
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, MOI)
     try:
         ops.set_time_limit_sec(4.0)
         ops.set_time_limit_sec(None)
@@ -89,7 +90,7 @@ def test_time_limit_can_be_set_cleared_and_solved():
         jl.seval("import HiGHS")
         model = jp.Model(jl.HiGHS.Optimizer)
     else:
-        if backend.find_lib() is None:
+        if backend.find_lib("highs") is None:
             pytest.skip("the juliac backend is not available")
         import jumpy.highs as jp
         model = jp.Model()

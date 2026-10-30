@@ -66,7 +66,6 @@ def remote(monkeypatch):
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     monkeypatch.setenv("NEXOR_SERVER_URL", f"http://127.0.0.1:{server.server_port}")
     monkeypatch.setenv("NEXOR_API_KEY", "test-key")
-    monkeypatch.setenv("NEXOR_SOLVER", "HiGHS")
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -77,9 +76,22 @@ def remote(monkeypatch):
         thread.join()
 
 
+def test_compiled_nexor_requires_a_solver(remote):
+    m = Model()
+    try:
+        m.variable(lower=0)
+        with pytest.raises(RuntimeError):
+            m.optimize()
+        assert not hasattr(remote, "submission")
+    finally:
+        m.close()
+
+
 def test_compiled_nexor_solve(remote):
     m = Model()
     try:
+        m.set_attribute("solver", "HiGHS")
+        m.set_attribute("presolve", "off")
         x = m.variables(3, lower=0)
         demand = m.parameter([1, 2, 3])
         i = m.iterator(range(3))
@@ -92,6 +104,7 @@ def test_compiled_nexor_solve(remote):
         submission = remote.submission
         assert submission["solver"] == "highs-mof"
         assert submission["options"]["solver_options"]["highs-mof"]["silent"]
+        assert submission["options"]["solver_options"]["highs-mof"]["presolve"] == "off"
         assert len(submission["problem"]["variables"]) == 3
         assert len(submission["problem"]["constraints"]) == 6
         # Editing the direct model must invalidate its solution and submit again.

@@ -7,7 +7,7 @@ import pytest
 
 import jumpy.highs as jp
 from jumpy import backend
-from jumpy._highs_moi import NativeSet
+from jumpy._moi import NativeSet, ScalarSets
 from jumpy.model import Model
 from mock_ops import MockOps
 
@@ -88,7 +88,7 @@ class FakeLib:
 @pytest.fixture
 def lib(monkeypatch):
     library = FakeLib()
-    monkeypatch.setattr(backend, "_load_lib", lambda: library)
+    monkeypatch.setattr(backend, "_load_lib", lambda name: library)
     return library
 
 
@@ -113,11 +113,11 @@ def test_scalar_sets_call_named_julia_constructors(lib, name, args):
 
 
 def test_unsupported_constructor_fails_without_loading_library(monkeypatch):
-    def unexpected_load():
+    def unexpected_load(name):
         pytest.fail("Unsupported constructors must fail before loading Julia")
 
     monkeypatch.setattr(backend, "_load_lib", unexpected_load)
-    with pytest.raises(AttributeError, match="compiled HiGHS backend"):
+    with pytest.raises(AttributeError, match="compiled jumpy.highs backend"):
         jp.MOI.PositiveSemidefiniteConeTriangle(2)
 
 
@@ -171,7 +171,7 @@ def test_set_release_error_is_reported(lib):
 
 
 def test_compiled_ops_pass_set_handle_without_copying(lib):
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, jp.MOI)
     with jp.MOI.LessThan(1.0) as set_:
         ops.add_constraint(123, set_)
         assert lib.calls[-1] == ("constraint", 99, 123, set_.handle)
@@ -182,14 +182,14 @@ def test_compiled_ops_pass_set_handle_without_copying(lib):
     ("op", "args"), [("+", [123, 234]), ("^", [123, 234]), ("sin", [123])],
 )
 def test_compiled_ops_forward_native_operations(lib, op, args):
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, jp.MOI)
     assert ops.apply(op, args) == lib.expression_ref
     assert lib.calls == [("apply", 99, op.encode(), tuple(args))]
     ops.free()
 
 
 def test_compiled_ops_report_native_expression_error(lib):
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, jp.MOI)
     lib.expression_ref = 0
     with pytest.raises(RuntimeError, match="expression"):
         ops.apply("sin", [123])
@@ -197,14 +197,14 @@ def test_compiled_ops_report_native_expression_error(lib):
 
 
 def test_compiled_variables_return_opaque_array_ref(lib):
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, jp.MOI)
     assert ops.add_variables(3) == lib.expression_ref
     assert lib.calls == [("variables", 99, 3)]
     ops.free()
 
 
 def test_compiled_value_queries_use_expression_ref(lib):
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, jp.MOI)
     assert ops.value(123) == 1.25
     lib.value_result = 2.5
     assert ops.value(123) == 2.5
@@ -213,7 +213,7 @@ def test_compiled_value_queries_use_expression_ref(lib):
 
 
 def test_compiled_value_reports_native_error(lib):
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, jp.MOI)
     lib.value_result = float("nan")
     with pytest.raises(RuntimeError, match="value"):
         ops.value(123)
@@ -226,7 +226,7 @@ def test_compiled_value_reports_native_error(lib):
      (2**63 - 1, "integer_constant")],
 )
 def test_compiled_constants_preserve_integer_and_float_types(lib, value, constructor):
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, jp.MOI)
     assert ops.constant(value) == lib.expression_ref
     assert lib.calls == [(constructor, 99, value)]
     assert type(lib.calls[0][-1]) is type(value)
@@ -240,7 +240,7 @@ def test_compiled_constants_preserve_integer_and_float_types(lib, value, constru
      ([-(2**63), 2**63 - 1], "integer_iterator")],
 )
 def test_compiled_iterators_preserve_integer_values(lib, values, constructor):
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, jp.MOI)
     assert ops.iterator(values) == lib.expression_ref
     assert lib.calls == [(constructor, 99, tuple(values))]
     expected_type = int if constructor == "integer_iterator" else float
@@ -250,7 +250,7 @@ def test_compiled_iterators_preserve_integer_values(lib, values, constructor):
 
 @pytest.mark.parametrize("value", [-(2**63) - 1, 2**63])
 def test_compiled_integer_overflow_is_rejected_before_ffi(lib, value):
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, jp.MOI)
     with pytest.raises(OverflowError, match="Int64"):
         ops.constant(value)
     with pytest.raises(OverflowError, match="Int64"):
@@ -259,20 +259,19 @@ def test_compiled_integer_overflow_is_rejected_before_ffi(lib, value):
     ops.free()
 
 
-@pytest.mark.parametrize("solver", ["highs", "nexor"])
-def test_compiled_ops_reject_foreign_or_non_native_set(lib, monkeypatch, solver):
-    monkeypatch.setattr(backend, "_LIB_SOLVER", solver)
-    ops = backend.JuliacOps(lib)
+@pytest.mark.parametrize("facade", ["highs", "nexor"])
+def test_compiled_ops_reject_foreign_or_non_native_set(lib, facade):
+    ops = backend.JuliacOps(lib, ScalarSets(facade))
     with NativeSet(FakeLib(), 1) as foreign:
         for set_ in (foreign, object(), 123):
-            with pytest.raises(TypeError, match=rf"jumpy\.{solver}"):
+            with pytest.raises(TypeError, match=rf"jumpy\.{facade}"):
                 ops.add_constraint(123, set_)
     assert lib.calls == []
     ops.free()
 
 
 def test_compiled_ops_reject_closed_set_before_calling_julia(lib):
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, jp.MOI)
     set_ = jp.MOI.LessThan(1.0)
     set_.close()
     before = list(lib.calls)
@@ -283,7 +282,7 @@ def test_compiled_ops_reject_closed_set_before_calling_julia(lib):
 
 
 def test_compiled_ops_report_native_constraint_error(lib):
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, jp.MOI)
     lib.constraint_status = 0
     with jp.MOI.LessThan(1.0) as set_:
         with pytest.raises(RuntimeError, match="constraint"):

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from jumpy import backend, bridge_juliacall
+from jumpy.highs import MOI
 from jumpy.model import Model
 from mock_ops import MockOps
 
@@ -78,7 +79,7 @@ class ResultLib:
 
 def test_compiled_result_queries_forward_native_values():
     lib = ResultLib()
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, MOI)
     try:
         assert ops.objective_value() == 2.5
         assert ops.has_values() is True
@@ -101,7 +102,7 @@ def test_compiled_result_queries_forward_native_values():
 def test_compiled_errors_are_not_treated_as_results(method, field, value):
     lib = ResultLib()
     setattr(lib, field, value)
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, MOI)
     try:
         with pytest.raises(RuntimeError, match="Failed"):
             getattr(ops, method)()

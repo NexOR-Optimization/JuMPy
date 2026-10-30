@@ -42,14 +42,14 @@ class NativeSet:
             pass
 
 
-class _ScalarSets:
-    """MOI constructor bindings for a compiled backend."""
+class ScalarSets:
+    """MOI constructor bindings for the compiled backend `jumpy.<name>`."""
 
-    def __init__(self, solver="highs"):
-        self._solver = solver
+    def __init__(self, name):
+        self._name = name
 
     def _new(self, constructor, *args):
-        lib = backend._load_lib() if self._solver == "highs" else backend._load_lib(self._solver)
+        lib = backend._load_lib(self._name)
         return NativeSet(lib, getattr(lib, constructor)(*args))
 
     def LessThan(self, upper):
@@ -73,11 +73,7 @@ class _ScalarSets:
         return self._new("jumpy_integer")
 
     def __getattr__(self, name):
-        solver_name = "HiGHS" if self._solver == "highs" else "NexOR"
         raise AttributeError(
-            f"MOI.{name} is not exposed by the compiled {solver_name} backend. "
+            f"MOI.{name} is not exposed by the compiled jumpy.{self._name} backend. "
             "Use jumpy.juliacall for other MOI constructors."
         )
-
-
-MOI = _ScalarSets()

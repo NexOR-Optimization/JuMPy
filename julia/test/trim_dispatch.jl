@@ -48,8 +48,8 @@ end
                     "precompile(Tuple{typeof(MathOptInterface.Bridges.test_helper), Int64})",
                     "precompile(Tuple{typeof(MathOptInterface.Utilities.CachingOptimizer), Int64})",
                     "precompile(Tuple{typeof(NexOR.solver_id), String})",
-                    "precompile(Tuple{typeof(JuMPyNexOR._new_optimizer)})",
-                    "precompile(Tuple{typeof(Main.JuMPyNexOR._new_optimizer)})",
+                    "precompile(Tuple{typeof(JuMPyNexOR.jumpy_new_model)})",
+                    "precompile(Tuple{typeof(Main.JuMPyNexOR.jumpy_new_model)})",
                     "precompile(Tuple{typeof(JuMPyHiGHS.JuMPyModel.model), HiGHS.Optimizer})",
                     "precompile(Tuple{typeof(Base.sin), Float64})",
                     "unrelated trace output",
@@ -262,12 +262,12 @@ end
             join(
                 [
                     "precompile(Tuple{typeof(NexOR.solver_id), String})",
-                    "precompile(Tuple{typeof(Main.JuMPyNexOR._new_optimizer)})",
+                    "precompile(Tuple{typeof(Main.JuMPyNexOR.jumpy_new_model)})",
                     "precompile(Tuple{typeof(MathOptInterface.get), NexOR.Optimizer, MathOptInterface.TimeLimitSec})",
                     "precompile(Tuple{typeof(NexORTests.test_helper), GenOpt.IteratorIndex})",
                     "precompile(Tuple{typeof(NexOR._optimize!), NexOR.Optimizer, NexORTests.MockRequest})",
                     "precompile(Tuple{Type{HiGHS.Optimizer}})",
-                    "precompile(Tuple{typeof(JuMPyHiGHS._new_optimizer)})",
+                    "precompile(Tuple{typeof(JuMPyHiGHS.jumpy_new_model)})",
                 ],
                 '\n',
             ),
@@ -282,7 +282,7 @@ end
         roots = filter(startswith("Base.Experimental.entrypoint("), readlines(output))
         @test roots == sort([
             "Base.Experimental.entrypoint(Tuple{typeof(NexOR.solver_id), String})",
-            "Base.Experimental.entrypoint(Tuple{typeof(JuMPyNexOR._new_optimizer)})",
+            "Base.Experimental.entrypoint(Tuple{typeof(JuMPyNexOR.jumpy_new_model)})",
             "Base.Experimental.entrypoint(Tuple{typeof(MathOptInterface.get), NexOR.Optimizer, MathOptInterface.TimeLimitSec})",
         ])
         entrypoint = joinpath(@__DIR__, "..", "nexor_entry.jl")
