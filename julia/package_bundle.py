@@ -104,12 +104,19 @@ def _linux_tag(paths):
 
 def _macos_tag(paths):
     minimum = (10, 9)
+    # The deployment target is `minos` in LC_BUILD_VERSION and `version` in
+    # LC_VERSION_MIN_MACOSX. Other load commands, such as LC_SOURCE_VERSION,
+    # also have a `version` field.
+    fields = {"LC_BUILD_VERSION": "minos", "LC_VERSION_MIN_MACOSX": "version"}
     for path in paths:
-        load = _run("otool", "-l", path)
-        # `minos` in LC_BUILD_VERSION, `version` in LC_VERSION_MIN_MACOSX.
-        pattern = r"^\s*(?:minos|version) (\d+)\.(\d+)"
-        for found in re.findall(pattern, load, re.MULTILINE):
-            minimum = max(minimum, tuple(map(int, found)))
+        field = None
+        for line in _run("otool", "-l", path).splitlines():
+            words = line.split()
+            if words[:1] == ["cmd"]:
+                field = fields.get(words[1])
+            elif field is not None and words[:1] == [field]:
+                found = re.match(r"(\d+)\.(\d+)", words[1])
+                minimum = max(minimum, (int(found[1]), int(found[2])))
     # Since macOS 11, wheel tags only use the major version.
     major, minor = minimum if minimum[0] < 11 else (minimum[0], 0)
     return f"macosx_{major}_{minor}_{platform.machine()}"
