@@ -23,7 +23,7 @@ import sys
 
 # Directories and suffixes of the bundle that the compiled library never loads.
 SKIP_DIRS = {"bin", "include", "man", "pkgconfig"}
-SKIP_SUFFIXES = (".a", ".la", ".h", ".trace")
+SKIP_SUFFIXES = (".a", ".la", ".h")
 # Oldest glibc of manylinux2014, the oldest tag that pip still widely supports.
 MIN_GLIBC = (2, 17)
 
@@ -71,7 +71,11 @@ def _digest(path):
 def collect(bundle):
     """Map each kept path relative to `bundle` to its source path."""
     groups = {}
-    for root, dirs, files in os.walk(bundle):
+    # Only the bundle's own `lib` and `share`: the build directory can also
+    # hold traces and other bundles, such as `julia/build/nexor`.
+    tops = [os.path.join(bundle, top) for top in ("lib", "share")]
+    walks = (walk for top in tops for walk in os.walk(top))
+    for root, dirs, files in walks:
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for name in files:
             if name.endswith(SKIP_SUFFIXES):
