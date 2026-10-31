@@ -2,7 +2,10 @@
 # JuMP/GenOpt methods reachable through this finite backend's public operators;
 # these are compilation roots, not alternative expression implementations.
 # Use --trim=unsafe-warn: dependency internals still contain dynamic dispatch.
-let J = JuMPyHiGHS, D = JuMPyHiGHS.JuMPyDirect, MOI = MathOptInterface
+let J = isdefined(@__MODULE__, :JuMPyNexOR) ? JuMPyNexOR : JuMPyHiGHS,
+    MOI = MathOptInterface
+
+    D = J.JuMPyDirect
     V = J.NativeVariable
     base_scalar_types =
         (Float64, Int64, V, J.NativeAffine, J.NativeQuadratic, J.NativeNonlinear)
@@ -339,6 +342,8 @@ let J = JuMPyHiGHS, D = JuMPyHiGHS.JuMPyDirect, MOI = MathOptInterface
     end
     Base.Experimental.entrypoint(iterate, (Base.OneTo{Int64},))
     Base.Experimental.entrypoint(iterate, (Base.OneTo{Int64}, Int64))
-    Base.Experimental.entrypoint(HiGHS.Highs_destroy, (J.Optimizer,))
-    Base.Experimental.entrypoint(HiGHS.HighsCallbackDataIn, (Cint,))
+    if isdefined(@__MODULE__, :HiGHS) && J.Optimizer === HiGHS.Optimizer
+        Base.Experimental.entrypoint(HiGHS.Highs_destroy, (J.Optimizer,))
+        Base.Experimental.entrypoint(HiGHS.HighsCallbackDataIn, (Cint,))
+    end
 end

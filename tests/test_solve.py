@@ -33,7 +33,7 @@ def _backend_available():
         return importlib.util.find_spec("juliacall") is not None
     # A set JUMPY_LIB counts as available even if the file is missing:
     # loading must then fail loudly instead of the suite silently skipping.
-    return backend.find_lib() is not None
+    return backend.find_lib("highs") is not None
 
 
 pytestmark = pytest.mark.skipif(

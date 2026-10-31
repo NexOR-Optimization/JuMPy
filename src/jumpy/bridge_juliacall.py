@@ -20,7 +20,7 @@ def _julia():
     global _JL
     if backend._LIB is not None:
         raise RuntimeError(
-            "Compiled HiGHS is already initialized. Use one JuMPy backend per process; "
+            f"jumpy.{backend._LIB_NAME} is already initialized. Use one JuMPy backend per process; "
             "restart Python to switch to jumpy.juliacall."
         )
     if _JL is not None:
@@ -123,6 +123,9 @@ class JuliaCallOps:
 
     def objective_value(self):
         return float(self._jump.objective_value(self._model))
+
+    def set_attribute(self, name, value):
+        self._jump.set_attribute(self._model, name, value)
 
     def set_time_limit_sec(self, seconds):
         self._jump.set_time_limit_sec(self._model, math.nan if seconds is None else seconds)

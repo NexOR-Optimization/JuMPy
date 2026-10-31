@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from jumpy import backend, bridge_juliacall
+from jumpy.highs import MOI
 from jumpy.model import Model
 from mock_ops import MockOps
 
@@ -56,7 +57,7 @@ def test_compiled_lazy_sum_uses_generic_apply_and_checks_null():
         jumpy_new_model=lambda: 99, jumpy_free_model=lambda _: 0,
         jumpy_apply=native, result=456,
     )
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, MOI)
     try:
         assert ops.apply("lazy_sum", [111]) == 456
         assert calls == [(99, b"lazy_sum", (111,))]
@@ -85,7 +86,7 @@ def _interface():
             pytest.skip("JuliaCall is not installed")
         import jumpy.juliacall as jp
     else:
-        if backend.find_lib() is None:
+        if backend.find_lib("highs") is None:
             pytest.skip("The compiled backend is not available")
         import jumpy.highs as jp
     return jp

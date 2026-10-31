@@ -8,7 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 from jumpy import ConstraintRef, backend, bridge_juliacall
-from jumpy._highs_moi import NativeSet
+from jumpy._moi import NativeSet
+from jumpy.highs import MOI
 from jumpy.model import Model
 from mock_ops import MockOps
 
@@ -21,7 +22,7 @@ def native_backend():
             pytest.skip("the juliacall backend is not available")
         import jumpy.juliacall as jp
     else:
-        if backend.find_lib() is None:
+        if backend.find_lib("highs") is None:
             pytest.skip("the juliac backend is not available")
         import jumpy.highs as jp
     return jp
@@ -75,7 +76,7 @@ def test_compiled_constraint_and_dual_pointer_forwarding():
         jumpy_add_constraint=lambda model, func, set_id: 456,
         jumpy_dual=lambda model, row: calls.append((model, row)) or -2.0,
     )
-    ops = backend.JuliacOps(lib)
+    ops = backend.JuliacOps(lib, MOI)
     set_ = NativeSet(lib, 123)
     try:
         assert ops.add_constraint(321, set_) == 456

@@ -43,9 +43,13 @@ end
                     valid,
                     "precompile(Tuple{typeof(Main.test_helper), GenOpt.IteratorIndex})",
                     "precompile(Tuple{typeof(Test.test_helper), GenOpt.IteratorIndex})",
+                    "precompile(Tuple{typeof(NexORTests.test_helper), GenOpt.IteratorIndex})",
                     "precompile(Tuple{typeof(Base.Compiler.test_helper), GenOpt.IteratorIndex})",
                     "precompile(Tuple{typeof(MathOptInterface.Bridges.test_helper), Int64})",
                     "precompile(Tuple{typeof(MathOptInterface.Utilities.CachingOptimizer), Int64})",
+                    "precompile(Tuple{typeof(NexOR.solver_id), String})",
+                    "precompile(Tuple{typeof(JuMPyNexOR.jumpy_new_model)})",
+                    "precompile(Tuple{typeof(Main.JuMPyNexOR.jumpy_new_model)})",
                     "precompile(Tuple{typeof(JuMPyHiGHS.JuMPyModel.model), HiGHS.Optimizer})",
                     "precompile(Tuple{typeof(Base.sin), Float64})",
                     "unrelated trace output",
@@ -246,5 +250,43 @@ end
         @test_throws ErrorException G.generate(output, [trace])
         write(trace, "unrelated trace output")
         @test_throws ErrorException G.generate(output, [trace])
+    end
+end
+
+@testset "NexOR dispatch roots in a fresh process" begin
+    mktempdir() do directory
+        trace = joinpath(directory, "methods.trace")
+        output = joinpath(directory, "roots.jl")
+        write(
+            trace,
+            join(
+                [
+                    "precompile(Tuple{typeof(NexOR.solver_id), String})",
+                    "precompile(Tuple{typeof(Main.JuMPyNexOR.jumpy_new_model)})",
+                    "precompile(Tuple{typeof(MathOptInterface.get), NexOR.Optimizer, MathOptInterface.TimeLimitSec})",
+                    "precompile(Tuple{typeof(NexORTests.test_helper), GenOpt.IteratorIndex})",
+                    "precompile(Tuple{typeof(NexOR._optimize!), NexOR.Optimizer, NexORTests.MockRequest})",
+                    "precompile(Tuple{Type{HiGHS.Optimizer}})",
+                    "precompile(Tuple{typeof(JuMPyHiGHS.jumpy_new_model)})",
+                ],
+                '\n',
+            ),
+        )
+        generator = joinpath(@__DIR__, "..", "generate_trim_dispatch.jl")
+        project = dirname(Base.active_project())
+        command = addenv(
+            `$(Base.julia_cmd()) --startup-file=no --project=$project $generator $output $trace`,
+            "JUMPY_BACKEND" => "nexor",
+        )
+        println(read(command, String))
+        roots = filter(startswith("Base.Experimental.entrypoint("), readlines(output))
+        @test roots == sort([
+            "Base.Experimental.entrypoint(Tuple{typeof(NexOR.solver_id), String})",
+            "Base.Experimental.entrypoint(Tuple{typeof(JuMPyNexOR.jumpy_new_model)})",
+            "Base.Experimental.entrypoint(Tuple{typeof(MathOptInterface.get), NexOR.Optimizer, MathOptInterface.TimeLimitSec})",
+        ])
+        entrypoint = joinpath(@__DIR__, "..", "nexor_entry.jl")
+        load_roots = `$(Base.julia_cmd()) --startup-file=no --project=$project -e 'include(ARGS[1]); include(ARGS[2])' $entrypoint $output`
+        @test success(load_roots)
     end
 end

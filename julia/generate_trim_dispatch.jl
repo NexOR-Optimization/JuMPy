@@ -8,12 +8,22 @@
 #
 # Do not execute solver workloads while generating a nonincremental image:
 # the JLL initializers have not run in that process.
+if get(ENV, "JUMPY_BACKEND", "") == "nexor"
+    include("src/JuMPyNexOR.jl")
+end
+
 module JuMPyTrimDispatch
 
 import GenOpt
-import HiGHS
 import JuMP
-import JuMPyHiGHS
+if get(ENV, "JUMPY_BACKEND", "") == "nexor"
+    import NexOR
+    import Main.JuMPyNexOR
+    const JuMPyHiGHS = JuMPyNexOR
+else
+    import HiGHS
+    import JuMPyHiGHS
+end
 import MathOptInterface
 
 const ITERATOR_TUPLES = (
@@ -166,11 +176,18 @@ end
 
 function _is_backend_signature(line::String)
     occursin(
-        r"Main\.|Test\.|Base\.Compiler|CachingOptimizer|\.Bridges\.|FunctionGeneratorBridge|JuMPyModel\.model\)|JuMP\.Containers\.|JuMP\._finalize_macro|Base\.Experimental\.entrypoint",
+        r"Main\.|Tests?\.|Base\.Compiler|\.Bridges\.|FunctionGeneratorBridge|JuMPyModel\.model\)|JuMP\.Containers\.|JuMP\._finalize_macro|Base\.Experimental\.entrypoint",
         line,
     ) && return false
+    # Shared test traces can contain calls from both backends.
+    if get(ENV, "JUMPY_BACKEND", "") == "nexor"
+        occursin(r"(?:JuMPyHiGHS|HiGHS)\.", line) && return false
+    else
+        occursin(r"(?:JuMPyNexOR|NexOR)\.", line) && return false
+    end
+    occursin("CachingOptimizer", line) && return false
     occursin(
-        r"(?:JuMPyHiGHS|GenOpt|HiGHS|JuMP|MathOptInterface|MutableArithmetics)\.",
+        r"(?:JuMPyHiGHS|JuMPyNexOR|NexOR|GenOpt|HiGHS|JuMP|MathOptInterface|MutableArithmetics)\.",
         line,
     ) && return true
     # Heterogeneous generator and nonlinear leaves also dispatch through Base
@@ -188,6 +205,7 @@ function dispatch_roots(paths::Vector{String})
     for path in paths
         for (line_number, original) in enumerate(eachline(path))
             startswith(original, "precompile(Tuple{") || continue
+            original = replace(original, "Main.JuMPyNexOR" => "JuMPyNexOR")
             _is_backend_signature(original) || continue
             line = replace(original, "MutableArithmetics." => "JuMP._MA.")
             try

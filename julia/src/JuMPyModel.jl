@@ -54,6 +54,8 @@ has_values(model) = JuMP.has_values(model)
 has_duals(model) = JuMP.has_duals(model)
 termination_status(model) = JuMP.termination_status(model)
 
+set_attribute(model, name::String, value) = JuMP.set_attribute(model, name, value)
+
 function set_time_limit_sec(model, seconds::Float64)
     if isnan(seconds)
         JuMP.unset_time_limit_sec(model)

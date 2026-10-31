@@ -46,7 +46,7 @@ handles, not duplicate set definitions. JuliaCall exposes the actual MOI module.
 
 ## C ABI
 
-See `src/JuMPyHiGHS.jl` for the full conventions.
+See `src/entrypoints.jl` for the full conventions.
 
 Rebuild existing compiled libraries for this ABI. The old column-index and
 bulk-solution entry points are removed; the Python loader rejects binaries
@@ -81,6 +81,10 @@ nodes belong to the model that built them, and everything is freed by
 | `jumpy_set_objective_function(m, f) -> int32` | Set the native JuMP objective expression |
 | `jumpy_optimize(m) -> int32` | Optimize the raw MOI backend; returns the termination status (`OPTIMAL == 1`) |
 | `jumpy_set_time_limit_sec(m, seconds) -> int32` | Set a finite nonnegative time limit; NaN clears it; 0 on success, -1 on error |
+| `jumpy_set_string_attribute(m, name, value) -> int32` | `JuMP.set_attribute(model, name, value)` with a `String` value; 0 on success, -1 on error |
+| `jumpy_set_bool_attribute(m, name, value) -> int32` | Same with a `Bool` value, passed as `int32` |
+| `jumpy_set_int_attribute(m, name, value) -> int32` | Same with an `Int64` value |
+| `jumpy_set_float_attribute(m, name, value) -> int32` | Same with a `Float64` value |
 | `jumpy_value(m, expr) -> float64` | Evaluate the native expression using MOI variable values; NaN on error |
 | `jumpy_objective_value(m) -> float64` | Query the solver objective value; NaN on error |
 | `jumpy_has_values(m) -> int32` | Query primal result availability; 0 or 1, -1 on error |
@@ -259,3 +263,45 @@ export PYTHON_JULIACALL_EXE="$(julia -e 'print(joinpath(Sys.BINDIR, Base.julia_e
 Install solver packages in that same JuliaCall environment when needed, for
 example `Pkg.add("HiGHS")`. Then import the solver through JuliaCall and pass
 its constructor to `jp.Model`, or an instance to `jp.direct_model`.
+
+## NexOR client
+
+`src/JuMPyNexOR.jl` uses the same native ABI in `src/entrypoints.jl` as HiGHS.
+Its direct JuMP model uses NexOR.jl's incremental optimizer, which serializes
+the model for remote execution. Solver packages stay on the server. `jumpy.nexor` exports
+the common modeling API and native scalar MOI sets, including the time-limit,
+termination-status and result queries available in `jumpy.highs`.
+
+The test environment combines the development GenOpt and JuMP branches used
+above with MathOptInterface's `bl/juliac` MOF writer and NexOR.jl. From this
+`julia/` directory, instantiate it and build the NexOR client:
+
+```sh
+julia --project=test -e 'using Pkg; Pkg.instantiate()'
+mkdir -p build
+julia --project=test --trace-dispatch=build/nexor.trace test/nexor.jl
+JUMPY_BACKEND=nexor julia --project=test --trace-dispatch=build/nexor-workload.trace workload.jl
+JUMPY_BACKEND=nexor julia --project=test generate_trim_dispatch.jl nexor_dispatch.jl \
+    build/nexor.trace build/nexor-workload.trace
+julia --project=@juliac -m JuliaC \
+    --output-lib build/nexor/libjumpy_nexor --project test \
+    --compile-ccallable --trim=unsafe-warn \
+    --jl-option handle-signals=no --bundle build/nexor \
+    --verbose nexor_entry.jl
+```
+
+`test/Manifest.toml` is generated locally and ignored. After changing the test
+project, refresh an existing manifest with `Pkg.resolve()` before instantiating.
+
+Select it with `import jumpy.nexor as jp`, then `jp.Model()`. Models read
+`NEXOR_API_KEY` and `NEXOR_SERVER_URL` (default `https://api.nexoropt.com`) when
+created. There is no default remote solver: select it with
+`model.set_attribute("solver", "HiGHS")`. Use one runtime per Python process.
+The loader searches `JUMPY_LIB` if it names `libjumpy_nexor`, the package's
+`lib/` directory, `julia/build/nexor/lib/`, then the legacy `julia/build/lib/`
+location.
+
+`julia --project=test test/nexor.jl` exercises the native ABI and MOF round trip
+with a mock transport, without contacting production. After building, run
+`JUMPY_BACKEND=nexor uv run --group tests pytest tests/test_nexor.py` from the
+repository root to test the compiled client against a local HTTP fixture.

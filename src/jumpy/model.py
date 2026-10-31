@@ -183,6 +183,20 @@ class Model:
 
     # -- Solve -----------------------------------------------------------------
 
+    def set_attribute(self, name: str, value: str | bool | int | float) -> None:
+        """Set the optimizer attribute ``name``, as ``JuMP.set_attribute``.
+
+        For example, ``set_attribute("presolve", "off")`` for HiGHS, or
+        ``set_attribute("solver", "HiGHS")`` to select NexOR's remote solver.
+        """
+        if self._ops is None:
+            raise RuntimeError("The model has been closed")
+        if not isinstance(name, str):
+            raise TypeError("The attribute name must be a str")
+        if not isinstance(value, (str, bool, int, float)):
+            raise TypeError("The attribute value must be a str, bool, int or float")
+        self._ops.set_attribute(name, value)
+
     def set_time_limit_sec(self, seconds: float | None) -> None:
         """Set a positive finite solve time limit in seconds, or clear it with None."""
         if self._ops is None:

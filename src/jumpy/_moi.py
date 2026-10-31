@@ -1,4 +1,4 @@
-"""Thin bindings to native MOI sets in the compiled HiGHS backend.
+"""Thin bindings to native MOI sets in the compiled backends.
 
 Only ownership lives in Python. Set definitions and construction stay in Julia.
 """
@@ -42,12 +42,14 @@ class NativeSet:
             pass
 
 
-class _ScalarSets:
-    """MOI constructor bindings for the sets compiled with HiGHS."""
+class ScalarSets:
+    """MOI constructor bindings for the compiled backend `jumpy.<name>`."""
 
-    @staticmethod
-    def _new(constructor, *args):
-        lib = backend._load_lib()
+    def __init__(self, name):
+        self._name = name
+
+    def _new(self, constructor, *args):
+        lib = backend._load_lib(self._name)
         return NativeSet(lib, getattr(lib, constructor)(*args))
 
     def LessThan(self, upper):
@@ -72,9 +74,6 @@ class _ScalarSets:
 
     def __getattr__(self, name):
         raise AttributeError(
-            f"MOI.{name} is not exposed by the compiled HiGHS backend. "
+            f"MOI.{name} is not exposed by the compiled jumpy.{self._name} backend. "
             "Use jumpy.juliacall for other MOI constructors."
         )
-
-
-MOI = _ScalarSets()

@@ -89,6 +89,58 @@ jobs:
           name: jumpy-backend-${{ matrix.os }}
           path: julia/build
 
+
+  build-nexor:
+    name: Build and test compiled NexOR client (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    env:
+      JULIA_CPU_TARGET: generic
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            library: libjumpy_nexor.so
+          - os: macos-latest
+            library: libjumpy_nexor.dylib
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.13.2"
+      - uses: julia-actions/cache@v2
+      - name: Instantiate
+        run: julia --project=julia/test -e 'using Pkg; Pkg.instantiate()'
+      - name: Regenerate NexOR dispatch roots
+        run: |
+          mkdir -p julia/build
+          julia --project=julia/test --trace-dispatch=julia/build/nexor.trace julia/test/nexor.jl
+          JUMPY_BACKEND=nexor julia --project=julia/test --trace-dispatch=julia/build/nexor-workload.trace julia/workload.jl
+          JUMPY_BACKEND=nexor julia --project=julia/test julia/generate_trim_dispatch.jl julia/nexor_dispatch.jl julia/build/nexor.trace julia/build/nexor-workload.trace
+      - name: Install JuliaC
+        run: julia --project=@juliac -e 'using Pkg; Pkg.add(PackageSpec(name="JuliaC", version="0.3.12"))'
+      - name: Build shared library
+        working-directory: julia
+        run: >
+          julia --project=@juliac -m JuliaC
+          --output-lib build/nexor/libjumpy_nexor --project test
+          --compile-ccallable --trim=unsafe-warn
+          --jl-option handle-signals=no
+          --bundle build/nexor --verbose nexor_entry.jl
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - name: Run tests against the compiled library
+        run: uv run --group tests pytest tests/test_nexor.py tests/test_backend.py tests/test_facades.py
+        env:
+          JUMPY_BACKEND: nexor
+          JUMPY_LIB: ${{ github.workspace }}/julia/build/nexor/lib/${{ matrix.library }}
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: jumpy-backend-nexor-${{ matrix.os }}
+          path: julia/build/nexor
+
   docs:
     name: Executable documentation
     needs: build-lib

@@ -61,9 +61,10 @@ def test_highs_model_selects_compiled_ops(monkeypatch):
     lib = object()
     ops = MockOps()
     calls = []
-    monkeypatch.setattr(backend, "_load_lib", lambda: lib)
+    monkeypatch.setattr(backend, "_load_lib", lambda name: name == "highs" and lib)
 
-    def create_ops(selected_lib):
+    def create_ops(selected_lib, MOI):
+        assert MOI is highs.MOI
         calls.append(selected_lib)
         return ops
 

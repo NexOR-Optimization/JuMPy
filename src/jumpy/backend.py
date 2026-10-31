@@ -16,25 +16,34 @@ import sys
 
 # The Julia runtime can only be initialized once per process.
 _LIB = None
+# The facade, e.g. "highs" for jumpy.highs, whose library libjumpy_<name> is loaded.
+_LIB_NAME = None
 
 
-def _default_paths():
+def _default_paths(name):
     import os
     import platform
 
     soext = {"Linux": ".so", "Darwin": ".dylib", "Windows": ".dll"}[platform.system()]
-    lib_name = "libjumpy_highs" + soext
+    lib_name = "libjumpy_" + name + soext
     pkg_dir = os.path.dirname(__file__)
     repo = os.path.dirname(os.path.dirname(pkg_dir))
     return [
         # Wheel layout: shipped inside the package.
         os.path.join(pkg_dir, "lib", lib_name),
-        # Development layout: JuliaC bundle in <repo>/julia/build.
+        os.path.join(repo, "julia", "build", name, "lib", lib_name),
+        # Legacy development layout.
         os.path.join(repo, "julia", "build", "lib", lib_name),
     ]
 
 
-def find_lib():
+def _names_lib(path, name):
+    import os
+
+    return os.path.basename(path).startswith(f"libjumpy_{name}.")
+
+
+def find_lib(name):
     """
     The compiled library _load_lib will use: $JUMPY_LIB if set (authoritative
     even if the file is missing — loading it errors rather than falling back),
@@ -43,27 +52,51 @@ def find_lib():
     import os
 
     if "JUMPY_LIB" in os.environ:
-        return os.environ["JUMPY_LIB"]
-    return next((p for p in _default_paths() if os.path.exists(p)), None)
+        path = os.environ["JUMPY_LIB"]
+        return path if _names_lib(path, name) else None
+    return next((p for p in _default_paths(name) if os.path.exists(p)), None)
 
 
-def _load_lib():
+def _load_lib(name):
     import os
 
+    global _LIB_NAME
     if _LIB is not None:
+        if name != _LIB_NAME:
+            raise RuntimeError(
+                f"jumpy.{_LIB_NAME} is already loaded. Use one compiled backend per "
+                f"process; restart Python to switch to jumpy.{name}."
+            )
         return _LIB
-    path = find_lib()
+    path = find_lib(name)
+    if path is None and "JUMPY_LIB" in os.environ:
+        raise FileNotFoundError(
+            f"JUMPY_LIB points to {os.environ['JUMPY_LIB']}, "
+            f"but jumpy.{name} needs libjumpy_{name}"
+        )
     if path is None:
         raise FileNotFoundError(
             "Could not find the compiled JuMPy backend library. Searched:\n  "
-            + "\n  ".join(_default_paths()) + "\nEither:\n"
+            + "\n  ".join(_default_paths(name)) + "\nEither:\n"
             "  1. Install the pre-built wheel: pip install jumpy\n"
             "  2. Build it locally: see julia/README.md\n"
             "  3. Use JuliaCall: import jumpy.juliacall as jp\n"
         )
     if not os.path.exists(path):
         raise FileNotFoundError(f"JUMPY_LIB points to a missing file: {path}")
-    return _init_lib(path)
+    lib = _init_lib(path)
+    _LIB_NAME = name
+    return lib
+
+
+# Optimizer attribute setters by Python value type. bool is checked before int,
+# its base class.
+_ATTRIBUTE_SETTERS = {
+    bool: ("jumpy_set_bool_attribute", ctypes.c_int),
+    int: ("jumpy_set_int_attribute", ctypes.c_longlong),
+    float: ("jumpy_set_float_attribute", ctypes.c_double),
+    str: ("jumpy_set_string_attribute", ctypes.c_char_p),
+}
 
 
 def _init_lib(path):
@@ -72,7 +105,7 @@ def _init_lib(path):
     if juliacall is not None and juliacall.CONFIG.get("inited"):
         raise RuntimeError(
             "JuliaCall is already initialized. Use one JuMPy backend per process; "
-            "restart Python to switch to jumpy.highs."
+            "restart Python to switch to a compiled backend."
         )
     # RTLD_GLOBAL so that libjulia symbols are visible process-wide,
     # which the Julia runtime requires.
@@ -112,13 +145,17 @@ def _init_lib(path):
         lib.jumpy_free_set.restype = ctypes.c_int
         lib.jumpy_set_time_limit_sec.argtypes = [ctypes.c_void_p, ctypes.c_double]
         lib.jumpy_set_time_limit_sec.restype = ctypes.c_int
+        for name, value_type in _ATTRIBUTE_SETTERS.values():
+            setter = getattr(lib, name)
+            setter.argtypes = [ctypes.c_void_p, ctypes.c_char_p, value_type]
+            setter.restype = ctypes.c_int
     except AttributeError:
         raise RuntimeError("Rebuild the JuMPy library: this build lacks the native JuMP API") from None
 
     lib.jl_is_initialized.argtypes = []
     lib.jl_is_initialized.restype = ctypes.c_int
     if lib.jl_is_initialized():
-        raise RuntimeError("Julia is already initialized; start a fresh process for jumpy.highs")
+        raise RuntimeError("Julia is already initialized; start a fresh process for this backend")
 
     # Initialize the Julia runtime from the image embedded in the library.
     init = lib.jl_init_with_image_handle
@@ -164,9 +201,8 @@ class JuliacOps:
     juliacall ops call.
     """
 
-    def __init__(self, lib):
-        from jumpy._highs_moi import MOI
-
+    def __init__(self, lib, MOI):
+        # MOI: the facade's ScalarSets, which construct sets in this `lib`.
         self.MOI = MOI
         self._lib = lib
         self._m = lib.jumpy_new_model()
@@ -217,10 +253,10 @@ class JuliacOps:
         return self._node(self._lib.jumpy_variables(self._m, count))
 
     def _set_handle(self, set_):
-        from jumpy._highs_moi import NativeSet
+        from jumpy._moi import NativeSet
 
         if not isinstance(set_, NativeSet) or set_._lib is not self._lib:
-            raise TypeError("Expected an MOI set created by jumpy.highs")
+            raise TypeError(f"Expected an MOI set created by jumpy.{self.MOI._name}")
         return set_.handle
 
     def add_constraint(self, func, set_):
@@ -264,6 +300,13 @@ class JuliacOps:
         if math.isnan(value):
             raise RuntimeError("Failed to query objective value")
         return value
+
+    def set_attribute(self, name, value):
+        setter, _ = next(s for t, s in _ATTRIBUTE_SETTERS.items() if isinstance(value, t))
+        if isinstance(value, str):
+            value = value.encode()
+        if getattr(self._lib, setter)(self._m, name.encode(), value) != 0:
+            raise RuntimeError(f"Failed to set optimizer attribute {name!r}")
 
     def set_time_limit_sec(self, seconds):
         if self._lib.jumpy_set_time_limit_sec(

@@ -19,6 +19,7 @@ class MockOps:
         self.primal_available = True
         self.dual_available = True
         self.objective_result = 2.5
+        self.attributes = {}
         self.MOI = SimpleNamespace(
             LessThan=lambda upper: ("LessThan", upper),
             GreaterThan=lambda lower: ("GreaterThan", lower),
@@ -71,6 +72,9 @@ class MockOps:
     def value(self, func):
         self.value_calls.append(func)
         return self.value_result
+
+    def set_attribute(self, name, value):
+        self.attributes[name] = value
 
     def free(self):
         pass
