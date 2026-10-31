@@ -43,18 +43,22 @@ of GenOpt; released GenOpt 0.2.3 lacks the required lazy-sum bridge. See the
 [local development setup](julia/README.md#building).
 
 ```
-pip install jumpy
+pip install jumpy-opt
 ```
 
+The distribution is named `jumpy-opt` since `jumpy` is taken on PyPI; the
+package is still imported as `jumpy`.
+
 The compiled HiGHS interface needs neither a Julia installation nor `juliacall`:
-JuMPy ships a precompiled solver backend built with
-[juliac](https://docs.julialang.org/en/v1/devdocs/juliac/).
+the wheels for Linux x86_64 and macOS arm64 ship a precompiled solver backend
+built with [juliac](https://docs.julialang.org/en/v1/devdocs/juliac/). On other
+platforms, use JuliaCall or [build the backend](julia/README.md#building).
 
 Choose the interface when importing:
 
 ```python
 import jumpy.highs as jp       # Compiled HiGHS
-# Or: import jumpy.juliacall as jp  # Requires pip install 'jumpy[juliacall]'
+# Or: import jumpy.juliacall as jp  # Requires pip install 'jumpy-opt[juliacall]'
 ```
 
 Both expose the same modeling helpers and `Model()`, without a `backend`
@@ -306,6 +310,7 @@ src/jumpy/
 ├── bridge_juliacall.py   # Native modeling operations via juliacall
 ├── backend.py            # Compiled modeling operations via ctypes
 ├── julia/JuMPyModel.jl    # In wheels: shared source from julia/src/JuMPyModel.jl
+├── _backend/             # In platform wheels: the JuliaC bundle (julia/package_bundle.py)
 └── model.py              # Model class: variables, groups, objective, solve
 ```
 

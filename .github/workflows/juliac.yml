@@ -6,6 +6,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
+  release:
+    types: [published]
 
 jobs:
   test-entrypoints:
@@ -63,6 +65,9 @@ jobs:
 
       - name: Build shared library
         working-directory: julia
+        # Link for the macOS of the bundled Julia libraries, not the runner's.
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
         run: >
           julia --project=@juliac -m JuliaC
           --output-lib build/libjumpy_highs --project test
@@ -89,6 +94,74 @@ jobs:
           name: jumpy-backend-${{ matrix.os }}
           path: julia/build
 
+      - name: Build wheel with the bundle
+        run: |
+          python3 julia/package_bundle.py julia/build src/jumpy/_backend
+          uv build --wheel
+
+      # Outside the checkout, so that the tests import the installed package.
+      - name: Test the installed wheel
+        working-directory: ${{ runner.temp }}
+        run: |
+          uv venv wheel-env
+          uv pip install --python wheel-env "$GITHUB_WORKSPACE"/dist/*.whl pytest
+          wheel-env/bin/python -c "import sys, jumpy.backend as b; lib = b.find_lib('highs'); print(lib); sys.exit(lib is None or 'site-packages' not in lib)"
+          # A first solve outside pytest, whose capture hides the stderr of a
+          # process that exits during a test.
+          wheel-env/bin/python -X faulthandler -c "import jumpy.highs as jp; m = jp.Model(); x = m.variable(lower=1); m.objective = jp.minimize(x); m.optimize(); print(m.value(x))"
+          wheel-env/bin/python -m pytest -p no:cacheprovider "$GITHUB_WORKSPACE/tests"
+        env:
+          JUMPY_BACKEND: juliac
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: jumpy-wheel-${{ matrix.os }}
+          path: dist/*.whl
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Build source distribution
+        run: uv build --sdist
+
+      - name: Upload source distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: jumpy-sdist
+          path: dist/*.tar.gz
+
+  publish:
+    name: Publish to PyPI
+    if: github.event_name == 'release'
+    needs: [build-lib, sdist]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/jumpy-opt
+    permissions:
+      id-token: write
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: jumpy-wheel-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download source distribution
+        uses: actions/download-artifact@v4
+        with:
+          name: jumpy-sdist
+          path: dist
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
 
   build-nexor:
     name: Build and test compiled NexOR client (${{ matrix.os }})

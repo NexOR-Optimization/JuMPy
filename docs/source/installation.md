@@ -8,10 +8,11 @@ patch. Follow the
 [development environment setup](https://github.com/NexOR-Optimization/JuMPy/blob/main/julia/README.md#building)
 to select that checkout without changing the repository manifest.
 
-Install JuMPy from PyPI:
+Install JuMPy from PyPI. The distribution is named `jumpy-opt` since `jumpy`
+is taken on PyPI; the package is still imported as `jumpy`:
 
 ```console
-pip install jumpy
+pip install jumpy-opt
 ```
 
 Select the compiled HiGHS interface explicitly:
@@ -22,13 +23,17 @@ import jumpy.highs as jp
 model = jp.Model()
 ```
 
-It uses the compiled backend shipped with JuMPy and requires neither a Julia
-installation nor `juliacall`.
+It uses the compiled backend shipped in the wheels for Linux x86_64 (glibc 2.17
+or newer) and macOS arm64, and requires neither a Julia installation nor
+`juliacall`. On other platforms, pip installs JuMPy without the compiled backend:
+use the JuliaCall interface, or
+[build the backend](https://github.com/NexOR-Optimization/JuMPy/blob/main/julia/README.md#building)
+and point `JUMPY_LIB` to it.
 
 ## JuliaCall interface
 
 ```console
-pip install 'jumpy[juliacall]'
+pip install 'jumpy-opt[juliacall]'
 ```
 
 ```python

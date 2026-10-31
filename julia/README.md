@@ -244,8 +244,23 @@ cd ..
 JUMPY_BACKEND=juliac uv run --group tests pytest tests/test_solve.py
 ```
 
-The Python loader searches `$JUMPY_LIB`, the installed package's `lib/`
-directory, then `julia/build/lib/` (this development layout).
+The Python loader searches `$JUMPY_LIB` if it names `libjumpy_highs`, the
+installed package's `_backend/lib/` directory, `julia/build/highs/lib/`, then
+`julia/build/lib/` (this development layout).
+
+To build a platform wheel containing the bundle, as CI does:
+
+```bash
+cd ..
+python3 julia/package_bundle.py julia/build src/jumpy/_backend
+uv build --wheel
+```
+
+Wheels cannot store symlinks, so `package_bundle.py` keeps each library under
+its install name and the aliases that the bundled binaries refer to, such as
+the `lib/libhighs.so` path of HiGHS. Every push builds and tests the wheels for
+Linux x86_64 and macOS arm64 and uploads them as workflow artifacts. Publishing
+a GitHub release also uploads them to PyPI as `jumpy-opt`.
 
 For JuliaCall, use a PythonCall environment with the same patched GenOpt
 checkout developed into it. For an existing environment:
@@ -298,7 +313,7 @@ Select it with `import jumpy.nexor as jp`, then `jp.Model()`. Models read
 created. There is no default remote solver: select it with
 `model.set_attribute("solver", "HiGHS")`. Use one runtime per Python process.
 The loader searches `JUMPY_LIB` if it names `libjumpy_nexor`, the package's
-`lib/` directory, `julia/build/nexor/lib/`, then the legacy `julia/build/lib/`
+`_backend/lib/` directory, `julia/build/nexor/lib/`, then the legacy `julia/build/lib/`
 location.
 
 `julia --project=test test/nexor.jl` exercises the native ABI and MOF round trip

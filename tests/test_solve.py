@@ -5,7 +5,7 @@ Backend is selected with the JUMPY_BACKEND environment variable:
     JUMPY_BACKEND=juliac   (default) requires the compiled library
         (julia/README.md), no Julia needed
     JUMPY_BACKEND=juliacall requires Julia + juliacall:
-        pip install jumpy[juliacall]
+        pip install 'jumpy-opt[juliacall]'
 
 The whole module is skipped when the selected backend is not available.
 """
