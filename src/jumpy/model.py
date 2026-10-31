@@ -95,10 +95,8 @@ class Model:
             sets.append(moi.ZeroOne())
         elif integer:
             sets.append(moi.Integer())
-        if sets:
-            for variable in variables:
-                for set_ in sets:
-                    self._ops.add_constraint(variable.ref, set_)
+        for set_ in sets:
+            self._ops.add_variable_constraints(variables.ref, set_)
         return variables
 
     def variable(

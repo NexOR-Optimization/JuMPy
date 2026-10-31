@@ -1,0 +1,13 @@
+{"event": "warmup", "frontend": "jumpy", "backend": "storage", "model": "lqcp", "initialization_seconds": 0.1702655270928517, "warmup_seconds": 2.1971884350059554}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "lqcp", "size": 500, "sample": 0, "seconds": 0.7348440230125561, "variables": 251501, "peak_rss_bytes": 615788544, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "lqcp", "size": 500, "sample": 1, "seconds": 0.7027591130463406, "variables": 251501, "peak_rss_bytes": 630300672, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "lqcp", "size": 500, "sample": 2, "seconds": 0.6794289030367509, "variables": 251501, "peak_rss_bytes": 645799936, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "lqcp", "size": 1000, "sample": 0, "seconds": 3.1322054989868775, "variables": 1003001, "peak_rss_bytes": 931028992, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "lqcp", "size": 1000, "sample": 1, "seconds": 3.1701810370432213, "variables": 1003001, "peak_rss_bytes": 987512832, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "lqcp", "size": 1000, "sample": 2, "seconds": 3.035688403993845, "variables": 1003001, "peak_rss_bytes": 1058287616, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "lqcp", "size": 1500, "sample": 0, "seconds": 7.354689762927592, "variables": 2254501, "peak_rss_bytes": 1493790720, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "lqcp", "size": 1500, "sample": 1, "seconds": 7.281026080017909, "variables": 2254501, "peak_rss_bytes": 1625645056, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "lqcp", "size": 1500, "sample": 2, "seconds": 7.417990355053917, "variables": 2254501, "peak_rss_bytes": 1656696832, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "lqcp", "size": 2000, "sample": 0, "seconds": 13.69150790607091, "variables": 4006001, "peak_rss_bytes": 2106544128, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "lqcp", "size": 2000, "sample": 1, "seconds": 13.581059470074251, "variables": 4006001, "peak_rss_bytes": 2286346240, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "lqcp", "size": 2000, "sample": 2, "seconds": 13.703710831003264, "variables": 4006001, "peak_rss_bytes": 2286346240, "python": "3.15.0"}

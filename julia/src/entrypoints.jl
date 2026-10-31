@@ -233,6 +233,22 @@ Base.@ccallable function jumpy_variables(model::Ptr{Cvoid}, count::Clonglong)::P
     end
 end
 
+Base.@ccallable function jumpy_add_variable_constraints(
+    model::Ptr{Cvoid},
+    variables::Ptr{Cvoid},
+    set_id::UInt64,
+)::Cint
+    @_catch Cint(-1) begin
+        handle = _get(model)
+        array = _unbox(variables)::Vector{NativeVariable}
+        set = _get_set(set_id)
+        _dispatch_native(set, NativeSet) do native_set
+            JuMPyModel.add_variable_constraints(handle.model, array, native_set)
+        end
+        Cint(0)
+    end
+end
+
 # -- Native expression constructors -------------------------------------------
 
 Base.@ccallable function jumpy_constant(model::Ptr{Cvoid}, value::Cdouble)::Ptr{Cvoid}

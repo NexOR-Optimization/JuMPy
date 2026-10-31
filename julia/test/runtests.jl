@@ -12,6 +12,7 @@ include("sum.jl")
 include("trim_dispatch.jl")
 include("duals.jl")
 include("nexor.jl")
+include("paper_benchmarks.jl")
 
 variable(m, block, i) = apply(m, "getindex", block, constant(m, i))
 value(m, func) = JuMPyHiGHS.jumpy_value(m, func)

@@ -126,6 +126,8 @@ def _init_lib(path):
     try:
         lib.jumpy_variables.argtypes = [ctypes.c_void_p, ctypes.c_longlong]
         lib.jumpy_variables.restype = ctypes.c_void_p
+        lib.jumpy_add_variable_constraints.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint64]
+        lib.jumpy_add_variable_constraints.restype = ctypes.c_int
         lib.jumpy_value.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         lib.jumpy_value.restype = ctypes.c_double
         lib.jumpy_apply.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_longlong]
@@ -269,6 +271,12 @@ class JuliacOps:
 
     def add_variables(self, count):
         return self._node(self._lib.jumpy_variables(self._m, count))
+
+    def add_variable_constraints(self, variables, set_):
+        if self._lib.jumpy_add_variable_constraints(
+            self._m, variables, self._set_handle(set_)
+        ) != 0:
+            raise RuntimeError("Failed to add variable bounds or integrality")
 
     def _set_handle(self, set_):
         from jumpy._moi import NativeSet

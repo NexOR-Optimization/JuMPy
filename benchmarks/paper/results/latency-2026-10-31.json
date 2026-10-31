@@ -1,0 +1,107 @@
+[
+  {
+    "frontend": "jump-direct",
+    "sample": 0,
+    "process_seconds": 2.3375982030993327,
+    "first_model_seconds": 0.227925522,
+    "objective": 204.99999999999997
+  },
+  {
+    "frontend": "jump-direct",
+    "sample": 1,
+    "process_seconds": 2.326121872989461,
+    "first_model_seconds": 0.2288352,
+    "objective": 204.99999999999997
+  },
+  {
+    "frontend": "jump-direct",
+    "sample": 2,
+    "process_seconds": 2.3256526479963213,
+    "first_model_seconds": 0.226310855,
+    "objective": 204.99999999999997
+  },
+  {
+    "frontend": "jump-direct",
+    "sample": 3,
+    "process_seconds": 2.3112148430664092,
+    "first_model_seconds": 0.226308976,
+    "objective": 204.99999999999997
+  },
+  {
+    "frontend": "jump-direct",
+    "sample": 4,
+    "process_seconds": 2.317917075008154,
+    "first_model_seconds": 0.227472845,
+    "objective": 204.99999999999997
+  },
+  {
+    "frontend": "jump-cached",
+    "sample": 0,
+    "process_seconds": 2.9632256269687787,
+    "first_model_seconds": 0.730522158,
+    "objective": 204.99999999999997
+  },
+  {
+    "frontend": "jump-cached",
+    "sample": 1,
+    "process_seconds": 2.947313845041208,
+    "first_model_seconds": 0.736312002,
+    "objective": 204.99999999999997
+  },
+  {
+    "frontend": "jump-cached",
+    "sample": 2,
+    "process_seconds": 2.953879871056415,
+    "first_model_seconds": 0.737126598,
+    "objective": 204.99999999999997
+  },
+  {
+    "frontend": "jump-cached",
+    "sample": 3,
+    "process_seconds": 2.9369706260040402,
+    "first_model_seconds": 0.730452555,
+    "objective": 204.99999999999997
+  },
+  {
+    "frontend": "jump-cached",
+    "sample": 4,
+    "process_seconds": 2.959014081978239,
+    "first_model_seconds": 0.733465831,
+    "objective": 204.99999999999997
+  },
+  {
+    "frontend": "jumpy",
+    "sample": 0,
+    "process_seconds": 0.4601242939243093,
+    "first_model_seconds": 0.22663096606265754,
+    "objective": 204.99999999999997
+  },
+  {
+    "frontend": "jumpy",
+    "sample": 1,
+    "process_seconds": 0.451391156995669,
+    "first_model_seconds": 0.22325253509916365,
+    "objective": 204.99999999999997
+  },
+  {
+    "frontend": "jumpy",
+    "sample": 2,
+    "process_seconds": 0.44837155006825924,
+    "first_model_seconds": 0.22164202900603414,
+    "objective": 204.99999999999997
+  },
+  {
+    "frontend": "jumpy",
+    "sample": 3,
+    "process_seconds": 0.45881997898686677,
+    "first_model_seconds": 0.22366658400278538,
+    "objective": 204.99999999999997
+  },
+  {
+    "frontend": "jumpy",
+    "sample": 4,
+    "process_seconds": 0.4538400729652494,
+    "first_model_seconds": 0.22276484197936952,
+    "objective": 204.99999999999997
+  }
+]

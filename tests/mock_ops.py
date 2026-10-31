@@ -45,6 +45,10 @@ class MockOps:
         self.arrays.append(ref)
         return ref
 
+    def add_variable_constraints(self, variables, set_):
+        for index in range(variables[2]):
+            self.add_constraint(self.apply("getindex", [variables, index + 1]), set_)
+
     def add_constraint(self, func, set_):
         self.constraints.append((func, set_))
         return ("constraint", len(self.constraints))
@@ -52,6 +56,9 @@ class MockOps:
     def optimize(self):
         self.optimize_calls += 1
         return self.status
+
+    def set_objective(self, sense, func):
+        self.objective = (sense, func)
 
     def termination_status(self):
         return self.status

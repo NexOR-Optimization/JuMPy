@@ -1,0 +1,13 @@
+{"event":"warmup","frontend":"jump-cached","backend":"storage","model":"facility","warmup_seconds":1.963695054}
+{"event":"sample","frontend":"jump-cached","backend":"storage","model":"facility","size":25,"sample":0,"seconds":0.089003478,"variables":67651,"peak_rss_bytes":623521792,"julia":"1.13.3","jump":"1.32.1"}
+{"event":"sample","frontend":"jump-cached","backend":"storage","model":"facility","size":25,"sample":1,"seconds":0.076223061,"variables":67651,"peak_rss_bytes":623906816,"julia":"1.13.3","jump":"1.32.1"}
+{"event":"sample","frontend":"jump-cached","backend":"storage","model":"facility","size":25,"sample":2,"seconds":0.07667857,"variables":67651,"peak_rss_bytes":623906816,"julia":"1.13.3","jump":"1.32.1"}
+{"event":"sample","frontend":"jump-cached","backend":"storage","model":"facility","size":50,"sample":0,"seconds":0.972845404,"variables":520301,"peak_rss_bytes":1066057728,"julia":"1.13.3","jump":"1.32.1"}
+{"event":"sample","frontend":"jump-cached","backend":"storage","model":"facility","size":50,"sample":1,"seconds":0.9698853,"variables":520301,"peak_rss_bytes":1229037568,"julia":"1.13.3","jump":"1.32.1"}
+{"event":"sample","frontend":"jump-cached","backend":"storage","model":"facility","size":50,"sample":2,"seconds":0.929665915,"variables":520301,"peak_rss_bytes":1411018752,"julia":"1.13.3","jump":"1.32.1"}
+{"event":"sample","frontend":"jump-cached","backend":"storage","model":"facility","size":75,"sample":0,"seconds":4.261062412,"variables":1732951,"peak_rss_bytes":2394587136,"julia":"1.13.3","jump":"1.32.1"}
+{"event":"sample","frontend":"jump-cached","backend":"storage","model":"facility","size":75,"sample":1,"seconds":3.804709285,"variables":1732951,"peak_rss_bytes":2563780608,"julia":"1.13.3","jump":"1.32.1"}
+{"event":"sample","frontend":"jump-cached","backend":"storage","model":"facility","size":75,"sample":2,"seconds":3.851128442,"variables":1732951,"peak_rss_bytes":3133280256,"julia":"1.13.3","jump":"1.32.1"}
+{"event":"sample","frontend":"jump-cached","backend":"storage","model":"facility","size":100,"sample":0,"seconds":9.446762946,"variables":4080601,"peak_rss_bytes":4884832256,"julia":"1.13.3","jump":"1.32.1"}
+{"event":"sample","frontend":"jump-cached","backend":"storage","model":"facility","size":100,"sample":1,"seconds":9.976879963,"variables":4080601,"peak_rss_bytes":5993439232,"julia":"1.13.3","jump":"1.32.1"}
+{"event":"sample","frontend":"jump-cached","backend":"storage","model":"facility","size":100,"sample":2,"seconds":9.811818367,"variables":4080601,"peak_rss_bytes":5993439232,"julia":"1.13.3","jump":"1.32.1"}

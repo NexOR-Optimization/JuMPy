@@ -18,6 +18,20 @@ function model(optimizer = nothing; add_bridges::Bool = true, kwargs...)
 end
 
 add_variables(model, count) = JuMP.@variable(model, [1:count])
+
+function add_variable_constraints(model, variables, set)
+    for variable in variables
+        JuMP.check_belongs_to_model(variable, model)
+    end
+    MOI.add_constraints(
+        JuMP.backend(model),
+        JuMP.index.(variables),
+        fill(set, length(variables)),
+    )
+    model.is_model_dirty = true
+    return
+end
+
 lazy_sum(template::GenOpt.ExprTemplate) = GenOpt.LazySum(template)
 # Keep references to the native functions: a trimmed image need not retain
 # Base bindings looked up only by a runtime Symbol.

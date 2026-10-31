@@ -97,6 +97,9 @@ class JuliaCallOps:
     def add_variables(self, count):
         return self._jump.add_variables(self._model, count)
 
+    def add_variable_constraints(self, variables, set_):
+        self._jump.add_variable_constraints(self._model, variables, set_)
+
     def add_constraint(self, func, set_):
         if not self._jl.isa(set_, self._jl.MOI.AbstractScalarSet):
             raise TypeError("Expected a native MOI scalar set from jumpy.juliacall")

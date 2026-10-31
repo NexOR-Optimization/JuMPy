@@ -353,6 +353,11 @@ C entry points, compiled with
 - [GenOpt](https://github.com/blegat/GenOpt.jl) — constraint group expansion
 - [HiGHS](https://highs.dev/) — open-source LP/MIP solver
 
+## JuMP paper benchmarks
+
+Iterator-based ports of the JuMP paper models, reproducible comparisons, and
+recorded timings are in [benchmarks/paper](benchmarks/paper/README.md).
+
 ## License
 
 MIT
