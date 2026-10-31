@@ -163,13 +163,20 @@ def _init_lib(path):
     except AttributeError:
         raise RuntimeError("Rebuild the JuMPy library: this build lacks the native JuMP API") from None
 
-    lib.jl_is_initialized.argtypes = []
-    lib.jl_is_initialized.restype = ctypes.c_int
-    if lib.jl_is_initialized():
+    # The Julia runtime functions. On Windows, a DLL only exports its own
+    # functions, so they are looked up in libjulia, which it already loaded.
+    julia = lib
+    if sys.platform == "win32":
+        import os
+
+        julia = ctypes.CDLL(os.path.join(os.path.dirname(os.path.abspath(path)), "libjulia.dll"))
+    julia.jl_is_initialized.argtypes = []
+    julia.jl_is_initialized.restype = ctypes.c_int
+    if julia.jl_is_initialized():
         raise RuntimeError("Julia is already initialized; start a fresh process for this backend")
 
     # Initialize the Julia runtime from the image embedded in the library.
-    init = lib.jl_init_with_image_handle
+    init = julia.jl_init_with_image_handle
     init.argtypes = [ctypes.c_void_p]
     init.restype = None
     init(lib._handle)
