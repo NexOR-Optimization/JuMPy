@@ -18,6 +18,8 @@ import sys
 _LIB = None
 # The facade, e.g. "highs" for jumpy.highs, whose library libjumpy_<name> is loaded.
 _LIB_NAME = None
+# The DLL search directories added on Windows, kept open while the library is loaded.
+_DLL_DIRECTORIES = []
 
 
 def _default_paths(name):
@@ -26,15 +28,18 @@ def _default_paths(name):
 
     soext = {"Linux": ".so", "Darwin": ".dylib", "Windows": ".dll"}[platform.system()]
     lib_name = "libjumpy_" + name + soext
+    # JuliaC bundles put the libraries in bin/ on Windows, next to the DLLs
+    # they load.
+    lib_dir = "bin" if platform.system() == "Windows" else "lib"
     pkg_dir = os.path.dirname(__file__)
     repo = os.path.dirname(os.path.dirname(pkg_dir))
     return [
         # Wheel layout: the bundle copied by julia/package_bundle.py.
-        os.path.join(pkg_dir, "_backend", "lib", lib_name),
+        os.path.join(pkg_dir, "_backend", lib_dir, lib_name),
         # Development layout: JuliaC bundle in <repo>/julia/build/<name>.
-        os.path.join(repo, "julia", "build", name, "lib", lib_name),
+        os.path.join(repo, "julia", "build", name, lib_dir, lib_name),
         # Legacy development layout.
-        os.path.join(repo, "julia", "build", "lib", lib_name),
+        os.path.join(repo, "julia", "build", lib_dir, lib_name),
     ]
 
 
@@ -108,6 +113,11 @@ def _init_lib(path):
             "JuliaCall is already initialized. Use one JuMPy backend per process; "
             "restart Python to switch to a compiled backend."
         )
+    if sys.platform == "win32":
+        import os
+
+        # Windows has no rpath: let it find the Julia DLLs next to the library.
+        _DLL_DIRECTORIES.append(os.add_dll_directory(os.path.dirname(os.path.abspath(path))))
     # RTLD_GLOBAL so that libjulia symbols are visible process-wide,
     # which the Julia runtime requires.
     lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
@@ -153,13 +163,20 @@ def _init_lib(path):
     except AttributeError:
         raise RuntimeError("Rebuild the JuMPy library: this build lacks the native JuMP API") from None
 
-    lib.jl_is_initialized.argtypes = []
-    lib.jl_is_initialized.restype = ctypes.c_int
-    if lib.jl_is_initialized():
+    # The Julia runtime functions. On Windows, a DLL only exports its own
+    # functions, so they are looked up in libjulia, which it already loaded.
+    julia = lib
+    if sys.platform == "win32":
+        import os
+
+        julia = ctypes.CDLL(os.path.join(os.path.dirname(os.path.abspath(path)), "libjulia.dll"))
+    julia.jl_is_initialized.argtypes = []
+    julia.jl_is_initialized.restype = ctypes.c_int
+    if julia.jl_is_initialized():
         raise RuntimeError("Julia is already initialized; start a fresh process for this backend")
 
     # Initialize the Julia runtime from the image embedded in the library.
-    init = lib.jl_init_with_image_handle
+    init = julia.jl_init_with_image_handle
     init.argtypes = [ctypes.c_void_p]
     init.restype = None
     init(lib._handle)

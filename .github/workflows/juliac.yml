@@ -33,14 +33,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       JULIA_CPU_TARGET: generic
+    # Git Bash on Windows.
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            library: libjumpy_highs.so
+            library: lib/libjumpy_highs.so
           - os: macos-latest
-            library: libjumpy_highs.dylib
+            library: lib/libjumpy_highs.dylib
+          - os: windows-latest
+            library: bin/libjumpy_highs.dll
     steps:
       - uses: actions/checkout@v4
 
@@ -86,7 +92,7 @@ jobs:
         run: uv run --group tests pytest
         env:
           JUMPY_BACKEND: juliac
-          JUMPY_LIB: ${{ github.workspace }}/julia/build/lib/${{ matrix.library }}
+          JUMPY_LIB: ${{ github.workspace }}/julia/build/${{ matrix.library }}
 
       - name: Upload bundle
         uses: actions/upload-artifact@v4
@@ -96,20 +102,24 @@ jobs:
 
       - name: Build wheel with the bundle
         run: |
-          python3 julia/package_bundle.py julia/build src/jumpy/_backend
+          uv run --no-project python julia/package_bundle.py julia/build src/jumpy/_backend
           uv build --wheel
 
       # Outside the checkout, so that the tests import the installed package.
       - name: Test the installed wheel
         working-directory: ${{ runner.temp }}
         run: |
+          # A POSIX path, which Git Bash also globs on Windows.
+          workspace=$(cd "$GITHUB_WORKSPACE" && pwd)
           uv venv wheel-env
-          uv pip install --python wheel-env "$GITHUB_WORKSPACE"/dist/*.whl pytest
-          wheel-env/bin/python -c "import sys, jumpy.backend as b; lib = b.find_lib('highs'); print(lib); sys.exit(lib is None or 'site-packages' not in lib)"
+          uv pip install --python wheel-env "$workspace"/dist/*.whl pytest
+          python=wheel-env/bin/python
+          [ -e "$python" ] || python=wheel-env/Scripts/python
+          "$python" -c "import sys, jumpy.backend as b; lib = b.find_lib('highs'); print(lib); sys.exit(lib is None or 'site-packages' not in lib)"
           # A first solve outside pytest, whose capture hides the stderr of a
           # process that exits during a test.
-          wheel-env/bin/python -X faulthandler -c "import jumpy.highs as jp; m = jp.Model(); x = m.variable(lower=1); m.objective = jp.minimize(x); m.optimize(); print(m.value(x))"
-          wheel-env/bin/python -m pytest -p no:cacheprovider "$GITHUB_WORKSPACE/tests"
+          "$python" -X faulthandler -c "import jumpy.highs as jp; m = jp.Model(); x = m.variable(lower=1); m.objective = jp.minimize(x); m.optimize(); print(m.value(x))"
+          "$python" -m pytest -p no:cacheprovider "$workspace/tests"
         env:
           JUMPY_BACKEND: juliac
 

@@ -22,10 +22,15 @@ import re
 import shutil
 import subprocess
 import sys
+import sysconfig
 
+WINDOWS = sys.platform == "win32"
+# The directory of the libraries in the bundle. On Windows, the DLLs of the
+# artifacts are also in their `bin`, next to their executables.
+LIB_DIR = "bin" if WINDOWS else "lib"
 # Directories and suffixes of the bundle that the compiled library never loads.
-SKIP_DIRS = {"bin", "include", "man", "pkgconfig"}
-SKIP_SUFFIXES = (".a", ".la", ".h")
+SKIP_DIRS = {"include", "man", "pkgconfig"} | (set() if WINDOWS else {"bin"})
+SKIP_SUFFIXES = (".a", ".la", ".h", ".exe")
 # Oldest glibc of manylinux2014, the oldest tag that pip still widely supports.
 MIN_GLIBC = (2, 17)
 
@@ -40,6 +45,8 @@ def _check(*args):
 
 def install_name(path):
     """The name the dynamic loader uses to find this library, or None."""
+    if WINDOWS:
+        return None
     if sys.platform == "darwin":
         lines = _run("otool", "-D", path).splitlines()
         return os.path.basename(lines[1]) if len(lines) > 1 else None
@@ -50,7 +57,7 @@ def install_name(path):
 # A library extension and its version, such as `.so.1.13`. The name before it
 # is read backwards from the match: a regular expression starting with the name
 # backtracks over every run of name characters in the binary.
-EXTENSION = re.compile(rb"\.(?:so|dylib)(?:\.\d+)*")
+EXTENSION = re.compile(rb"\.(?:so|dylib|dll)(?:\.\d+)*")
 NAME_CHARS = re.compile(rb"[\w+.-]+$")
 
 
@@ -143,9 +150,9 @@ def collect(bundle):
     """Map each kept path relative to `bundle` to its source path, and return
     the renames of `_macos_renames` (empty on other platforms)."""
     groups = {}
-    # Only the bundle's own `lib` and `share`: the build directory can also
+    # Only the bundle's own libraries and `share`: the build directory can also
     # hold traces and other bundles, such as `julia/build/nexor`.
-    tops = [os.path.join(bundle, top) for top in ("lib", "share")]
+    tops = [os.path.join(bundle, top) for top in (LIB_DIR, "share")]
     walks = (walk for top in tops for walk in os.walk(top))
     for root, dirs, files in walks:
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
@@ -204,7 +211,7 @@ def _macos_tag(paths):
 
 
 def _is_library(path):
-    return re.search(r"\.(so|dylib)(\.|$)", path) is not None
+    return re.search(r"\.(so|dylib|dll)(\.|$)", path) is not None
 
 
 def platform_tag(paths):
@@ -213,6 +220,9 @@ def platform_tag(paths):
         return _macos_tag(libraries)
     if sys.platform.startswith("linux"):
         return _linux_tag(libraries)
+    if WINDOWS:
+        # Such as `win_amd64`.
+        return sysconfig.get_platform().replace("-", "_")
     raise NotImplementedError(f"No wheel tag for {sys.platform}")
 
 

@@ -119,9 +119,15 @@ end
 
 include("native_dispatch.jl")
 
-# Report without letting Julia exceptions cross the C ABI.
+# Report without letting Julia exceptions cross the C ABI. Like
+# `Base.showerror_nostdio`, but written to the file descriptor of stderr
+# instead of its libuv stream: on Windows, the writes to that stream are queued
+# and lost when Python exits the process without running the event loop.
 function _print_error(@nospecialize(err))
-    Base.showerror_nostdio(err, "JuMPy error")
+    stderr_fd = Ptr{Cvoid}(2)
+    ccall(:jl_printf, Cint, (Ptr{Cvoid}, Cstring), stderr_fd, "JuMPy error:\n")
+    ccall(:jl_static_show, Csize_t, (Ptr{Cvoid}, Any), stderr_fd, err)
+    ccall(:jl_printf, Cint, (Ptr{Cvoid}, Cstring), stderr_fd, "\n")
     return
 end
 
