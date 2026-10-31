@@ -23,17 +23,24 @@ Gurobi rejects this sandbox's host ID (zero), so it was not measured here.
 
 Median construction times for the largest instances:
 
-| Model | Variables | JuMP direct | JuMPy + GenOpt | JuMP cached |
-| --- | ---: | ---: | ---: | ---: |
-| Facility, n = 100 | 4,080,601 | 4.97 s | 7.00 s | 9.81 s |
-| LQCP, n = 2000 | 4,006,001 | 13.58 s | 13.69 s | 19.63 s |
+| Model | Variables | JuMP direct | JuMPy baseline | JuMPy with prepared GenOpt expansion | JuMP cached |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Facility, n = 100 | 4,080,601 | 4.97 s | 7.00 s | 1.70 s | 9.81 s |
+| LQCP, n = 2000 | 4,006,001 | 13.58 s | 13.69 s | 2.00 s | 19.63 s |
 
-At these sizes, JuMPy is about 1.4 times faster than cached JuMP. It is
-essentially tied with direct JuMP for LQCP (their sample ranges overlap), and
-41% slower for facility location. The smaller cases and all sample ranges are
-included below; these are three-sample measurements on one machine.
+Preparing GenOpt's coefficient and index columns before expanding the rows
+reduces JuMPy construction time by about 4.1 times for facility location and
+6.8 times for LQCP. These measurements use a rebuilt JuliaC library containing
+the change from GenOpt's `bl/batch-expansion` branch. The
+[comparison samples](results/batch-expansion-2026-10-31/complete-models.csv)
+and [build metadata](results/batch-expansion-2026-10-31/metadata.json) record the
+package versions, compilation settings, and coefficient checks.
 
-![Construction timings](results/storage-2026-10-31/comparison.png)
+The plot below shows the baseline across all recorded sizes. Prepared expansion
+was measured on the two largest instances; all results are three-sample
+measurements on one machine.
+
+![Baseline construction timings](results/storage-2026-10-31/comparison.png)
 
 See [all timing samples](results/storage-2026-10-31/samples.jsonl),
 [summary CSV](results/storage-2026-10-31/summary.csv),
@@ -41,6 +48,20 @@ See [all timing samples](results/storage-2026-10-31/samples.jsonl),
 [package versions and source hashes](results/storage-2026-10-31/versions.json),
 and [coefficient-level validation](results/storage-2026-10-31/validation.json).
 The machine was an Intel i7-12700K, with Julia 1.13.3 and JuMP 1.32.1.
+
+The [generator expansion benchmark](generator_expansion.jl) isolates the facility
+coordinate and LQCP PDE constraint families on the same MOI storage. Median
+construction times and allocated bytes from three warmed runs were:
+
+| Constraint family | Rows | Scalar | Prepared | Allocated bytes, scalar → prepared |
+| --- | ---: | ---: | ---: | ---: |
+| Facility coordinates, n = 100 | 1,020,100 | 6.58 s | 0.208 s | 11.60 GB → 0.53 GB |
+| LQCP PDE, n = 2000 | 3,998,000 | 5.62 s | 1.82 s | 4.20 GB → 3.01 GB |
+
+These are measurements of one constraint family at a time. The
+[raw samples](results/batch-expansion-2026-10-31/expansion.csv) include GC time.
+Prepared columns use additional temporary memory; output functions and term
+vectors remain independent for every row.
 
 The latency LP was also solved with HiGHS in five fresh processes per frontend,
 each checked against objective 205. Median process wall times were **0.454 s**
@@ -69,6 +90,18 @@ run. For example, `--facility-sizes 5 10 --lqcp-sizes 50 100` is a quick check.
 The recorded package environment uses the same JuMP/GenOpt/MOI JuliaC branches
 as the compiled JuMPy backend. Source hashes are retained because these branches
 can move independently of package version numbers.
+
+The expansion-only benchmark uses private helpers from GenOpt's
+`bl/batch-expansion` branch. With that branch checked out in a sibling `GenOpt`
+directory and its test environment instantiated, run from the JuMPy root:
+
+```sh
+JULIA_NUM_THREADS=1 julia --startup-file=no --project=../GenOpt/test \
+  benchmarks/paper/generator_expansion.jl
+```
+
+It warms both expansion paths, alternates three samples, and prints construction
+time, GC time, and allocated bytes as CSV. It does not solve the models.
 
 To reproduce the original Gurobi timing scope on a host with a matching license:
 
