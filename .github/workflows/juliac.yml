@@ -65,6 +65,9 @@ jobs:
 
       - name: Build shared library
         working-directory: julia
+        # Link for the macOS of the bundled Julia libraries, not the runner's.
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
         run: >
           julia --project=@juliac -m JuliaC
           --output-lib build/libjumpy_highs --project test
