@@ -105,7 +105,7 @@ jobs:
         run: |
           uv venv wheel-env
           uv pip install --python wheel-env "$GITHUB_WORKSPACE"/dist/*.whl pytest
-          wheel-env/bin/python -c "import sys, jumpy.backend as b; lib = b.find_lib(); print(lib); sys.exit('site-packages' not in lib)"
+          wheel-env/bin/python -c "import sys, jumpy.backend as b; lib = b.find_lib('highs'); print(lib); sys.exit(lib is None or 'site-packages' not in lib)"
           # A first solve outside pytest, whose capture hides the stderr of a
           # process that exits during a test.
           wheel-env/bin/python -X faulthandler -c "import jumpy.highs as jp; m = jp.Model(); x = m.variable(lower=1); m.objective = jp.minimize(x); m.optimize(); print(m.value(x))"
