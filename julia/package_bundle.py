@@ -7,7 +7,9 @@ platform wheel:
 Wheels cannot store symlinks, so the aliases of a library are copies. To keep
 the wheel small, only the aliases that can be loaded are kept: the install name
 (SONAME on Linux) and the names that a bundled binary refers to, such as the
-`lib/libhighs.so` path that JuliaC stores for a JLL library.
+`lib/libhighs.so` path that JuliaC stores for a JLL library. On macOS, which
+would load each of these copies, the install name and the load commands are
+changed to a name that is kept anyway.
 Static libraries, headers, executables and man pages of the artifacts are
 dropped. The platform tag of the wheel is written to `<dest>/wheel-tag`, which
 `hatch_build.py` reads.
@@ -32,6 +34,10 @@ def _run(*args):
     return subprocess.run(args, capture_output=True, text=True).stdout
 
 
+def _check(*args):
+    subprocess.run(args, check=True)
+
+
 def install_name(path):
     """The name the dynamic loader uses to find this library, or None."""
     if sys.platform == "darwin":
@@ -51,16 +57,81 @@ NAME_CHARS = re.compile(rb"[\w+.-]+$")
 def referenced_names(paths):
     """The library names, such as `libopenlibm.so` in `julia/libopenlibm.so:`,
     appearing in the binaries at `paths`."""
+    return set().union(*(_names_in(path) for path in paths))
+
+
+def _names_in(path):
     names = set()
-    for path in paths:
-        with open(path, "rb") as io:
-            data = io.read()
-        for match in EXTENSION.finditer(data):
-            start = max(0, match.start() - 128)
-            stem = NAME_CHARS.search(data[start : match.start()])
-            if stem is not None:
-                names.add((stem.group() + match.group()).decode())
+    with open(path, "rb") as io:
+        data = io.read()
+    for match in EXTENSION.finditer(data):
+        start = max(0, match.start() - 128)
+        stem = NAME_CHARS.search(data[start : match.start()])
+        if stem is not None:
+            names.add((stem.group() + match.group()).decode())
     return names
+
+
+def _linked(path):
+    """The libraries that the macOS binary at `path` links to."""
+    lines = _run("otool", "-L", path).splitlines()[1:]
+    ident = _run("otool", "-D", path).splitlines()[1:]
+    return [line.split()[0] for line in lines if line.split()[0] not in ident]
+
+
+def _macos_renames(groups, binaries):
+    """Map aliases of a library to the name that its other aliases are
+    relinked to on macOS.
+
+    macOS identifies a loaded library by its file, and the aliases are distinct
+    files in a wheel, so a library reached under two names is loaded twice. For
+    instance, libjulia opens `julia/libjulia-internal.1.13.dylib` while the
+    install name of libjulia-internal is `@rpath/libjulia-internal.dylib`, and
+    two copies of libjulia-internal break Julia. The install name and the load
+    commands can be changed, but not the names that a binary opens as strings,
+    so these are all kept and the others are renamed to one of them.
+    """
+    linked = {os.path.basename(name) for path in binaries for name in _linked(path)}
+    # The names in each binary that are not load commands.
+    strings = {path: _names_in(path) - linked for path in binaries}
+    renames = {}
+    for paths in groups.values():
+        aliases = {os.path.basename(path) for path in paths}
+        name = install_name(paths[0])
+        if len(aliases) == 1 or name is None:
+            continue
+        # A library can mention its own name, which does not load it.
+        opened = set()
+        for path in binaries:
+            if os.path.basename(path) not in aliases:
+                opened |= strings[path] & aliases
+        if opened and name not in opened:
+            name = min(opened)
+        renames.update({alias: name for alias in aliases - opened - {name}})
+    return renames
+
+
+def _relink(path, renames):
+    """Change the install name of the macOS binary at `path`, and the names of
+    the libraries it links to, according to `renames`."""
+
+    def renamed(name):
+        new = renames.get(os.path.basename(name))
+        return name if new is None else os.path.join(os.path.dirname(name), new)
+
+    args = []
+    ident = _run("otool", "-D", path).splitlines()[1:]
+    for name in ident:
+        if renamed(name) != name:
+            args += ["-id", renamed(name)]
+    for name in _linked(path):
+        if name not in ident and renamed(name) != name:
+            args += ["-change", name, renamed(name)]
+    if args:
+        _check("install_name_tool", *args, path)
+        # Editing the load commands invalidates the signature that arm64
+        # requires, so sign it again, ad hoc as it was.
+        _check("codesign", "--force", "--sign", "-", path)
 
 
 def _digest(path):
@@ -69,7 +140,8 @@ def _digest(path):
 
 
 def collect(bundle):
-    """Map each kept path relative to `bundle` to its source path."""
+    """Map each kept path relative to `bundle` to its source path, and return
+    the renames of `_macos_renames` (empty on other platforms)."""
     groups = {}
     # Only the bundle's own `lib` and `share`: the build directory can also
     # hold traces and other bundles, such as `julia/build/nexor`.
@@ -84,16 +156,21 @@ def collect(bundle):
             groups.setdefault((root, _digest(path)), []).append(path)
     binaries = [paths[0] for paths in groups.values() if _is_library(paths[0])]
     referenced = referenced_names(binaries)
+    renames = {}
+    if sys.platform == "darwin":
+        renames = _macos_renames(groups, binaries)
     kept = {}
     for paths in groups.values():
         if len(paths) > 1:
             names = referenced | {install_name(paths[0])}
+            if renames:
+                names = {renames.get(name, name) for name in names}
             loaded = [p for p in paths if os.path.basename(p) in names]
             # Copies of a file that is not a library are all kept.
             paths = loaded or paths
         for path in paths:
             kept[os.path.relpath(path, bundle)] = path
-    return kept
+    return kept, renames
 
 
 def _linux_tag(paths):
@@ -140,12 +217,14 @@ def platform_tag(paths):
 
 
 def main(bundle, dest):
-    kept = collect(bundle)
+    kept, renames = collect(bundle)
     shutil.rmtree(dest, ignore_errors=True)
     for relpath, source in kept.items():
         target = os.path.join(dest, relpath)
         os.makedirs(os.path.dirname(target), exist_ok=True)
         shutil.copy2(source, target)
+        if renames and _is_library(target):
+            _relink(target, renames)
     tag = platform_tag(list(kept.values()))
     with open(os.path.join(dest, "wheel-tag"), "w") as io:
         io.write(tag + "\n")
