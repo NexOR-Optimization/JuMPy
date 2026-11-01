@@ -47,7 +47,8 @@ are outside the timer.
 Recorded on an Intel i7-12700K with Julia 1.13.3, JuMP's `bl/juliac` branch
 (declaring version 1.32.1), GenOpt's `bl/juliac-safe` branch (0.2.5, `65e7c41`),
 MOI 1.54.0, and HiGHS.jl 1.26.1. All four frontends use the same dependency
-source snapshots. Median of three warmed samples; lower is better:
+source snapshots. The benchmark library uses `--trim=no`; the normal JuMPy
+build uses `--trim=unsafe-warn`. Median of three warmed samples; lower is better:
 
 | Model | n | Variables | JuMP cached | JuMP direct | JuMP direct + GenOpt | JuMPy.HiGHS | Python / grouped Julia |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
