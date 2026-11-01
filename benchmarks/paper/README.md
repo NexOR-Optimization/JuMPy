@@ -10,6 +10,13 @@ than a Python loop over its n(n+1)² customer/facility constraints.
 
 ## Four-way HiGHS comparison
 
+The [recorded HiGHS run](results/highs-2026-11-01/table.md) uses GenOpt 0.2.5
+on the rebased `bl/juliac-safe` branch (`65e7c41`). At n = 1000 (1,003,001
+variables), the four medians are 6.48 s, 4.08 s, 2.88 s, and 2.83 s respectively.
+JuMPy / grouped Julia is 1.02 at n = 500 and 0.98 at n = 1000, compared with
+1.09–1.13 at the smaller sizes. All [raw samples and environment information](results/highs-2026-11-01)
+are retained. The root README includes the generated table and scaling plot.
+
 From the repository root, with Julia 1.13 and Python 3.10 or newer:
 
 ```sh
@@ -42,7 +49,7 @@ Each frontend runs in a separate process with one Julia/BLAS/solver thread.
 Compilation and one n = 5 warm-up are excluded. Each sample starts after full
 garbage collection; model disposal is excluded. Construction and `optimize!`
 with presolve off and a zero time limit are timed, including solver ingestion.
-These are **model-building timings**, not a comparison of solving speed.
+These are **model-building timings**.
 JuliaC uses `--trim=no`, so this measures warmed compiled-library operation,
 not cold startup or the eventual fully trimmed release image.
 

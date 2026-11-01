@@ -49,6 +49,27 @@ Mermaid bar charts, and optional SVG/PNG plots. The Python / grouped Julia ratio
 compares the two paths that share GenOpt; a ratio near 1 means Python's template
 construction and native calls add little to the total time.
 
+Recorded on an Intel i7-12700K with Julia 1.13.3, JuMP 1.32.1, GenOpt 0.2.5
+(`bl/juliac-safe`, `65e7c41`), and HiGHS.jl 1.26.1. Median of three warmed samples;
+lower is better:
+
+| Model | n | Variables | JuMP cached | JuMP direct | JuMP direct + GenOpt | JuMPy.HiGHS | Python / grouped Julia |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| LQCP | 100 | 10,301 | 45.9 ms | 36.1 ms | **35.1 ms** | 38.3 ms | 1.09× |
+| LQCP | 250 | 63,251 | 326.9 ms | 227.3 ms | **157.5 ms** | 178.8 ms | 1.13× |
+| LQCP | 500 | 251,501 | 1,414.4 ms | 877.7 ms | **683.3 ms** | 696.4 ms | 1.02× |
+| LQCP | 1000 | 1,003,001 | 6,476.7 ms | 4,083.4 ms | 2,883.7 ms | **2,829.8 ms** | 0.98× |
+
+![HiGHS model construction timings](benchmarks/paper/results/highs-2026-11-01/comparison.svg)
+
+At 251k and one million variables, JuMPy and grouped Julia are within 2% in this
+run. At the smaller sizes, JuMPy takes 9–13% longer. These measurements support
+similar throughput for the larger grouped models. HiGHS cannot accept the
+facility model's quadratic constraints, so this solver comparison uses LQCP.
+
+[CSV and individual samples](benchmarks/paper/results/highs-2026-11-01),
+[generated Mermaid chart](benchmarks/paper/results/highs-2026-11-01/charts.md).
+
 ## Installation
 
 This branch's native JuMP/GenOpt integration is a prototype. Building the
