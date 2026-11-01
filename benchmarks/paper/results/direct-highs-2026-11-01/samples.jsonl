@@ -18,3 +18,43 @@
 {"event": "sample", "frontend": "hardcoded-highs-julia", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 3, "variables": 1003001, "seconds": 0.32965537, "assembly_seconds": 0.036048883, "load_seconds": 0.087498257, "run_seconds": 0.20610823, "julia": "1.13.3", "highs_jl": "1.26.1", "highs_version": "1.15.1"}
 {"event": "sample", "frontend": "hardcoded-highs-julia", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 4, "variables": 1003001, "seconds": 0.331772256, "assembly_seconds": 0.037320537, "load_seconds": 0.091042497, "run_seconds": 0.203409222, "julia": "1.13.3", "highs_jl": "1.26.1", "highs_version": "1.15.1"}
 {"event": "sample", "frontend": "hardcoded-highs-julia", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 5, "variables": 1003001, "seconds": 0.340973864, "assembly_seconds": 0.036501416, "load_seconds": 0.088185526, "run_seconds": 0.216286922, "julia": "1.13.3", "highs_jl": "1.26.1", "highs_version": "1.15.1"}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 0, "seconds": 0.022032510954886675, "variables": 10301, "peak_rss_bytes": 87887872}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 1, "seconds": 0.01934893405996263, "variables": 10301, "peak_rss_bytes": 90943488}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 2, "seconds": 0.019142425036989152, "variables": 10301, "peak_rss_bytes": 90943488}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 3, "seconds": 0.01849013799801469, "variables": 10301, "peak_rss_bytes": 90943488}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 4, "seconds": 0.01910792605485767, "variables": 10301, "peak_rss_bytes": 90943488}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 0, "seconds": 0.06261210201773793, "variables": 63251, "peak_rss_bytes": 139399168}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 1, "seconds": 0.06475944502744824, "variables": 63251, "peak_rss_bytes": 139440128}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 2, "seconds": 0.06451670604292303, "variables": 63251, "peak_rss_bytes": 139440128}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 3, "seconds": 0.06418742903042585, "variables": 63251, "peak_rss_bytes": 139440128}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 4, "seconds": 0.06402306200470775, "variables": 63251, "peak_rss_bytes": 139440128}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 0, "seconds": 0.24197283806279302, "variables": 251501, "peak_rss_bytes": 328675328}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 1, "seconds": 0.23236840695608407, "variables": 251501, "peak_rss_bytes": 330502144}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 2, "seconds": 0.23283729399554431, "variables": 251501, "peak_rss_bytes": 330502144}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 3, "seconds": 0.23366012703627348, "variables": 251501, "peak_rss_bytes": 330502144}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 4, "seconds": 0.23519331100396812, "variables": 251501, "peak_rss_bytes": 330502144}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 0, "seconds": 0.9450602829456329, "variables": 1003001, "peak_rss_bytes": 1111298048}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 1, "seconds": 0.9386754289735109, "variables": 1003001, "peak_rss_bytes": 1111298048}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 2, "seconds": 0.93383803893812, "variables": 1003001, "peak_rss_bytes": 1111298048}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 3, "seconds": 0.9380868551088497, "variables": 1003001, "peak_rss_bytes": 1111298048}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 4, "seconds": 0.9368311560247093, "variables": 1003001, "peak_rss_bytes": 1111298048}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 0, "seconds": 0.1742934490321204, "variables": 10301, "peak_rss_bytes": 200900608}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 1, "seconds": 0.17122475302312523, "variables": 10301, "peak_rss_bytes": 200937472}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 2, "seconds": 0.17053994291927665, "variables": 10301, "peak_rss_bytes": 202506240}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 3, "seconds": 0.17101763898972422, "variables": 10301, "peak_rss_bytes": 204242944}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 4, "seconds": 0.1706702079391107, "variables": 10301, "peak_rss_bytes": 204242944}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 0, "seconds": 0.20357149303890765, "variables": 63251, "peak_rss_bytes": 246370304}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 1, "seconds": 0.19949499506037682, "variables": 63251, "peak_rss_bytes": 246370304}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 2, "seconds": 0.20131396898068488, "variables": 63251, "peak_rss_bytes": 255709184}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 3, "seconds": 0.19954997499007732, "variables": 63251, "peak_rss_bytes": 256327680}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 4, "seconds": 0.19686916598584503, "variables": 63251, "peak_rss_bytes": 265838592}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 0, "seconds": 0.35701442905701697, "variables": 251501, "peak_rss_bytes": 430886912}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 1, "seconds": 0.35970868705771863, "variables": 251501, "peak_rss_bytes": 430886912}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 2, "seconds": 0.3446859329706058, "variables": 251501, "peak_rss_bytes": 466968576}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 3, "seconds": 0.34028498898260295, "variables": 251501, "peak_rss_bytes": 466968576}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 4, "seconds": 0.33360055601224303, "variables": 251501, "peak_rss_bytes": 466968576}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 0, "seconds": 0.9475098369875923, "variables": 1003001, "peak_rss_bytes": 1135136768}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 1, "seconds": 0.9815218358999118, "variables": 1003001, "peak_rss_bytes": 1135136768}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 2, "seconds": 0.9467052620602772, "variables": 1003001, "peak_rss_bytes": 1215160320}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 3, "seconds": 0.9511225009337068, "variables": 1003001, "peak_rss_bytes": 1215160320}
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 4, "seconds": 0.9566623469581828, "variables": 1003001, "peak_rss_bytes": 1375444992}

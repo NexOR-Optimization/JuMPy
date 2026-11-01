@@ -1,0 +1,21 @@
+{"event": "warmup", "frontend": "highspy", "backend": "highs", "model": "lqcp", "python": "3.14.7", "versions": {"highspy": "1.15.1", "numpy": "2.5.4", "scipy": "1.18.1"}, "highs_version": "1.15.1", "initialization_seconds": 0.03973856498487294, "warmup_seconds": 0.0734714480349794}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 0, "seconds": 0.022032510954886675, "variables": 10301, "peak_rss_bytes": 87887872}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 1, "seconds": 0.01934893405996263, "variables": 10301, "peak_rss_bytes": 90943488}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 2, "seconds": 0.019142425036989152, "variables": 10301, "peak_rss_bytes": 90943488}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 3, "seconds": 0.01849013799801469, "variables": 10301, "peak_rss_bytes": 90943488}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 4, "seconds": 0.01910792605485767, "variables": 10301, "peak_rss_bytes": 90943488}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 0, "seconds": 0.06261210201773793, "variables": 63251, "peak_rss_bytes": 139399168}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 1, "seconds": 0.06475944502744824, "variables": 63251, "peak_rss_bytes": 139440128}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 2, "seconds": 0.06451670604292303, "variables": 63251, "peak_rss_bytes": 139440128}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 3, "seconds": 0.06418742903042585, "variables": 63251, "peak_rss_bytes": 139440128}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 4, "seconds": 0.06402306200470775, "variables": 63251, "peak_rss_bytes": 139440128}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 0, "seconds": 0.24197283806279302, "variables": 251501, "peak_rss_bytes": 328675328}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 1, "seconds": 0.23236840695608407, "variables": 251501, "peak_rss_bytes": 330502144}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 2, "seconds": 0.23283729399554431, "variables": 251501, "peak_rss_bytes": 330502144}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 3, "seconds": 0.23366012703627348, "variables": 251501, "peak_rss_bytes": 330502144}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 4, "seconds": 0.23519331100396812, "variables": 251501, "peak_rss_bytes": 330502144}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 0, "seconds": 0.9450602829456329, "variables": 1003001, "peak_rss_bytes": 1111298048}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 1, "seconds": 0.9386754289735109, "variables": 1003001, "peak_rss_bytes": 1111298048}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 2, "seconds": 0.93383803893812, "variables": 1003001, "peak_rss_bytes": 1111298048}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 3, "seconds": 0.9380868551088497, "variables": 1003001, "peak_rss_bytes": 1111298048}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 4, "seconds": 0.9368311560247093, "variables": 1003001, "peak_rss_bytes": 1111298048}

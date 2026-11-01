@@ -10,6 +10,9 @@ FRONTENDS = {
     "jump-direct": "JuMP direct",
     "jump-genopt": "JuMP direct + GenOpt",
     "jumpy": "JuMPy.HiGHS",
+    "highspy": "highspy",
+    "pyomo": "Pyomo",
+    "linopy": "Linopy",
 }
 
 
@@ -48,10 +51,15 @@ def labels(groups):
 
 
 def markdown(groups):
-    headings = ["Model", "n", "Variables", *labels(groups).values(), "Python / grouped Julia"]
-    lines = ["| " + " | ".join(headings) + " |", "| --- | " + " | ".join(["---:"] * 7) + " |"]
+    frontends = [f for f in FRONTENDS if any(f in group for group in groups.values())]
+    compare = any("jumpy" in group and "jump-genopt" in group for group in groups.values())
+    headings = ["Model", "n", "Variables", *[labels(groups)[f] for f in frontends]]
+    if compare:
+        headings.append("JuMPy / grouped Julia")
+    lines = ["| " + " | ".join(headings) + " |",
+             "| --- | " + " | ".join(["---:"] * (len(headings) - 1)) + " |"]
     for (model, size), group in sorted(groups.items()):
-        values = [float(group[f]["median_seconds"]) if f in group else None for f in FRONTENDS]
+        values = [float(group[f]["median_seconds"]) if f in group else None for f in frontends]
         fastest = min(v for v in values if v is not None)
         times = []
         for value in values:
@@ -61,12 +69,15 @@ def markdown(groups):
         if "jumpy" in group and "jump-genopt" in group:
             ratio = f'{float(group["jumpy"]["median_seconds"]) / float(group["jump-genopt"]["median_seconds"]):.2f}×'
         variables = int(next(iter(group.values()))["variables"])
-        lines.append("| " + " | ".join([model.upper(), str(size), f"{variables:,}", *times, ratio]) + " |")
+        cells = [model.upper(), str(size), f"{variables:,}", *times]
+        if compare:
+            cells.append(ratio)
+        lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines) + "\n"
 
 
 def mermaid(groups):
-    # One bar series with four categories works without recent Mermaid
+    # One bar series with named categories works without recent Mermaid
     # multi-series legend extensions. Show the largest case for each model.
     sections = []
     for model in sorted({model for model, _ in groups}):

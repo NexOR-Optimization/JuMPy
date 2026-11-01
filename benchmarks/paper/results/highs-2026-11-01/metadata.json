@@ -10,7 +10,10 @@
     "jump-cached",
     "jump-direct",
     "jump-genopt",
-    "jumpy"
+    "jumpy",
+    "highspy",
+    "pyomo",
+    "linopy"
   ],
   "solver_names_disabled": true,
   "command": [
@@ -39,5 +42,12 @@
   "library_sha256": "3283fc66133a04964683317ee543770101a3496a8289fa024adf89a8726dcc63",
   "worktree_dirty": true,
   "native_image": "Normal JuMPyHiGHS entry point, JuliaC --trim=unsafe-warn",
-  "record_subset": "Julia/JuMPy records selected from the original comparison run; timings were not rerun."
+  "python_packages": {
+    "highspy": "1.15.1",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "pyomo": "6.10.1",
+    "linopy": "0.10.1"
+  },
+  "coefficient_validation": "All Python ports match tests/fixtures/lqcp3.mof.json; n=5 native models and optimal objectives also agree"
 }

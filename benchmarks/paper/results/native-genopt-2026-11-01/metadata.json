@@ -38,6 +38,22 @@
   "raw_scope": "Reference arrays and native Highs_run. GenOpt modes retain hardcoded variable bounds and objective; reference row assembly is also included in setup.",
   "grouped_scope": "Complete existing grouped JuMP/GenOpt formulation and MOI.optimize! including result storage. The experimental adapters change row insertion, bound updates and variable block creation while preserving HiGHS.jl metadata.",
   "native_version": "1.15.1",
+  "linopy": {
+    "event": "warmup",
+    "frontend": "linopy",
+    "backend": "highs",
+    "model": "lqcp",
+    "python": "3.14.7",
+    "versions": {
+      "highspy": "1.15.1",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "linopy": "0.10.1"
+    },
+    "highs_version": "1.15.1",
+    "initialization_seconds": 0.37001895799767226,
+    "warmup_seconds": 1.0973129909252748
+  },
   "validation": "1412 assertions, including every small-model native row coefficient, bounds, costs, optimum and result status across all ten paths; duplicate cancellation, constants, empty rows, batch boundaries, and HiGHS.jl variable/constraint metadata. All 15 temporary line markers executed and were removed.",
   "phase_counters": "Instrumented wall times; allocation-triggered GC is charged to its phase. Stock grouped mode has only total/setup/build/run measurements; missing CSV phase fields mean unmeasured, not zero.",
   "integration": "Experimental local adapter only; no installed package source or released JuMPy native library was changed.",

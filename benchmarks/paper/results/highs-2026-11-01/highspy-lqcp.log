@@ -1,0 +1,13 @@
+{"event": "warmup", "frontend": "highspy", "backend": "highs", "model": "lqcp", "python": "3.14.7", "versions": {"highspy": "1.15.1", "numpy": "2.5.4", "scipy": "1.18.1"}, "highs_version": "1.15.1", "initialization_seconds": 0.04074237693566829, "warmup_seconds": 0.07546291407197714}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 0, "seconds": 0.022442746092565358, "variables": 10301, "peak_rss_bytes": 87773184}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 1, "seconds": 0.019663574057631195, "variables": 10301, "peak_rss_bytes": 90660864}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 2, "seconds": 0.019083671970292926, "variables": 10301, "peak_rss_bytes": 90660864}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 0, "seconds": 0.06385297700762749, "variables": 63251, "peak_rss_bytes": 139276288}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 1, "seconds": 0.06262389395851642, "variables": 63251, "peak_rss_bytes": 139350016}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 2, "seconds": 0.061801507021300495, "variables": 63251, "peak_rss_bytes": 139350016}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 0, "seconds": 0.2561471809167415, "variables": 251501, "peak_rss_bytes": 328454144}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 1, "seconds": 0.25169804005417973, "variables": 251501, "peak_rss_bytes": 329404416}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 2, "seconds": 0.25077472208067775, "variables": 251501, "peak_rss_bytes": 329469952}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 0, "seconds": 1.1581908899825066, "variables": 1003001, "peak_rss_bytes": 1107259392}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 1, "seconds": 1.1207628860138357, "variables": 1003001, "peak_rss_bytes": 1107836928}
+{"event": "sample", "frontend": "highspy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 2, "seconds": 1.093744054902345, "variables": 1003001, "peak_rss_bytes": 1107836928}

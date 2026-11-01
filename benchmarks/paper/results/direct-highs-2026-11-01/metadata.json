@@ -12,5 +12,11 @@
   "julia": "1.13.3",
   "highs_jl": "1.26.1",
   "highs_version": "1.15.1",
+  "python_packages": {
+    "highspy": "1.15.1",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "linopy": "0.10.1"
+  },
   "validation": "All coefficients match JuMP n=3 MOF fixture; n=3 and n=5 optimal objectives match the original JuMP formulation"
 }

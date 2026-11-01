@@ -1,9 +1,10 @@
-"""Compare JuMP and the normal JuMPy HiGHS/NexOR backends."""
+"""Compare JuMP, JuMPy, highspy, Pyomo, and Linopy model construction."""
 
 import argparse
 import csv
 from datetime import datetime, timezone
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,15 @@ from report import FRONTENDS, write_report
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+PYTHON_FRONTENDS = ("highspy", "pyomo", "linopy")
+
+
+def select_frontends(backend, requested=None):
+    frontends = list(requested) if requested is not None else [
+        f for f in FRONTENDS if backend == "highs" or f not in PYTHON_FRONTENDS]
+    if backend == "nexor" and any(f in PYTHON_FRONTENDS for f in frontends):
+        raise ValueError("highspy, Pyomo, and Linopy comparisons require --backend highs")
+    return frontends
 
 
 def summarize(records, directory, metric="seconds", filename="summary.csv"):
@@ -47,13 +57,22 @@ def main():
     parser.add_argument("--project", type=Path, default=HERE)
     parser.add_argument("--facility-sizes", type=int, nargs="*", default=None)
     parser.add_argument("--lqcp-sizes", type=int, nargs="*", default=[100, 250, 500, 1000])
-    parser.add_argument("--frontends", nargs="+", choices=tuple(FRONTENDS), default=list(FRONTENDS))
+    parser.add_argument("--frontends", nargs="+", choices=tuple(FRONTENDS))
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=1800)
     parser.add_argument("--export-mof", action="store_true", help="Also time local MOF export separately")
     parser.add_argument("--plot", action="store_true", help="Generate SVG and PNG (requires matplotlib)")
     args = parser.parse_args()
+    try:
+        args.frontends = select_frontends(args.backend, args.frontends)
+    except ValueError as exc:
+        parser.error(str(exc))
+    missing = [f for f in args.frontends if f in PYTHON_FRONTENDS and importlib.util.find_spec(f) is None]
+    if missing:
+        parser.error("Install benchmark dependencies: python -m pip install -r benchmarks/paper/requirements.txt")
+    if args.export_mof and all(f in PYTHON_FRONTENDS for f in args.frontends):
+        parser.error("MOF export requires at least one JuMP or JuMPy frontend")
     if args.facility_sizes is None:
         args.facility_sizes = [25, 50, 75, 100] if args.backend == "nexor" else []
     if args.backend == "highs" and args.facility_sizes:
@@ -65,17 +84,20 @@ def main():
     if len(set(args.frontends)) != len(args.frontends):
         parser.error("Frontends must be distinct")
     args.output.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, JULIA_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1")
+    env = dict(os.environ, JULIA_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1",
+               MKL_NUM_THREADS="1", NUMEXPR_NUM_THREADS="1", POLARS_MAX_THREADS="1")
     if args.library is not None:
         env["JUMPY_LIB"] = str(args.library.resolve())
     metadata = dict(timestamp_utc=datetime.now(timezone.utc).isoformat(),
                     os=platform.platform(), cpu=platform.processor(), backend=args.backend,
                     repeats=args.repeats, threads=1, source_revision="b4a3479",
+                    frontends=args.frontends,
                     solver_names_disabled=True, command=sys.argv,
                     timing_scope="construction and HiGHS ingestion (zero solve time limit, presolve off)"
                     if args.backend == "highs" else "local construction and cache materialization; no optimize or network",
                     export_mof=args.export_mof,
-                    jumpy_revision=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip())
+                    jumpy_revision=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+                    worktree_dirty=bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True)))
     manifest = args.project / "Manifest.toml"
     if manifest.is_file():
         (args.output / "Manifest.toml").write_text(manifest.read_text())
@@ -99,12 +121,15 @@ def main():
                 if frontend == "jumpy":
                     command = [sys.executable, str(HERE / "run_jumpy.py"), "--backend", args.backend,
                                "--model", model, "--sizes", *map(str, sizes), "--repeats", str(args.repeats)]
+                elif frontend in PYTHON_FRONTENDS:
+                    command = [sys.executable, str(HERE / "run_python.py"), "--frontend", frontend,
+                               "--model", model, "--sizes", *map(str, sizes), "--repeats", str(args.repeats)]
                 else:
                     command = ["julia", "--startup-file=no", f"--project={args.project.resolve()}",
                                str(HERE / "run_jump.jl"), "--backend", args.backend,
                                "--mode", frontend.removeprefix("jump-"), "--model", model,
                                "--sizes", ','.join(map(str, sizes)), "--repeats", str(args.repeats)]
-                if args.export_mof:
+                if args.export_mof and frontend not in PYTHON_FRONTENDS:
                     command.extend(["--export", str(Path(scratch) / "model.mof.json")])
                 print(f"Running {frontend} {model}: {sizes}", flush=True)
                 log_path = args.output / f"{frontend}-{model}.log"

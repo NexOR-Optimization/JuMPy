@@ -17,7 +17,9 @@ def main():
     from report import FRONTENDS, labels, load_results
     names = labels(load_results(args.results / "summary.csv"))
     styles = dict(zip(FRONTENDS, (("#b65e17", "s"), ("#3265a8", "o"),
-                                ("#9b46a0", "D"), ("#18876b", "^"))))
+                                ("#9b46a0", "D"), ("#18876b", "^"),
+                                ("#636363", "v"), ("#ce4a70", "P"),
+                                ("#8c741a", "X"))))
     models = sorted({r["model"] for r in rows})
     fig, axes = plt.subplots(1, len(models), figsize=(6 * len(models), 4.7),
                              layout="constrained", squeeze=False)

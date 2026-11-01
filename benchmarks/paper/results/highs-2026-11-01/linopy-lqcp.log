@@ -1,0 +1,39 @@
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "warmup", "frontend": "linopy", "backend": "highs", "model": "lqcp", "python": "3.14.7", "versions": {"highspy": "1.15.1", "numpy": "2.5.4", "scipy": "1.18.1", "linopy": "0.10.1"}, "highs_version": "1.15.1", "initialization_seconds": 0.369142725947313, "warmup_seconds": 0.27181191195268184}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 0, "seconds": 0.1717187080066651, "variables": 10301, "peak_rss_bytes": 200863744}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 1, "seconds": 0.1731866649352014, "variables": 10301, "peak_rss_bytes": 201035776}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 100, "sample": 2, "seconds": 0.17144723795354366, "variables": 10301, "peak_rss_bytes": 202514432}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 0, "seconds": 0.20634686294943094, "variables": 63251, "peak_rss_bytes": 245678080}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 1, "seconds": 0.2009403029223904, "variables": 63251, "peak_rss_bytes": 245678080}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 250, "sample": 2, "seconds": 0.2123000150313601, "variables": 63251, "peak_rss_bytes": 253640704}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 0, "seconds": 0.3627940450096503, "variables": 251501, "peak_rss_bytes": 412336128}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 1, "seconds": 0.3476226980565116, "variables": 251501, "peak_rss_bytes": 449404928}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 500, "sample": 2, "seconds": 0.34284392604604363, "variables": 251501, "peak_rss_bytes": 450490368}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 0, "seconds": 1.0783489829627797, "variables": 1003001, "peak_rss_bytes": 1152536576}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 1, "seconds": 1.0883607699070126, "variables": 1003001, "peak_rss_bytes": 1300697088}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 2, "seconds": 0.9678969390224665, "variables": 1003001, "peak_rss_bytes": 1300697088}

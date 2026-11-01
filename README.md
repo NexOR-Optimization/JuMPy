@@ -38,8 +38,8 @@ The Python workload is proportional to the **number of groups**, not the number 
 ## Benchmarks
 
 The [JuMP paper benchmarks](benchmarks/paper/README.md) compare JuMP cached,
-JuMP direct, JuMP direct + GenOpt, and JuMPy using the normal HiGHS or NexOR
-backend. NexOR measures local construction and optional MOF export without
+JuMP direct, JuMP direct + GenOpt, JuMPy, highspy, Pyomo, and Linopy using HiGHS.
+The NexOR backend measures local construction and optional MOF export without
 contacting a server. The runner generates CSV results, Markdown tables, and
 plots.
 

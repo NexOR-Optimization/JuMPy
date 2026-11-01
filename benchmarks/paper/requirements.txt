@@ -1,0 +1,5 @@
+highspy>=1.15.1
+pyomo>=6.10.1
+linopy>=0.10.1
+numpy>=2
+scipy>=1.14

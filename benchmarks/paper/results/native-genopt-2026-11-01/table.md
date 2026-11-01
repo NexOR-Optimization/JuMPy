@@ -14,6 +14,7 @@ For a comparison isolating GenOpt PR #50, see the [batch-submission table](../ge
 | Complete grouped model, direct row buffers | 1,919.4 ms | 1,913.2–1,977.2 ms |
 | Direct row buffers + bulk bounds | 1,448.0 ms | 1,413.7–1,463.1 ms |
 | Direct row buffers + bulk bounds and variables | 953.9 ms | 952.3–1,014.6 ms |
+| Linopy | 980.1 ms | 932.6–1,006.1 ms |
 
 The first five paths retain hardcoded objective and variable-bound arrays; their setup also assembles the reference row arrays. The complete grouped paths build all variables, bounds, objectives and constraints through the same JuMP/GenOpt formulation. Their totals include HiGHS.jl result storage through MOI.optimize!. Raw paths call Highs_run directly. No MatrixOfConstraints is used.
 
@@ -28,4 +29,4 @@ Phase medians for the complete experimental paths (milliseconds):
 
 Objective updates, template planning, JuMP reference creation/checks, and remaining Julia overhead are included in totals. Phase medians do not necessarily sum to the median total; allocation-triggered garbage collection is charged to the phase where it occurs.
 
-Compilation, explicit collection before each Julia sample, and model disposal are excluded. These are experimental adapters using GenOpt and HiGHS.jl internals, not changes to the released JuMPy backend.
+Compilation, explicit collection before each Julia sample, and model disposal are excluded. Linopy was refreshed in a separate process with the same native HiGHS version and settings; it uses its ordinary Python garbage collection. These are experimental adapters using GenOpt and HiGHS.jl internals, not changes to the released JuMPy backend.

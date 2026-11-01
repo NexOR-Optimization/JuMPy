@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "benchmarks" / "paper"))
 from models import facility, lqcp
 from report import FRONTENDS, load_results, markdown, mermaid, write_report
-from run import summarize
+from run import select_frontends, summarize
 from run_jumpy import construct
 from types import SimpleNamespace
 from jumpy.model import Model
@@ -60,6 +60,33 @@ class PaperBenchmarkTests(unittest.TestCase):
                 stream.write(path.read_text().splitlines()[1] + "\n")
             with self.assertRaisesRegex(ValueError, "Duplicate"):
                 load_results(path)
+
+    def test_report_includes_all_seven_frontends_and_supports_subsets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "summary.csv"
+            rows = self.csv_fixture(path)
+            with path.open("a", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=rows[0])
+                for frontend, seconds in (("highspy", .05), ("pyomo", .6), ("linopy", .2)):
+                    writer.writerow(dict(rows[0], frontend=frontend, median_seconds=seconds))
+            groups = load_results(path)
+            table = markdown(groups)
+            self.assertIn("JuMPy.HiGHS | highspy | Pyomo | Linopy", table)
+            self.assertIn("**50.0 ms** | 600.0 ms | 200.0 ms | 1.05×", table)
+            self.assertEqual(len({line.count("|") for line in table.splitlines()}), 1)
+            self.assertIn('"highspy", "Pyomo", "Linopy"', mermaid(groups))
+            subset = {key: {f: row for f, row in group.items() if f == "linopy"}
+                      for key, group in groups.items()}
+            self.assertIn("Variables | Linopy |", markdown(subset))
+            self.assertNotIn("JuMPy.HiGHS", markdown(subset))
+            self.assertNotIn("grouped Julia", markdown(subset))
+
+    def test_backend_selects_supported_frontends(self):
+        self.assertEqual(select_frontends("highs"), list(FRONTENDS))
+        self.assertEqual(select_frontends("nexor"), list(FRONTENDS)[:4])
+        self.assertEqual(select_frontends("highs", ["linopy"]), ["linopy"])
+        with self.assertRaisesRegex(ValueError, "require --backend highs"):
+            select_frontends("nexor", ["pyomo"])
 
     def test_nexor_constructs_locally_and_reports_its_backend(self):
         ops = MockOps()

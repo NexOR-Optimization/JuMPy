@@ -1,17 +1,22 @@
 # JuMP paper benchmarks
 
-Compare four ways to build the
+Compare seven ways to build the
 [JuMP paper models](https://github.com/jump-dev/JuMPPaperBenchmarks/tree/b4a3479):
 
 1. **JuMP cached**: `Model(optimizer)`.
 2. **JuMP direct**: `concrete_direct_model(optimizer())` with JuMP macros.
 3. **JuMP direct + GenOpt**: templates and lazy sums built in Julia.
 4. **JuMPy**: the same templates built in Python.
+5. **highspy**: bulk sparse constraint and Hessian matrices.
+6. **Pyomo**: indexed expressions with its in-memory HiGHS interface.
+7. **Linopy**: vectorized expressions with direct export to highspy.
 
 Choose `--backend highs` or `--backend nexor`. HiGHS includes solver ingestion
 with presolve disabled and a zero solve time limit. NexOR measures local model
 construction, including cache materialization for cached JuMP. It never calls
 `optimize()` and needs no server, API key, or remote solver.
+The highspy, Pyomo, and Linopy comparisons run LQCP with HiGHS; NexOR runs
+the four JuMP/JuMPy frontends.
 
 String names are disabled and Julia, BLAS, and HiGHS use one thread.
 Compilation and warm-up are excluded. Native garbage collection runs normally
@@ -19,10 +24,11 @@ in both Julia and JuMPy. Model disposal is outside the construction timer.
 
 ## Run
 
-From the repository root, prepare the Python and Julia environments:
+From the repository root, prepare the Python (3.11+) and Julia environments:
 
 ```sh
 python -m pip install -e .
+python -m pip install -r benchmarks/paper/requirements.txt
 julia --project=benchmarks/paper -e 'using Pkg; Pkg.instantiate()'
 ```
 
@@ -54,7 +60,28 @@ python benchmarks/paper/run.py --backend nexor --facility-sizes 3 \
 ```
 
 Use `--facility-sizes` without values to skip facility. Select a subset with
-`--frontends jump-cached jump-direct jump-genopt jumpy`.
+`--frontends jump-cached jump-direct jump-genopt jumpy highspy pyomo linopy`.
+For example, `--frontends highspy pyomo linopy` needs no Julia installation or
+compiled JuMPy library.
+
+All LQCP ports include the same quadratic objective and linear constraints.
+Pyomo uses `pyomo.contrib.solver.solvers.highs.Highs` (its older APPSI interface
+does not support this quadratic objective). Linopy's expression layer rejects
+objective constants, so its port sets the constant on the native HiGHS model.
+Imports are excluded from timing; expression and sparse matrix construction,
+conversion to HiGHS, and the zero-limit solver call are included. Each Python
+library's version and the highspy solver version are saved in `samples.jsonl`.
+
+## Results
+
+![LQCP construction with seven frontends](results/highs-2026-11-01/comparison.svg)
+
+[Markdown table](results/highs-2026-11-01/table.md) ·
+[CSV](results/highs-2026-11-01/summary.csv)
+
+Median of three warmed runs on an Intel i7-12700K, with one thread. JuMPy uses
+the normal `--trim=unsafe-warn` build. The Julia comparisons use the same
+JuMP/MOI compiler branches and GenOpt `bl/juliac-safe` sources as that build.
 
 ## Direct HiGHS experiment
 
@@ -68,8 +95,8 @@ julia --project=benchmarks/paper benchmarks/paper/direct_highs.jl 100 250 500 10
 
 It prints five warmed samples per size as JSON, separating array assembly,
 model loading, and the zero-limit HiGHS run. Model disposal is excluded.
-The [recorded timings](results/direct-highs-2026-11-01/table.md) show the
-hardcoded Julia baseline.
+The [measured comparison](results/direct-highs-2026-11-01/table.md) uses fresh
+highspy and Linopy runs with the same settings.
 
 ## Direct MOI model on HiGHS.jl
 
@@ -167,10 +194,11 @@ solving. With NexOR, exporting is entirely local. No NexOR.jl change is needed.
 `--export-mof` measures export separately after construction: copying to MOF,
 JSON serialization, and writing a temporary local file. It generates
 `mof-summary.csv` and `mof-table.md` alongside the construction results.
+MOF export covers the JuMP and JuMPy frontends.
 
 The runner saves every sample in `samples.jsonl`, construction statistics in
 `summary.csv`, a README-ready `table.md`, and Mermaid bar charts in `charts.md`.
-The **Python / grouped Julia** column divides the medians; above 1 means JuMPy
+The **JuMPy / grouped Julia** column divides the medians; above 1 means JuMPy
 was slower. Regenerate a table from a CSV with:
 
 ```sh

@@ -1,0 +1,18 @@
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "warmup", "frontend": "linopy", "backend": "highs", "model": "lqcp", "python": "3.14.7", "versions": {"highspy": "1.15.1", "numpy": "2.5.4", "scipy": "1.18.1", "linopy": "0.10.1"}, "highs_version": "1.15.1", "initialization_seconds": 0.37001895799767226, "warmup_seconds": 1.0973129909252748}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 0, "seconds": 0.9325900359544903, "variables": 1003001, "peak_rss_bytes": 1430777856}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 1, "seconds": 0.9606734870467335, "variables": 1003001, "peak_rss_bytes": 1430777856}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 2, "seconds": 0.9821978769032285, "variables": 1003001, "peak_rss_bytes": 1586987008}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 3, "seconds": 1.006105727981776, "variables": 1003001, "peak_rss_bytes": 1735385088}
+Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms
+Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details
+{"event": "sample", "frontend": "linopy", "backend": "highs", "model": "lqcp", "size": 1000, "sample": 4, "seconds": 0.9800804939586669, "variables": 1003001, "peak_rss_bytes": 1735385088}
