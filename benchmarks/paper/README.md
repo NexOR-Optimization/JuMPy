@@ -94,6 +94,35 @@ loader targets a raw HiGHS handle; full optimizer attribute and result
 bookkeeping is outside this experiment. See the
 [timings and independent-process check](results/matrix-highs-2026-11-01/table.md).
 
+## GenOpt to native row batches
+
+`native_genopt.jl` continues from native `addRows`, using GenOpt's real
+template planner and the LQCP formulation in `grouped_models.jl`:
+
+```sh
+julia --project=benchmarks/paper benchmarks/paper/native_genopt.jl 1000
+```
+
+The scalar-function path uses GenOpt's typed fill kernels, then packs the
+functions for native insertion. The column path fills native row buffers
+directly and merges duplicate entries without per-row function objects.
+The local adapter specializes GenOpt's private insertion hook; it supports
+only affine equality groups and does not change the installed packages.
+
+The `native-*` and `genopt-*` paths retain the direct builder's variable bounds
+and objective. `genopt-mapped` adds HiGHS.jl variable mapping and row metadata.
+The `grouped-*` paths build the complete grouped JuMP model, including
+variables, bounds, objective, and `MOI.optimize!` result storage. `grouped-stock`
+uses the installed packages without the experimental adapter.
+`grouped-bounds` batches bound updates, and `grouped-bulk` also creates the
+variable blocks with native `addCols`. Both retain ordinary JuMP variable
+references and HiGHS.jl metadata.
+
+Each path warms up at the requested size, then records five samples with
+garbage collection before each sample. Compilation, pre-sample collection,
+and model disposal are excluded. HiGHS uses one thread, no presolve, and a
+zero solve time limit. See the [results and phase timings](results/native-genopt-2026-11-01/table.md).
+
 ## MOF export and reports
 
 Both public backends support `model.write_mof("problem.mof.json")` without
