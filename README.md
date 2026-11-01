@@ -44,14 +44,10 @@ and solver ingestion with presolve disabled and a zero solve time limit.
 Compilation, warm-up, garbage collection before each sample, and model disposal
 are outside the timer.
 
-The runner preserves every sample in CSV/JSON and generates a Markdown table,
-Mermaid bar charts, and optional SVG/PNG plots. The Python / grouped Julia ratio
-compares the two paths that share GenOpt; a ratio near 1 means Python's template
-construction and native calls add little to the total time.
-
-Recorded on an Intel i7-12700K with Julia 1.13.3, JuMP 1.32.1, GenOpt 0.2.5
-(`bl/juliac-safe`, `65e7c41`), and HiGHS.jl 1.26.1. Median of three warmed samples;
-lower is better:
+Recorded on an Intel i7-12700K with Julia 1.13.3, JuMP's `bl/juliac` branch
+(declaring version 1.32.1), GenOpt's `bl/juliac-safe` branch (0.2.5, `65e7c41`),
+MOI 1.54.0, and HiGHS.jl 1.26.1. All four frontends use the same dependency
+source snapshots. Median of three warmed samples; lower is better:
 
 | Model | n | Variables | JuMP cached | JuMP direct | JuMP direct + GenOpt | JuMPy.HiGHS | Python / grouped Julia |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
