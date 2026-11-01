@@ -40,7 +40,9 @@ def load_results(path):
 def labels(groups):
     result = dict(FRONTENDS)
     backends = {row["backend"] for group in groups.values() for row in group.values()}
-    if backends != {"highs"}:
+    if backends == {"nexor"}:
+        result["jumpy"] = "JuMPy.NexOR"
+    elif backends != {"highs"}:
         result["jumpy"] = "JuMPy + GenOpt"
     return result
 

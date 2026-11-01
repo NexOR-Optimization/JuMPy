@@ -37,35 +37,11 @@ The Python workload is proportional to the **number of groups**, not the number 
 
 ## Benchmarks
 
-The [JuMP paper benchmark suite](benchmarks/paper/README.md) compares JuMP cached,
-JuMP direct, JuMP direct + GenOpt, and `jumpy.highs` on the same HiGHS backend.
-String names are disabled; all runs use one thread. Timings include construction
-and solver ingestion with presolve disabled and a zero solve time limit.
-Compilation, warm-up, garbage collection before each sample, and model disposal
-are outside the timer.
-
-Recorded on an Intel i7-12700K with Julia 1.13.3, JuMP's `bl/juliac` branch
-(declaring version 1.32.1), GenOpt's `bl/juliac-safe` branch (0.2.5, `65e7c41`),
-MOI 1.54.0, and HiGHS.jl 1.26.1. All four frontends use the same dependency
-source snapshots. The benchmark library uses `--trim=no`; the normal JuMPy
-build uses `--trim=unsafe-warn`. Median of three warmed samples; lower is better:
-
-| Model | n | Variables | JuMP cached | JuMP direct | JuMP direct + GenOpt | JuMPy.HiGHS | Python / grouped Julia |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| LQCP | 100 | 10,301 | 45.9 ms | 36.1 ms | **35.1 ms** | 38.3 ms | 1.09× |
-| LQCP | 250 | 63,251 | 326.9 ms | 227.3 ms | **157.5 ms** | 178.8 ms | 1.13× |
-| LQCP | 500 | 251,501 | 1,414.4 ms | 877.7 ms | **683.3 ms** | 696.4 ms | 1.02× |
-| LQCP | 1000 | 1,003,001 | 6,476.7 ms | 4,083.4 ms | 2,883.7 ms | **2,829.8 ms** | 0.98× |
-
-![HiGHS model construction timings](benchmarks/paper/results/highs-2026-11-01/comparison.svg)
-
-At 251k and one million variables, JuMPy and grouped Julia are within 2% in this
-run. At the smaller sizes, JuMPy takes 9–13% longer. These measurements support
-similar throughput for the larger grouped models. HiGHS cannot accept the
-facility model's quadratic constraints, so this solver comparison uses LQCP.
-
-[CSV and individual samples](benchmarks/paper/results/highs-2026-11-01),
-[generated Mermaid chart](benchmarks/paper/results/highs-2026-11-01/charts.md).
+The [JuMP paper benchmarks](benchmarks/paper/README.md) compare JuMP cached,
+JuMP direct, JuMP direct + GenOpt, and JuMPy using the normal HiGHS or NexOR
+backend. NexOR measures local construction and optional MOF export without
+contacting a server. The runner generates CSV results, Markdown tables, and
+plots.
 
 ## Installation
 
@@ -133,6 +109,10 @@ model.set_attribute("presolve", "off")
 The solver runs on the server; the Python process loads a compiled client
 library. `set_attribute` accepts `str`, `bool`, `int` and `float` values in every
 backend, as `JuMP.set_attribute`.
+
+Models can be exported locally before solving with
+`model.write_mof("problem.mof.json")`. Export requires no API key and sends no
+request to the server.
 
 Build instructions are in [julia/README.md](julia/README.md#nexor-client).
 Use a separate Python process for each compiled backend or JuliaCall runtime.
@@ -234,6 +214,8 @@ expression such as `z + 0` when you want an affine row instead of a bound.
 | Method | Description |
 |---|---|
 | `m = jp.Model()` | Create a HiGHS model (compiled) or a solver-free model (JuliaCall) |
+| `m.num_variables()` | Number of model variables |
+| `m.write_mof(path)` | Export a local MathOptFormat JSON file without solving |
 | `m = jp.Model(optimizer_constructor)` | Create a cached JuliaCall model with an optimizer factory |
 | `m = jp.direct_model(optimizer)` | Create a direct JuliaCall model from an optimizer instance |
 | `m.variables(n, lower=, upper=, name=, binary=, integer=)` | Add `n` variables, returns a `VariableVector` |

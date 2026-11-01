@@ -175,6 +175,8 @@ function _supplement_native_dispatch_roots!(
 end
 
 function _is_backend_signature(line::String)
+    # JuMP macros run while loading model definitions, outside the native API.
+    occursin(r"\bMacroTools\.", line) && return false
     occursin(
         r"Main\.|Tests?\.|Base\.Compiler|\.Bridges\.|FunctionGeneratorBridge|JuMPyModel\.model\)|JuMP\.Containers\.|JuMP\._finalize_macro|Base\.Experimental\.entrypoint",
         line,
@@ -193,7 +195,7 @@ function _is_backend_signature(line::String)
     # Heterogeneous generator and nonlinear leaves also dispatch through Base
     # collection methods whose signatures do not mention an owning package.
     return occursin(
-        r"typeof\(Base\.(?:_array_for(?:_inner)?|iterate|length|eachindex|axes|first|all|_all|setindex!|getindex)\)|Type\{Base\.(?:IteratorSize|LinearIndices)",
+        r"typeof\(Base\.(?:_array_for(?:_inner)?|iterate|length|eachindex|axes|first|all|_all|setindex!|setindex_widen_up_to|getindex)\)|Type\{Base\.(?:IteratorSize|LinearIndices)",
         line,
     ) && occursin(r"Array\{(?:Any|Real|Float64|Int64)|(?:UnitRange|OneTo)\{Int64\}", line)
 end

@@ -64,9 +64,19 @@ set_objective_function(model, func) = JuMP.set_objective_function(model, func)
 optimize(model) = JuMP.optimize!(model)
 value(func) = JuMP.value(func)
 objective_value(model) = JuMP.objective_value(model)
+num_variables(model) = JuMP.num_variables(model)
 has_values(model) = JuMP.has_values(model)
 has_duals(model) = JuMP.has_duals(model)
 termination_status(model) = JuMP.termination_status(model)
+
+function write_mof(model, filename::String)
+    snapshot = MOI.FileFormats.MOF.Model()
+    MOI.copy_to(snapshot, JuMP.backend(model))
+    open(filename, "w") do io
+        write(io, snapshot)
+    end
+    return
+end
 
 set_attribute(model, name::String, value) = JuMP.set_attribute(model, name, value)
 

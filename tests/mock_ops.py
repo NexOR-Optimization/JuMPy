@@ -53,6 +53,12 @@ class MockOps:
         self.constraints.append((func, set_))
         return ("constraint", len(self.constraints))
 
+    def num_variables(self):
+        return sum(array[2] for array in self.arrays)
+
+    def write_mof(self, filename):
+        self.exported = filename
+
     def optimize(self):
         self.optimize_calls += 1
         return self.status

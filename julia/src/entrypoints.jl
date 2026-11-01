@@ -384,6 +384,19 @@ Base.@ccallable function jumpy_set_objective_function(
     end
 end
 
+# -- Local model queries and export -------------------------------------------
+
+Base.@ccallable function jumpy_num_variables(model::Ptr{Cvoid})::Clonglong
+    @_catch Clonglong(-1) Clonglong(JuMPyModel.num_variables(_get(model).model))
+end
+
+Base.@ccallable function jumpy_write_mof(model::Ptr{Cvoid}, filename::Cstring)::Cint
+    @_catch Cint(-1) begin
+        JuMPyModel.write_mof(_get(model).model, unsafe_string(filename))
+        Cint(0)
+    end
+end
+
 # -- Solve and solution retrieval ----------------------------------------------
 
 Base.@ccallable function jumpy_set_time_limit_sec(model::Ptr{Cvoid}, seconds::Cdouble)::Cint

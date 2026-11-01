@@ -9,6 +9,7 @@ optimize() calls JuMP.optimize!; value() queries native expressions directly.
 from __future__ import annotations
 
 import math
+import os
 
 from jumpy.expressions import (
     _native,
@@ -178,6 +179,19 @@ class Model:
     def objective(self, obj: Objective) -> None:
         self._objective = obj
         self._ops.set_objective(obj.sense, _native(self._ops, obj.func))
+
+    def num_variables(self) -> int:
+        """Return the number of variables in the model."""
+        self._require_open()
+        return self._ops.num_variables()
+
+    def write_mof(self, filename) -> None:
+        """Write the model to a local MathOptFormat JSON file without solving.
+
+        With ``jumpy.nexor``, this requires no API key and sends no request.
+        """
+        self._require_open()
+        self._ops.write_mof(os.fsdecode(filename))
 
     # -- Solve -----------------------------------------------------------------
 

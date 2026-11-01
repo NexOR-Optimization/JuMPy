@@ -1,8 +1,7 @@
-"""Measure iterator-based JuMPy models in a dedicated native Julia runtime."""
+"""Benchmark the installed jumpy.highs or jumpy.nexor interface."""
 
 import argparse
-import ctypes
-import gc
+import importlib
 import json
 import os
 from pathlib import Path
@@ -11,84 +10,85 @@ import resource
 import sys
 import time
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
-from jumpy import backend
-from jumpy._moi import ScalarSets
-from jumpy.model import Model
 from models import BUILDERS
+
+
+def configure(model, backend, problem):
+    if backend == "highs":
+        model.set_attribute("threads", 1)
+        if problem != "latency":
+            model.set_attribute("time_limit", 0.0)
+            model.set_attribute("presolve", "off")
+
+
+def construct(interface, backend, problem, size):
+    model = interface.Model()
+    try:
+        configure(model, backend, problem)
+        BUILDERS[problem](model, size)
+        if backend == "highs":
+            model.optimize()
+        return model
+    except BaseException:
+        model.close()
+        raise
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backend", choices=("storage", "gurobi", "highs"), default="storage")
-    parser.add_argument("--library", type=Path, required=True)
+    parser.add_argument("--backend", choices=("highs", "nexor"), default="highs")
+    parser.add_argument("--library", type=Path, help="Optional normal backend library override")
     parser.add_argument("--model", choices=tuple(BUILDERS), required=True)
     parser.add_argument("--sizes", type=int, nargs="+", required=True)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--warmup", type=int, default=5)
-    parser.add_argument("--export", type=Path)
+    parser.add_argument("--export", type=Path, help="Also time local MOF export")
     args = parser.parse_args()
-    os.environ["JUMPY_LIB"] = str(args.library.resolve())
+    if args.backend == "highs" and args.model == "facility":
+        parser.error("Facility requires --backend nexor (local construction only)")
+    if args.library is not None:
+        os.environ["JUMPY_LIB"] = str(args.library.resolve())
+    if args.export is not None:
+        args.export.parent.mkdir(parents=True, exist_ok=True)
     startup = time.perf_counter()
-    lib = backend._load_lib(args.backend)
-    lib.jumpy_paper_gc.argtypes = []
-    lib.jumpy_paper_gc.restype = None
-    lib.jumpy_paper_num_variables.argtypes = [ctypes.c_void_p]
-    lib.jumpy_paper_num_variables.restype = ctypes.c_longlong
-    lib.jumpy_paper_write_model.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
-    lib.jumpy_paper_write_model.restype = ctypes.c_int
-    initialization = time.perf_counter() - startup
-    sets = ScalarSets(args.backend)
-    if args.backend == "highs":
-        import jumpy.highs as jp
-        factory = jp.Model
-    else:
-        factory = lambda: Model(backend.JuliacOps(lib, sets))
-
-    def construct(size):
-        model = factory()
-        if args.backend != "storage":
-            model.set_attribute("Threads" if args.backend == "gurobi" else "threads", 1)
-        if args.backend != "storage" and args.model != "latency":
-            model.set_attribute("TimeLimit" if args.backend == "gurobi" else "time_limit", 0.0)
-            model.set_attribute("Presolve" if args.backend == "gurobi" else "presolve", 0 if args.backend == "gurobi" else "off")
-        BUILDERS[args.model](model, size)
-        if args.backend != "storage":
-            model.optimize()
-        return model
-
-    start = time.perf_counter()
+    interface = importlib.import_module(f"jumpy.{args.backend}")
+    from jumpy import backend
+    # Resolve the ordinary package library, including an installed wheel.
+    library = backend.find_lib(args.backend)
+    started = time.perf_counter()
     if args.warmup:
-        warm = construct(args.warmup)
-        warm.close()
-    warmup_seconds = time.perf_counter() - start
-    print(json.dumps({"event": "warmup", "frontend": "jumpy", "backend": args.backend,
-                      "model": args.model, "initialization_seconds": initialization,
-                      "warmup_seconds": warmup_seconds}), flush=True)
+        warm = construct(interface, args.backend, args.model, args.warmup)
+        try:
+            if args.export is not None:
+                warm.write_mof(args.export)
+        finally:
+            warm.close()
+    print(json.dumps(dict(event="warmup", frontend="jumpy", backend=args.backend,
+                          model=args.model, library=library,
+                          initialization_seconds=started-startup,
+                          warmup_seconds=time.perf_counter()-started)), flush=True)
     for size in args.sizes:
         for sample in range(args.repeats):
-            gc.collect()
-            lib.jumpy_paper_gc()
-            start = time.perf_counter()
-            model = construct(size)
-            elapsed = time.perf_counter() - start
-            variables = lib.jumpy_paper_num_variables(model._ops._m)
-            if variables < 0:
-                raise RuntimeError("Could not query variable count")
-            if args.export is not None:
-                args.export.parent.mkdir(parents=True, exist_ok=True)
-                if lib.jumpy_paper_write_model(model._ops._m, os.fsencode(args.export.resolve())):
-                    raise RuntimeError("Could not export validation model")
-            objective = model.objective_value() if args.model == "latency" and args.backend != "storage" else None
-            if objective is not None and abs(objective - 205.0) > 1e-7:
-                raise AssertionError(f"Unexpected latency LP objective: {objective}")
-            peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            peak_bytes = peak if sys.platform == "darwin" else peak * 1024
-            print(json.dumps({"event": "sample", "frontend": "jumpy", "backend": args.backend,
-                              "model": args.model, "size": size, "sample": sample,
-                              "seconds": elapsed, "variables": variables, "peak_rss_bytes": peak_bytes,
-                              "python": platform.python_version(), "objective": objective}), flush=True)
-            model.close()
+            started = time.perf_counter()
+            model = construct(interface, args.backend, args.model, size)
+            seconds = time.perf_counter() - started
+            try:
+                export_seconds = None
+                if args.export is not None:
+                    started = time.perf_counter()
+                    model.write_mof(args.export)
+                    export_seconds = time.perf_counter() - started
+                objective = model.objective_value() if args.model == "latency" and args.backend == "highs" else None
+                if objective is not None and abs(objective - 205.0) > 1e-7:
+                    raise AssertionError(f"Unexpected latency LP objective: {objective}")
+                peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+                print(json.dumps(dict(event="sample", frontend="jumpy", backend=args.backend,
+                                      model=args.model, size=size, sample=sample, seconds=seconds,
+                                      export_seconds=export_seconds, variables=model.num_variables(),
+                                      peak_rss_bytes=peak if sys.platform == "darwin" else peak*1024,
+                                      python=platform.python_version(), objective=objective)), flush=True)
+            finally:
+                model.close()
 
 
 if __name__ == "__main__":

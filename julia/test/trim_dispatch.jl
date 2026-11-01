@@ -40,11 +40,13 @@ end
                 [
                     valid,
                     collection,
+                    "precompile(Tuple{typeof(Base.setindex_widen_up_to), Array{Float64, 1}, Int64, Int64})",
                     valid,
                     "precompile(Tuple{typeof(Main.test_helper), GenOpt.IteratorIndex})",
                     "precompile(Tuple{typeof(Test.test_helper), GenOpt.IteratorIndex})",
                     "precompile(Tuple{typeof(NexORTests.test_helper), GenOpt.IteratorIndex})",
                     "precompile(Tuple{typeof(Base.Compiler.test_helper), GenOpt.IteratorIndex})",
+                    "precompile(Tuple{MacroTools.var\"#postwalk##0#postwalk##1\"{typeof(JuMP._rewrite_to_jump_logic)}, Symbol})",
                     "precompile(Tuple{typeof(MathOptInterface.Bridges.test_helper), Int64})",
                     "precompile(Tuple{typeof(MathOptInterface.Utilities.CachingOptimizer), Int64})",
                     "precompile(Tuple{typeof(NexOR.solver_id), String})",
@@ -57,9 +59,9 @@ end
                 '\n',
             ),
         )
-        @test G.generate(output, [trace]) == 2
+        @test G.generate(output, [trace]) == 3
         roots = G.dispatch_roots([trace])
-        @test length(roots) == 2
+        @test length(roots) == 3
         @test roots == sort(roots)
         @test G.dispatch_roots([trace, trace]) == roots
         @test all(startswith("Base.Experimental.entrypoint("), roots)

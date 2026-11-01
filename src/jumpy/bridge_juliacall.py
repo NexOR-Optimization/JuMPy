@@ -115,6 +115,12 @@ class JuliaCallOps:
         self._jump.optimize(self._model)
         return self.termination_status()
 
+    def num_variables(self):
+        return int(self._jump.num_variables(self._model))
+
+    def write_mof(self, filename):
+        self._jump.write_mof(self._model, filename)
+
     def termination_status(self):
         return int(self._jl.Int(self._jump.termination_status(self._model)))
 

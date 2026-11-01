@@ -10,6 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "benchmarks" / "paper"))
 from models import facility, lqcp
 from report import FRONTENDS, load_results, markdown, mermaid, write_report
+from run import summarize
+from run_jumpy import construct
+from types import SimpleNamespace
 from jumpy.model import Model
 from mock_ops import MockOps
 
@@ -17,8 +20,10 @@ from mock_ops import MockOps
 class PaperBenchmarkTests(unittest.TestCase):
     def csv_fixture(self, path, **overrides):
         rows = [dict(model="lqcp", size=100, frontend=frontend, backend="highs",
-                     variables=10301, median_seconds=seconds, **overrides)
+                     variables=10301, median_seconds=seconds)
                 for frontend, seconds in zip(FRONTENDS, (0.4, 0.3, 0.1, 0.105))]
+        for row in rows:
+            row.update(overrides)
         with path.open("w", newline="") as stream:
             writer = csv.DictWriter(stream, fieldnames=rows[0])
             writer.writeheader()
@@ -55,6 +60,28 @@ class PaperBenchmarkTests(unittest.TestCase):
                 stream.write(path.read_text().splitlines()[1] + "\n")
             with self.assertRaisesRegex(ValueError, "Duplicate"):
                 load_results(path)
+
+    def test_nexor_constructs_locally_and_reports_its_backend(self):
+        ops = MockOps()
+        model = Model(ops)
+        self.assertIs(construct(SimpleNamespace(Model=lambda: model), "nexor", "facility", 3), model)
+        self.assertEqual(ops.optimize_calls, 0)
+        self.assertEqual(model.num_variables(), 199)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "summary.csv"
+            self.csv_fixture(path, backend="nexor")
+            self.assertIn("JuMPy.NexOR", markdown(load_results(path)))
+
+    def test_mof_timings_are_summarized_separately(self):
+        with tempfile.TemporaryDirectory() as directory:
+            records = [dict(event="sample", model="lqcp", size=3, frontend="jumpy",
+                            backend="nexor", variables=19, seconds=build,
+                            export_seconds=export, peak_rss_bytes=10)
+                       for build, export in ((1, 3), (2, 4), (3, 5))]
+            build = summarize(records, Path(directory))
+            export = summarize(records, Path(directory), "export_seconds", "mof-summary.csv")
+            self.assertEqual(build[0]["median_seconds"], 2)
+            self.assertEqual(export[0]["median_seconds"], 4)
 
     def test_bounds_are_one_backend_call_per_set(self):
         class BulkOps(MockOps):

@@ -306,3 +306,6 @@ end
 end
 
 end # module NexORTests
+
+# Keep local export in the NexOR build's normal tracing/test entry point.
+include("mof.jl")
