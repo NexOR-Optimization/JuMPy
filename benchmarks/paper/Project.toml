@@ -1,6 +1,8 @@
 [deps]
 GenOpt = "f2c049d8-7489-4223-990c-4f1c121a4cde"
 HiGHS = "87dc4568-4c63-4d18-b0c0-bb2238e4078b"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
 JuMPyHiGHS = "502c632e-507f-494b-8876-b49ee56148ca"

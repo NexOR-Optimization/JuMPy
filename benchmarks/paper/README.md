@@ -71,6 +71,29 @@ model loading, and the zero-limit HiGHS run. Model disposal is excluded.
 The [recorded timings](results/direct-highs-2026-11-01/table.md) show the
 hardcoded Julia baseline.
 
+## Transposed constraint matrix experiment
+
+`matrix_highs.jl` adds a `MatrixOfConstraints` storing the linear rows in
+`Transpose{Float64,SparseMatrixCSC{Float64,HiGHS.HighsInt}}`. Wrapping the
+hardcoded matrix shares its coefficient vector. The experimental loader
+converts the one-based indices for HiGHS while preserving the source matrix.
+
+```sh
+julia --project=benchmarks/paper benchmarks/paper/matrix_highs.jl 1000
+```
+
+It compares the direct baseline, matrix wrapping, eager `MOI.add_constraints`
+into the matrix, and HiGHS's native `addRows` with one call or batches of
+65,536 rows. The two function-based paths include creating the same scalar
+MOI functions. Every total includes initial data assembly, insertion, final
+solver loading, and the zero-limit HiGHS run; disposal is excluded.
+
+This prototype handles scalar equality rows and fixed variable numbering.
+Objective and variable-bound arrays come from `direct_highs.jl`. The custom
+loader targets a raw HiGHS handle; full optimizer attribute and result
+bookkeeping is outside this experiment. See the
+[timings and independent-process check](results/matrix-highs-2026-11-01/table.md).
+
 ## MOF export and reports
 
 Both public backends support `model.write_mof("problem.mof.json")` without

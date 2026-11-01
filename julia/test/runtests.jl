@@ -14,6 +14,7 @@ include("duals.jl")
 include("nexor.jl")
 include("paper_benchmarks.jl")
 include("direct_highs.jl")
+include("matrix_highs.jl")
 include("generator_expansion.jl")
 
 variable(m, block, i) = apply(m, "getindex", block, constant(m, i))
