@@ -1,115 +1,43 @@
 {
-  "timestamp_utc": "2026-11-01T07:43:09.150534+00:00",
-  "cpu": "12th Gen Intel(R) Core(TM) i7-12700K",
+  "timestamp_utc": "2026-11-01T10:28:23.461448+00:00",
   "os": "Linux-7.2.8-9-omarchy-x86_64-with-glibc2.44",
+  "cpu": "12th Gen Intel(R) Core(TM) i7-12700K",
   "backend": "highs",
   "repeats": 3,
   "threads": 1,
   "source_revision": "b4a3479",
+  "frontends": [
+    "jump-cached",
+    "jump-direct",
+    "jump-genopt",
+    "jumpy"
+  ],
   "solver_names_disabled": true,
-  "native_image": "JuliaC --trim=no; warmed before timing",
-  "timing_scope": "construction and optimize with zero time limit, presolve disabled",
   "command": [
     "benchmarks/paper/run.py",
+    "--backend",
+    "highs",
     "--project",
     "benchmarks/paper/build/env",
     "--library",
-    "benchmarks/paper/build/highs/lib/libjumpy_highs.so",
+    "julia/build/benchmark-check/highs-complete/lib/libjumpy_highs.so",
+    "--lqcp-sizes",
+    "100",
+    "250",
+    "500",
+    "1000",
+    "--repeats",
+    "3",
+    "--plot",
     "--output",
-    "benchmarks/paper/results/highs-2026-11-01",
-    "--plot"
+    "benchmarks/paper/build/seven-frontends"
   ],
-  "library": "/home/blegat/git/BLopt/JuMPy/benchmarks/paper/build/highs/lib/libjumpy_highs.so",
-  "jumpy_revision": "37bd1a5c92c8e2c762c8c204990307263ba6fe6a",
-  "library_sha256": "7c5137261b6288ccc362ffe5dad1f4f6929dcee697d10fe76e78fec20a6cf695",
-  "native_build": {
-    "backend": "highs",
-    "juliac": "0.3.12",
-    "trim": "no",
-    "genopt_commit": "65e7c4193406868f493c99314994f9785ea8630c",
-    "source_provenance": {
-      "GenOpt": {
-        "src_sha256": "210bed4b2bd7d84faf3b2af16d364fabbc93d29b3d7930d9b32864f5d6c7c98c",
-        "commit": "65e7c4193406868f493c99314994f9785ea8630c"
-      },
-      "JuMP": {
-        "src_sha256": "858853f2d64728c8ee5fd582b0f046c2bae8439129212ebfe24ab47df605bea2"
-      },
-      "MathOptInterface": {
-        "src_sha256": "58ab501b37bbbeedff86dfbb36ee177989589936c1946d83d1552c464ba28f9e"
-      },
-      "HiGHS": {
-        "src_sha256": "8fbebe04e80781bb922c5a193614c166ef51020c174b0e61a8ab241294fb5c53"
-      }
-    }
-  },
-  "julia_packages": {
-    "GenOpt": {
-      "deps": [
-        "JuMP",
-        "MathOptInterface",
-        "MutableArithmetics"
-      ],
-      "path": "/home/blegat/git/BLopt/JuMPy/benchmarks/paper/build/deps/GenOpt",
-      "uuid": "f2c049d8-7489-4223-990c-4f1c121a4cde",
-      "version": "0.2.5"
-    },
-    "HiGHS": {
-      "deps": [
-        "HiGHS_jll",
-        "LinearAlgebra",
-        "MathOptIIS",
-        "MathOptInterface",
-        "OpenBLAS32_jll",
-        "PrecompileTools",
-        "SparseArrays"
-      ],
-      "path": "/home/blegat/.julia/packages/HiGHS/6xGbz",
-      "registries": "General",
-      "uuid": "87dc4568-4c63-4d18-b0c0-bb2238e4078b",
-      "version": "1.26.1"
-    },
-    "JuMP": {
-      "deps": [
-        "LinearAlgebra",
-        "MacroTools",
-        "MathOptInterface",
-        "MutableArithmetics",
-        "OrderedCollections",
-        "PrecompileTools",
-        "Printf",
-        "SparseArrays"
-      ],
-      "path": "/tmp/jumpy-ci-deps-up9o987c/JuMP",
-      "uuid": "4076af6c-e467-56ae-b986-b466b2749572",
-      "version": "1.32.1"
-    },
-    "MathOptInterface": {
-      "deps": [
-        "CodecBzip2",
-        "CodecZlib",
-        "ForwardDiff",
-        "JSON",
-        "LinearAlgebra",
-        "MutableArithmetics",
-        "NaNMath",
-        "OrderedCollections",
-        "PrecompileTools",
-        "Printf",
-        "SparseArrays",
-        "SpecialFunctions",
-        "Test"
-      ],
-      "path": "/tmp/jumpy-ci-deps-up9o987c/MathOptInterface",
-      "uuid": "b8f27783-ece8-5eb3-8dc8-9495eed66fee",
-      "version": "1.54.0"
-    }
-  },
-  "coefficient_validation": {
-    "variables": 19,
-    "constraints": 54,
-    "equivalent": true,
-    "reference": "JuMP direct + GenOpt, n=3; compared with original JuMP formulations in julia/test/paper_benchmarks.jl"
-  },
-  "validation_command": "python benchmarks/paper/validate.py benchmarks/paper/build/grouped.mof.json benchmarks/paper/build/python-highs.mof.json"
+  "timing_scope": "construction and HiGHS ingestion (zero solve time limit, presolve off)",
+  "export_mof": false,
+  "jumpy_revision": "0845c3131d39a530f394eddea4d859229c46c6ab",
+  "library": "/home/blegat/git/BLopt/JuMPy/julia/build/benchmark-check/highs-complete/lib/libjumpy_highs.so",
+  "library_sha256": "3283fc66133a04964683317ee543770101a3496a8289fa024adf89a8726dcc63",
+  "worktree_dirty": true,
+  "native_image": "Normal JuMPyHiGHS entry point, JuliaC --trim=unsafe-warn",
+  "record_subset": "Julia/JuMPy records selected from the original comparison run; timings were not rerun."
 }

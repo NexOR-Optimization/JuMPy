@@ -56,6 +56,21 @@ python benchmarks/paper/run.py --backend nexor --facility-sizes 3 \
 Use `--facility-sizes` without values to skip facility. Select a subset with
 `--frontends jump-cached jump-direct jump-genopt jumpy`.
 
+## Direct HiGHS experiment
+
+`direct_highs.jl` builds LQCP's sparse arrays by hand and loads the complete
+model through HiGHS.jl's C API wrappers. It isolates the cost of matrix
+assembly and HiGHS itself, bypassing JuMP and MOI model storage.
+
+```sh
+julia --project=benchmarks/paper benchmarks/paper/direct_highs.jl 100 250 500 1000
+```
+
+It prints five warmed samples per size as JSON, separating array assembly,
+model loading, and the zero-limit HiGHS run. Model disposal is excluded.
+The [recorded timings](results/direct-highs-2026-11-01/table.md) show the
+hardcoded Julia baseline.
+
 ## MOF export and reports
 
 Both public backends support `model.write_mof("problem.mof.json")` without

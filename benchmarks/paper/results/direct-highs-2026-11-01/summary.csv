@@ -1,0 +1,5 @@
+size,variables,frontend,samples,median_seconds,min_seconds,max_seconds
+100,10301,hardcoded-highs-julia,5,0.015968941,0.015127526,0.016078329
+250,63251,hardcoded-highs-julia,5,0.025143732,0.022764983,0.029481133
+500,251501,hardcoded-highs-julia,5,0.090372452,0.083100848,0.118962134
+1000,1003001,hardcoded-highs-julia,5,0.331772256,0.32965537,0.340973864

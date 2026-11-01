@@ -1,0 +1,16 @@
+{
+  "timestamp_utc": "2026-11-01T13:43:23.192704+00:00",
+  "cpu": "12th Gen Intel(R) Core(TM) i7-12700K",
+  "os": "Linux-7.2.8-9-omarchy-x86_64-with-glibc2.44",
+  "threads": 1,
+  "repeats": 5,
+  "scope": "Warmed array/expression construction, model loading and zero-time-limit HiGHS.run; presolve off; disposal excluded",
+  "source": "benchmarks/paper/direct_highs.jl",
+  "source_sha256": "1c2a03e60ee7dba84c50dd51178273d32e666f870868bc280f0716cf7c663837",
+  "jumpy_revision": "3633a7fd5f8d0d3633662523d4f53cb2661e036c",
+  "worktree_dirty": true,
+  "julia": "1.13.3",
+  "highs_jl": "1.26.1",
+  "highs_version": "1.15.1",
+  "validation": "All coefficients match JuMP n=3 MOF fixture; n=3 and n=5 optimal objectives match the original JuMP formulation"
+}
