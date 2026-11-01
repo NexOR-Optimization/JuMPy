@@ -39,9 +39,14 @@ def main():
     lib.jumpy_paper_write_model.restype = ctypes.c_int
     initialization = time.perf_counter() - startup
     sets = ScalarSets(args.backend)
+    if args.backend == "highs":
+        import jumpy.highs as jp
+        factory = jp.Model
+    else:
+        factory = lambda: Model(backend.JuliacOps(lib, sets))
 
     def construct(size):
-        model = Model(backend.JuliacOps(lib, sets))
+        model = factory()
         if args.backend != "storage":
             model.set_attribute("Threads" if args.backend == "gurobi" else "threads", 1)
         if args.backend != "storage" and args.model != "latency":

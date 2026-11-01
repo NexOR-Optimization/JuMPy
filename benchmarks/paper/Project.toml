@@ -12,6 +12,8 @@ JuMP = {url = "https://github.com/jump-dev/JuMP.jl.git", rev = "bl/juliac"}
 MathOptInterface = {url = "https://github.com/jump-dev/MathOptInterface.jl", rev = "bl/juliac"}
 
 [compat]
+GenOpt = "0.2.5"
 Gurobi = "1.9"
+HiGHS = "1.26.1"
 JSON = "1"
 julia = "1.13"

@@ -50,11 +50,61 @@ mktempdir() do directory
     ]) === nothing
     @test isfile(path)
 end
+@test main([
+    "--model",
+    "lqcp",
+    "--sizes",
+    "3",
+    "--warmup",
+    "3",
+    "--repeats",
+    "1",
+    "--mode",
+    "genopt",
+]) === nothing
 end
 module HighsBackend
 withenv("JUMPY_PAPER_BACKEND" => "highs") do
     include("../../benchmarks/paper/library_entry.jl")
 end
+end
+
+@testset "grouped Julia paper formulations" begin
+    G = RunnerTests.GroupedPaperModels
+    for (name, n) in ((:lqcp, 3), (:lqcp, 5), (:facility, 3))
+        reference = JuMP.concrete_direct_model(PaperStorage.Model{Float64}())
+        candidate = JuMP.concrete_direct_model(PaperStorage.Model{Float64}())
+        JuMP.set_string_names_on_creation(reference, false)
+        getfield(PaperModels, name)(reference, n)
+        getfield(G, name)(candidate, n)
+        @test JuMP.num_variables(candidate) == JuMP.num_variables(reference)
+        F = MOI.get(JuMP.backend(reference), MOI.ObjectiveFunctionType())
+        @test MOI.get(JuMP.backend(candidate), MOI.ObjectiveFunction{F}()) ≈
+              MOI.get(JuMP.backend(reference), MOI.ObjectiveFunction{F}())
+        for (F, S) in MOI.get(JuMP.backend(reference), MOI.ListOfConstraintTypesPresent())
+            expected = MOI.get(JuMP.backend(reference), MOI.ListOfConstraintIndices{F,S}())
+            actual = MOI.get(JuMP.backend(candidate), MOI.ListOfConstraintIndices{F,S}())
+            @test length(actual) == length(expected)
+            # Grouping can reorder rows. Compare every function and set,
+            # including bounds and the facility quadratic constraints.
+            remaining = copy(actual)
+            for index in expected
+                f = MOI.get(JuMP.backend(reference), MOI.ConstraintFunction(), index)
+                s = MOI.get(JuMP.backend(reference), MOI.ConstraintSet(), index)
+                match = findfirst(remaining) do other
+                    return MOI.get(JuMP.backend(candidate), MOI.ConstraintSet(), other) == s && isapprox(
+                        MOI.get(JuMP.backend(candidate), MOI.ConstraintFunction(), other),
+                        f,
+                    )
+                end
+                @test match !== nothing
+                match === nothing || deleteat!(remaining, match)
+            end
+        end
+    end
+    model = JuMP.concrete_direct_model(PaperStorage.Model{Float64}())
+    @test_throws ArgumentError G.lqcp(model, 2)
+    @test_throws ArgumentError G.facility(model, 0)
 end
 
 @testset "paper reference dimensions" begin

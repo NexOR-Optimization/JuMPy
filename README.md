@@ -35,11 +35,25 @@ flowchart LR
 
 The Python workload is proportional to the **number of groups**, not the number of constraints.
 
+## Benchmarks
+
+The [JuMP paper benchmark suite](benchmarks/paper/README.md) compares JuMP cached,
+JuMP direct, JuMP direct + GenOpt, and `jumpy.highs` on the same HiGHS backend.
+String names are disabled; all runs use one thread. Timings include construction
+and solver ingestion with presolve disabled and a zero solve time limit.
+Compilation, warm-up, garbage collection before each sample, and model disposal
+are outside the timer.
+
+The runner preserves every sample in CSV/JSON and generates a Markdown table,
+Mermaid bar charts, and optional SVG/PNG plots. The Python / grouped Julia ratio
+compares the two paths that share GenOpt; a ratio near 1 means Python's template
+construction and native calls add little to the total time.
+
 ## Installation
 
-This branch's native JuMP/GenOpt integration is a prototype. Building it or
-using its JuliaCall interface currently requires a patched development checkout
-of GenOpt; released GenOpt 0.2.3 lacks the required lazy-sum bridge. See the
+This branch's native JuMP/GenOpt integration is a prototype. Building the
+compiled interface uses GenOpt's `bl/juliac-safe` branch and the JuMP/MOI
+compiler branches. See the
 [local development setup](julia/README.md#building).
 
 ```

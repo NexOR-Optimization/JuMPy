@@ -8,11 +8,89 @@ Array bounds and integrality use bulk native calls instead of Python loops.
 The facility assignment has an n-term Python loop to form one template, rather
 than a Python loop over its n(n+1)² customer/facility constraints.
 
-## Measured results
+## Four-way HiGHS comparison
+
+From the repository root, with Julia 1.13 and Python 3.10 or newer:
+
+```sh
+julia --project=benchmarks/paper -e 'using Pkg; Pkg.instantiate()'
+julia --project=benchmarks/paper/build/tools -e 'using Pkg; Pkg.add(PackageSpec(name="JuliaC", version="0.3.12"))'
+python benchmarks/paper/build_native.py --juliac-project benchmarks/paper/build/tools
+python benchmarks/paper/run.py \
+  --library benchmarks/paper/build/highs/lib/libjumpy_highs.so \
+  --output benchmarks/paper/results/my-highs-run
+```
+
+The default runs LQCP at n = 100, 250, 500, 1000 with three warmed samples per
+size, in this order:
+
+1. **JuMP cached**: ordinary `Model(HiGHS.Optimizer)`; includes copying the cache.
+2. **JuMP direct**: `concrete_direct_model(HiGHS.Optimizer())`, ordinary JuMP macros.
+3. **JuMP direct + GenOpt**: a direct model, bulk bounds, four constraint
+   templates, and lazy sums, constructed entirely in Julia.
+4. **JuMPy.HiGHS**: `import jumpy.highs as jp; jp.Model()`, expressing the same
+   templates from Python through the compiled C ABI.
+
+The third and fourth paths share JuMPy's direct adapter, raw HiGHS backend,
+variable order, and GenOpt expansion code. `grouped_models.jl` and `models.py`
+keep matching recipes, including array bounds and integrality. Their difference
+is where templates are constructed and how they reach Julia. No cache or bridge
+optimizer is inserted in either path. Ordinary JuMP uses its macros to build
+expressions in place; string names are disabled throughout.
+
+Each frontend runs in a separate process with one Julia/BLAS/solver thread.
+Compilation and one n = 5 warm-up are excluded. Each sample starts after full
+garbage collection; model disposal is excluded. Construction and `optimize!`
+with presolve off and a zero time limit are timed, including solver ingestion.
+These are **model-building timings**, not a comparison of solving speed.
+JuliaC uses `--trim=no`, so this measures warmed compiled-library operation,
+not cold startup or the eventual fully trimmed release image.
+
+HiGHS cannot accept the facility model's quadratic constraints. To compare that
+model, select `--backend storage` or `--backend gurobi` and build the matching
+library. Those backends default to the paper's facility sizes 25, 50, 75, 100.
+
+For a quick run, add `--lqcp-sizes 10 25 --repeats 2`. Use `--frontends` to select
+a subset of `jump-cached jump-direct jump-genopt jumpy`. The runner writes:
+
+- `samples.jsonl`: every warm-up and individual timing, with package versions.
+- `summary.csv`: median, minimum, maximum, variable count, and peak process RSS.
+- `metadata.json` and `Manifest.toml`: machine, threads, library hash, and environment.
+- `table.md`: a Markdown table ready to paste into the root README.
+- `charts.md`: Mermaid bar charts for the largest instance of each model.
+
+The final column, **Python / grouped Julia**, divides the two medians. A ratio
+near 1 supports the hypothesis that Python adds little overhead; it is measured,
+not assumed. Small cases can expose fixed call costs, and solver ingestion can
+dominate larger cases. Inspect the full sample range before interpreting small
+differences. Peak RSS includes each runtime and is not a per-model allocation
+measurement.
+
+Regenerate the report from an existing CSV without rerunning any benchmark:
+
+```sh
+python benchmarks/paper/report.py benchmarks/paper/results/my-highs-run/summary.csv \
+  --output benchmarks/paper/results/my-highs-run/table.md \
+  --mermaid benchmarks/paper/results/my-highs-run/charts.md
+```
+
+GitHub renders fenced Mermaid diagrams in README files; the generated
+`xychart-beta` snippets need no uploaded image. For a four-series scaling plot
+with shaded sample ranges, SVG is clearer. Install `matplotlib`, then add
+`--plot` to the runner or run:
+
+```sh
+python benchmarks/paper/plot.py benchmarks/paper/results/my-highs-run
+```
+
+This produces `comparison.svg` and `comparison.png`. Link the SVG from a README
+with `![Model construction timings](benchmarks/paper/results/my-highs-run/comparison.svg)`.
+
+## Historical storage results
 
 The recorded run is **construction only**, on identical MOI storage, with three
 warmed repetitions per case and one thread. Cached JuMP includes materializing
-its cache into that storage. String names are disabled in both frontends.
+its cache into that storage. String names are disabled in all frontends.
 The native C-ABI image uses JuliaC with `--trim=no`; its initial compilation is
 excluded from these warm timings. These are not measurements of a fully trimmed
 release image or of solver performance.
@@ -91,9 +169,9 @@ The recorded package environment uses the same JuMP/GenOpt/MOI JuliaC branches
 as the compiled JuMPy backend. Source hashes are retained because these branches
 can move independently of package version numbers.
 
-The expansion-only benchmark uses private helpers from GenOpt's
-`bl/batch-expansion` branch. With that branch checked out in a sibling `GenOpt`
-directory and its test environment instantiated, run from the JuMPy root:
+The expansion-only benchmark uses private helpers from GenOpt 0.2.5. With that
+version checked out in a sibling `GenOpt` directory and its test environment
+instantiated, run from the JuMPy root:
 
 ```sh
 JULIA_NUM_THREADS=1 julia --startup-file=no --project=../GenOpt/test \

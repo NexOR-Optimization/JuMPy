@@ -14,18 +14,22 @@ def main():
     from matplotlib.ticker import FuncFormatter, NullFormatter
 
     rows = list(csv.DictReader((args.results / "summary.csv").open()))
-    styles = {"jump-direct": ("JuMP direct", "#3265a8", "o"),
-              "jump-cached": ("JuMP cached + materialize", "#b65e17", "s"),
-              "jumpy": ("JuMPy + GenOpt (C ABI)", "#18876b", "^")}
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4.4), layout="constrained")
-    for ax, model, title in zip(axes, ("facility", "lqcp"), ("Facility location", "Optimal control (LQCP)")):
-        for frontend, (label, color, marker) in styles.items():
+    from report import FRONTENDS, labels, load_results
+    names = labels(load_results(args.results / "summary.csv"))
+    styles = dict(zip(FRONTENDS, (("#b65e17", "s"), ("#3265a8", "o"),
+                                ("#9b46a0", "D"), ("#18876b", "^"))))
+    models = sorted({r["model"] for r in rows})
+    fig, axes = plt.subplots(1, len(models), figsize=(6 * len(models), 4.7),
+                             layout="constrained", squeeze=False)
+    for ax, model in zip(axes[0], models):
+        title = {"facility": "Facility location", "lqcp": "Optimal control (LQCP)"}.get(model, model)
+        for frontend, (color, marker) in styles.items():
             points = sorted((r for r in rows if r["model"] == model and r["frontend"] == frontend), key=lambda r: int(r["variables"]))
             if not points:
                 continue
             x = [int(r["variables"]) for r in points]
             y = [float(r["median_seconds"]) for r in points]
-            ax.plot(x, y, label=label, color=color, marker=marker)
+            ax.plot(x, y, label=names[frontend], color=color, marker=marker)
             ax.fill_between(x, [float(r["min_seconds"]) for r in points],
                             [float(r["max_seconds"]) for r in points], color=color, alpha=.12)
         ax.set(xscale="log", yscale="log", title=title, xlabel="Variables", ylabel="Build time (seconds)")
@@ -34,8 +38,11 @@ def main():
         ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x / 1e6:.3g} M" if x >= 1e6 else f"{x / 1e3:.3g} k"))
         ax.xaxis.set_minor_formatter(NullFormatter())
         ax.grid(True, which="both", alpha=.2)
-    axes[0].legend(fontsize=8)
-    fig.suptitle("JuMP paper models — warmed construction, identical MOI storage\nMedian of 3 runs; shaded range; one thread; lower is better", fontsize=11)
+        ax.legend(fontsize=8)
+    backend = rows[0]["backend"]
+    repeats = sorted({r["samples"] for r in rows})
+    fig.suptitle(f"JuMP paper models — warmed construction, {backend}\n"
+                 f"Median of {'/'.join(repeats)} runs; shaded range; one thread; lower is better", fontsize=11)
     fig.savefig(args.results / "comparison.png", dpi=180)
     svg = args.results / "comparison.svg"
     fig.savefig(svg)

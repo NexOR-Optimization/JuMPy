@@ -2,6 +2,7 @@ using JuMP
 import MathOptInterface as MOI
 import JSON
 include("models.jl")
+include("grouped_models.jl")
 include("storage.jl")
 
 function parse_args(args)
@@ -24,6 +25,7 @@ end
 function main(args)
     options = parse_args(args)
     mode = get(options, "--mode", "direct")
+    mode in ("cached", "direct", "genopt") || error("Unknown mode: $mode")
     backend = get(options, "--backend", "storage")
     problem = options["--model"]
     sizes = parse.(Int, split(options["--sizes"], ','))
@@ -36,9 +38,9 @@ function main(args)
     else
         PaperStorage.Model{Float64}
     end
-    builder = getfield(PaperModels, Symbol(problem))
+    builder = getfield(mode == "genopt" ? GroupedPaperModels : PaperModels, Symbol(problem))
     function construct(n)
-        model = mode == "direct" ? direct_model(factory()) : Model(factory)
+        model = mode == "cached" ? Model(factory) : concrete_direct_model(factory())
         set_string_names_on_creation(model, false)
         set_silent(model)
         if backend != "storage"
@@ -55,7 +57,7 @@ function main(args)
         builder(model, n)
         if backend != "storage"
             optimize!(model)
-        elseif mode != "direct"
+        elseif mode == "cached"
             MOI.Utilities.attach_optimizer(JuMP.backend(model))
         end
         return model
@@ -100,6 +102,8 @@ function main(args)
                 peak_rss_bytes = Sys.maxrss(),
                 julia = string(VERSION),
                 jump = string(pkgversion(JuMP)),
+                genopt = string(pkgversion(GroupedPaperModels.GenOpt)),
+                solver = backend == "highs" ? string(pkgversion(HiGHS)) : backend,
                 objective,
             )),
         )

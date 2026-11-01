@@ -1,6 +1,7 @@
 """Build a C-ABI benchmark backend using the repository's JuMPy entry points."""
 
 import argparse
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -8,7 +9,7 @@ import subprocess
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backend", choices=("storage", "gurobi", "highs"), default="storage")
+    parser.add_argument("--backend", choices=("storage", "gurobi", "highs"), default="highs")
     parser.add_argument("--project", type=Path, default=Path(__file__).resolve().parent)
     parser.add_argument("--juliac-project", default="@juliac")
     parser.add_argument("--output", type=Path)
@@ -17,6 +18,9 @@ def main():
     output = (args.output or here / "build" / args.backend).resolve()
     output.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, JUMPY_PAPER_BACKEND=args.backend)
+    scratch = output / "tmp"
+    scratch.mkdir(exist_ok=True)
+    env.setdefault("TMPDIR", str(scratch))
     # Keep the compiler available for this new solver-specific benchmark image.
     # Warm-up is reported separately; steady-state timings exclude compilation.
     command = [
@@ -27,6 +31,11 @@ def main():
         "--bundle", str(output), str(here / "library_entry.jl"),
     ]
     subprocess.run(command, env=env, check=True)
+    metadata = {"backend": args.backend, "command": command}
+    manifest = args.project / "Manifest.toml"
+    if manifest.is_file():
+        (output / "Manifest.toml").write_text(manifest.read_text())
+    (output / "build.json").write_text(json.dumps(metadata, indent=2) + "\n")
 
 
 if __name__ == "__main__":
