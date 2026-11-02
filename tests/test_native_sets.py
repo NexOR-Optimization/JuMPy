@@ -1,15 +1,45 @@
 """Native set handles and explicit constraint forwarding, without Julia."""
 
+import ctypes
 import gc
 import weakref
 
 import pytest
 
 import jumpy.highs as jp
-from jumpy import backend
-from jumpy._moi import NativeSet, ScalarSets
+from jumpy import _registry, backend
+from jumpy._registry import Namespace, NativeSet
 from jumpy.model import Model
 from mock_ops import MockOps
+
+# The registry of FakeLib: sets of MathOptInterface, and of another module with
+# array fields and value parameters, as MathOptVRP.
+REGISTRY = [
+    ("MathOptInterface.EqualTo", "value", "Float64"),
+    ("MathOptInterface.GreaterThan", "lower", "Float64"),
+    ("MathOptInterface.Integer", "", ""),
+    ("MathOptInterface.LessThan", "upper", "Float64"),
+    ("MathOptInterface.ZeroOne", "", ""),
+    (
+        "MathOptVRP.TimeWindows{WITHOUT_START_TIME}",
+        "travel,earliest,num_items",
+        "Matrix{Float64};Vector{Int64};Int64",
+    ),
+    ("MathOptVRP.TimeWindows{WITH_START_TIME}", "num_items", "Int64"),
+    ("MathOptVRP.RouteCompatibility", "allowed", "Vector{Bool}"),
+]
+ELEMENTS = {"Int64": ctypes.c_longlong, "Float64": ctypes.c_double, "Bool": ctypes.c_uint8}
+
+
+def decode(code, pointer, rows, columns):
+    """The Python value of the C data of a set field."""
+    element = code.split("{")[-1].rstrip("}")
+    data = ctypes.cast(pointer, ctypes.POINTER(ELEMENTS[element]))[: rows * columns]
+    if code.startswith("Vector"):
+        return list(data)
+    if code.startswith("Matrix"):
+        return [[data[r + c * rows] for c in range(columns)] for r in range(rows)]
+    return data[0]
 
 
 class FakeLib:
@@ -22,25 +52,24 @@ class FakeLib:
         self.expression_ref = 456
         self.value_result = 1.25
 
-    def _set(self, name, *args):
-        self.calls.append((name, *args))
+    def jumpy_registry(self):
+        lines = (
+            f"set\t{k}\t{name}\t{fields}\t{types}"
+            for k, (name, fields, types) in enumerate(REGISTRY, start=1)
+        )
+        return "\n".join(lines).encode()
+
+    def jumpy_new_set(self, index, pointers, sizes, nargs):
+        name, _, types = REGISTRY[index - 1]
+        codes = types.split(";") if types else []
+        assert nargs == len(codes)
+        args = [
+            decode(code, pointers[k], sizes[2 * k], sizes[2 * k + 1])
+            for k, code in enumerate(codes)
+        ]
+        self.calls.append((name.split(".")[-1], *args))
         self.next_handle += 1
         return 0 if self.fail_construction else self.next_handle
-
-    def jumpy_less_than(self, rhs):
-        return self._set("LessThan", rhs)
-
-    def jumpy_greater_than(self, rhs):
-        return self._set("GreaterThan", rhs)
-
-    def jumpy_equal_to(self, rhs):
-        return self._set("EqualTo", rhs)
-
-    def jumpy_zero_one(self):
-        return self._set("ZeroOne")
-
-    def jumpy_integer(self):
-        return self._set("Integer")
 
     def jumpy_free_set(self, handle):
         self.calls.append(("free_set", handle))
@@ -89,6 +118,8 @@ class FakeLib:
 def lib(monkeypatch):
     library = FakeLib()
     monkeypatch.setattr(backend, "_load_lib", lambda name: library)
+    # The registry of the compiled library is parsed once per backend.
+    monkeypatch.setattr(_registry, "_REGISTRIES", {})
     return library
 
 
@@ -112,13 +143,35 @@ def test_scalar_sets_call_named_julia_constructors(lib, name, args):
             assert not hasattr(set_, field)
 
 
-def test_unsupported_constructor_fails_without_loading_library(monkeypatch):
-    def unexpected_load(name):
-        pytest.fail("Unsupported constructors must fail before loading Julia")
-
-    monkeypatch.setattr(backend, "_load_lib", unexpected_load)
+def test_unsupported_constructor_is_an_attribute_error(lib):
     with pytest.raises(AttributeError, match="compiled jumpy.highs backend"):
         jp.MOI.PositiveSemidefiniteConeTriangle(2)
+    assert lib.calls == []
+    assert "LessThan" in dir(jp.MOI) and "TimeWindows" not in dir(jp.MOI)
+
+
+def test_sets_of_other_modules_with_array_fields(lib):
+    VRP = jp.MathOptVRP
+    assert "MathOptVRP" not in jp.__all__
+    with pytest.raises(AttributeError):
+        jp.NotAModule
+    travel = [[0.0, 1.5], [2.5, 0.0]]
+    with VRP.TimeWindows["WITHOUT_START_TIME"](travel, [3, 4], num_items=2):
+        assert lib.calls == [("TimeWindows{WITHOUT_START_TIME}", travel, [3, 4], 2)]
+    with VRP.TimeWindows["WITH_START_TIME"](num_items=1):
+        assert lib.calls[-1] == ("TimeWindows{WITH_START_TIME}", 1)
+    with VRP.RouteCompatibility([True, False, True]):
+        assert lib.calls[-1] == ("RouteCompatibility", [1, 0, 1])
+    with pytest.raises(TypeError, match="Select the parameters"):
+        VRP.TimeWindows(travel, [3, 4], 2)
+    with pytest.raises(KeyError, match="not available"):
+        VRP.TimeWindows["OTHER"]
+    with pytest.raises(TypeError, match="missing num_items"):
+        VRP.TimeWindows["WITHOUT_START_TIME"](travel, [3, 4])
+    with pytest.raises(ValueError, match="same length"):
+        VRP.TimeWindows["WITHOUT_START_TIME"]([[0.0], [1.0, 2.0]], [3, 4], 2)
+    with pytest.raises(TypeError, match="sequence"):
+        VRP.RouteCompatibility(True)
 
 
 def test_native_set_close_is_idempotent(lib):
@@ -261,7 +314,7 @@ def test_compiled_integer_overflow_is_rejected_before_ffi(lib, value):
 
 @pytest.mark.parametrize("facade", ["highs", "nexor"])
 def test_compiled_ops_reject_foreign_or_non_native_set(lib, facade):
-    ops = backend.JuliacOps(lib, ScalarSets(facade))
+    ops = backend.JuliacOps(lib, Namespace(facade, "MathOptInterface"))
     with NativeSet(FakeLib(), 1) as foreign:
         for set_ in (foreign, object(), 123):
             with pytest.raises(TypeError, match=rf"jumpy\.{facade}"):

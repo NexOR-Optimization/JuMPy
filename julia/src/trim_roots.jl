@@ -1,11 +1,18 @@
-# The opaque C handles deliberately erase Julia types. Retain the ordinary
-# JuMP/GenOpt methods reachable through this finite backend's public operators;
-# these are compilation roots, not alternative expression implementations.
-# Use --trim=unsafe-warn: dependency internals still contain dynamic dispatch.
-let J = isdefined(@__MODULE__, :JuMPyNexOR) ? JuMPyNexOR : JuMPyHiGHS,
-    MOI = MathOptInterface
+"""
+    add_trim_roots(J::Module)
 
-    D = J.JuMPyDirect
+Register the compilation roots of the backend module `J`, which called
+[`@entrypoints`](@ref), when generating its JuliaC image. Call it in the
+entry script of the image build: registrations made while precompiling a
+package are not retained by JuliaC.
+
+The opaque C handles deliberately erase Julia types. Retain the ordinary
+JuMP/GenOpt methods reachable through this finite backend's public operators;
+these are compilation roots, not alternative expression implementations.
+Use --trim=unsafe-warn: dependency internals still contain dynamic dispatch.
+"""
+function add_trim_roots(J::Module)
+    D = JuMPyDirect
     V = J.NativeVariable
     base_scalar_types =
         (Float64, Int64, V, J.NativeAffine, J.NativeQuadratic, J.NativeNonlinear)
@@ -16,7 +23,7 @@ let J = isdefined(@__MODULE__, :JuMPyNexOR) ? JuMPyNexOR : JuMPyHiGHS,
         GenOpt.ExprTemplate{Float64,JuMP.VariableRef},
     )
     node_types = (scalar_types..., template_types..., GenOpt.IteratorValues)
-    set_types = Base.uniontypes(J.NativeSet)
+    set_types = Base.uniontypes(J.NativeScalarSet)
     numbers = (Float64, Int64, Bool)
     tuples = (
         Tuple{Int64},
@@ -35,7 +42,7 @@ let J = isdefined(@__MODULE__, :JuMPyNexOR) ? JuMPyNexOR : JuMPyHiGHS,
     )
 
     for T in template_types
-        Base.Experimental.entrypoint(J.JuMPyModel.lazy_sum, (T,))
+        Base.Experimental.entrypoint(JuMPyModel.lazy_sum, (T,))
     end
 
     # JuMPyModel.apply resolves Base operators by name and unboxes Any values.
@@ -342,8 +349,5 @@ let J = isdefined(@__MODULE__, :JuMPyNexOR) ? JuMPyNexOR : JuMPyHiGHS,
     end
     Base.Experimental.entrypoint(iterate, (Base.OneTo{Int64},))
     Base.Experimental.entrypoint(iterate, (Base.OneTo{Int64}, Int64))
-    if isdefined(@__MODULE__, :HiGHS) && J.Optimizer === HiGHS.Optimizer
-        Base.Experimental.entrypoint(HiGHS.Highs_destroy, (J.Optimizer,))
-        Base.Experimental.entrypoint(HiGHS.HighsCallbackDataIn, (Cint,))
-    end
+    return
 end

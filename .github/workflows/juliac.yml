@@ -56,54 +56,35 @@ jobs:
 
       - uses: julia-actions/cache@v2
 
-      - name: Instantiate compiled backend
-        run: julia --project=julia/test -e 'using Pkg; Pkg.instantiate()'
-
-      - name: Regenerate dispatch roots
-        run: |
-          mkdir -p julia/build
-          julia --project=julia/test --trace-dispatch=julia/build/workload.trace julia/workload.jl
-          julia --project=julia/test --trace-dispatch=julia/build/tests.trace julia/test/runtests.jl
-          julia --project=julia/test julia/generate_trim_dispatch.jl julia/trim_dispatch.jl julia/build/workload.trace julia/build/tests.trace
-
       - name: Install JuliaC
         run: julia --project=@juliac -e 'using Pkg; Pkg.add(PackageSpec(name="JuliaC", version="0.3.12"))'
-
-      - name: Build shared library
-        working-directory: julia
-        # Link for the macOS of the bundled Julia libraries, not the runner's.
-        env:
-          MACOSX_DEPLOYMENT_TARGET: "11.0"
-        run: >
-          julia --project=@juliac -m JuliaC
-          --output-lib build/libjumpy_highs --project test
-          --compile-ccallable
-          --trim=unsafe-warn
-          --jl-option handle-signals=no
-          --bundle build
-          --verbose
-          juliac_entry.jl
 
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
 
+      # Trace the workload, compile the recipe and copy the bundle into
+      # src/jumpy/_backends/highs for the wheel.
+      - name: Build shared library
+        # Link for the macOS of the bundled Julia libraries, not the runner's.
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: uv run --no-project python julia/build_backend.py julia/backends/highs --package src
+
       - name: Run tests against the compiled library
         run: uv run --group tests pytest
         env:
           JUMPY_BACKEND: juliac
-          JUMPY_LIB: ${{ github.workspace }}/julia/build/${{ matrix.library }}
+          JUMPY_LIB: ${{ github.workspace }}/julia/backends/highs/build/bundle/${{ matrix.library }}
 
       - name: Upload bundle
         uses: actions/upload-artifact@v4
         with:
           name: jumpy-backend-${{ matrix.os }}
-          path: julia/build
+          path: julia/backends/highs/build/bundle
 
       - name: Build wheel with the bundle
-        run: |
-          uv run --no-project python julia/package_bundle.py julia/build src/jumpy/_backend
-          uv build --wheel
+        run: uv build --wheel
 
       # Outside the checkout, so that the tests import the installed package.
       - name: Test the installed wheel
@@ -192,37 +173,23 @@ jobs:
         with:
           version: "1.13.2"
       - uses: julia-actions/cache@v2
-      - name: Instantiate
-        run: julia --project=julia/test -e 'using Pkg; Pkg.instantiate()'
-      - name: Regenerate NexOR dispatch roots
-        run: |
-          mkdir -p julia/build
-          julia --project=julia/test --trace-dispatch=julia/build/nexor.trace julia/test/nexor.jl
-          JUMPY_BACKEND=nexor julia --project=julia/test --trace-dispatch=julia/build/nexor-workload.trace julia/workload.jl
-          JUMPY_BACKEND=nexor julia --project=julia/test julia/generate_trim_dispatch.jl julia/nexor_dispatch.jl julia/build/nexor.trace julia/build/nexor-workload.trace
       - name: Install JuliaC
         run: julia --project=@juliac -e 'using Pkg; Pkg.add(PackageSpec(name="JuliaC", version="0.3.12"))'
-      - name: Build shared library
-        working-directory: julia
-        run: >
-          julia --project=@juliac -m JuliaC
-          --output-lib build/nexor/libjumpy_nexor --project test
-          --compile-ccallable --trim=unsafe-warn
-          --jl-option handle-signals=no
-          --bundle build/nexor --verbose nexor_entry.jl
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
+      - name: Build shared library
+        run: uv run --no-project python julia/build_backend.py julia/backends/nexor
       - name: Run tests against the compiled library
         run: uv run --group tests pytest tests/test_nexor.py tests/test_backend.py tests/test_facades.py
         env:
           JUMPY_BACKEND: nexor
-          JUMPY_LIB: ${{ github.workspace }}/julia/build/nexor/lib/${{ matrix.library }}
+          JUMPY_LIB: ${{ github.workspace }}/julia/backends/nexor/build/bundle/lib/${{ matrix.library }}
       - name: Upload bundle
         uses: actions/upload-artifact@v4
         with:
           name: jumpy-backend-nexor-${{ matrix.os }}
-          path: julia/build/nexor
+          path: julia/backends/nexor/build/bundle
 
   docs:
     name: Executable documentation
@@ -239,12 +206,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: jumpy-backend-ubuntu-latest
-          path: julia/build
+          path: julia/backends/highs/build/bundle
 
       - name: Build and execute documentation
         run: uv run --frozen --group docs sphinx-build -M html docs/source docs/build -W --keep-going
         env:
-          JUMPY_LIB: ${{ github.workspace }}/julia/build/lib/libjumpy_highs.so
+          JUMPY_LIB: ${{ github.workspace }}/julia/backends/highs/build/bundle/lib/libjumpy_highs.so
 
       - name: Upload documentation for inspection
         uses: actions/upload-artifact@v4

@@ -8,11 +8,25 @@ import MathOptInterface as MOI
 
 function model(optimizer)
     result = JuMP.concrete_direct_model(optimizer)
-    MOI.set(optimizer, MOI.Silent(), true)
+    if MOI.supports(optimizer, MOI.Silent())
+        MOI.set(optimizer, MOI.Silent(), true)
+    end
     return result
 end
 
 add_variables(model, count) = JuMP.@variable(model, [1:count])
+
+# The array of variables of dimensions `dims` constrained to belong to `set`
+# on creation, as `@variable(model, [1:m, 1:n] in set)`. The shape of the
+# result is chosen by `JuMP.build_variable`, such as a matrix for
+# `MathOptVRP.Partition`.
+function add_constrained_variables(model, dims::NTuple{N,Int}, set) where {N}
+    info = JuMP.VariableInfo(false, NaN, false, NaN, false, NaN, false, NaN, false, false)
+    scalars = [JuMP.ScalarVariable(info) for _ in CartesianIndices(dims)]
+    # Anonymous variables, as `@variable(model, [1:m, 1:n] in set)`.
+    names = fill("", dims)
+    return JuMP.add_variable(model, JuMP.build_variable(error, scalars, set), names)
+end
 
 _solver_function(func) = func
 _solver_function(func::GenOpt.PolynomialFunction{F}) where {F} = convert(F, func)
@@ -35,6 +49,17 @@ function _add_constraint(model, constraint::JuMP.ScalarConstraint{F,S}) where {F
         JuMP.moi_set(constraint);
         allow_modify_function = true,
     )
+    model.is_model_dirty = true
+    return index
+end
+
+function _add_constraint(model, constraint::JuMP.VectorConstraint)
+    backend = JuMP.backend(model)
+    func = JuMP.moi_function(model, constraint)
+    set = JuMP.moi_set(constraint)
+    F, S = typeof(func), typeof(set)
+    MOI.supports_constraint(backend, F, S) || throw(MOI.UnsupportedConstraint{F,S}())
+    index = MOI.add_constraint(backend, func, set)
     model.is_model_dirty = true
     return index
 end

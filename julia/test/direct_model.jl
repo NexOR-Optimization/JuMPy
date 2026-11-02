@@ -146,7 +146,7 @@ end
     @test x != C_NULL
     @test y != C_NULL
     for (variable, value) in ((x, 2.0), (y, 3.0))
-        set = J.jumpy_equal_to(value)
+        set = new_set("EqualTo", value)
         @test J.jumpy_add_constraint(model, variable, set) != C_NULL
         @test J.jumpy_free_set(set) == 0
     end
@@ -190,7 +190,7 @@ end
     # supported by the compiled backend. Arbitrary invalid pointers are not
     # part of the C ABI contract.
     unsupported = J._box(J._get(model), "not a native expression")
-    set = J.jumpy_less_than(10.0)
+    set = new_set("LessThan", 10.0)
     redirect_stderr(devnull) do
         @test apply_native("unsupported", x) == C_NULL
         @test apply_native("sin") == C_NULL
@@ -303,7 +303,7 @@ end
     scaled = apply_native("*", index, variables)
     rows = apply_native("-", scaled, demands)
     @test J._unbox(rows) isa J.GenOpt.ExprTemplate{J.NativeAffine}
-    set = J.jumpy_greater_than(0.0)
+    set = new_set("GreaterThan", 0.0)
     @test J.jumpy_add_constraint(model, rows, set) != C_NULL
     @test J.jumpy_free_set(set) == 0
     backend = JuMP.backend(J._get(model).model)
@@ -334,7 +334,7 @@ end
         @test mapped != C_NULL
         return apply_native("getindex", block, apply_native("+", mapped, integer(1)))
     end
-    set = J.jumpy_less_than(100.0)
+    set = new_set("LessThan", 100.0)
     grouped = J.jumpy_add_constraint(model, apply_native("+", endpoints...), set)
     @test grouped != C_NULL
     @test J.jumpy_free_set(set) == 0

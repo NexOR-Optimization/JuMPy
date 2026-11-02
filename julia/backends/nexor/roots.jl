@@ -1,51 +1,10 @@
-# Keep solver options in a fixed dictionary type. The upstream untyped
-# generator chooses types from runtime values, which trimming cannot retain.
-# Remove this compatibility method once NexOR uses a typed dictionary.
-function NexOR.JSON.lower(solver::NexOR.OptimizerWithAttributes)
-    parameters = Dict{String,Any}()
-    for (attr, value) in solver.params
-        parameters[NexOR._parameter_name(attr)] = value
-    end
-    return Dict{String,Any}(
-        "name" => NexOR.solver_id(solver.optimizer),
-        "parameters" => parameters,
-    )
-end
+# Compilation roots of the NexOR client, registered in the image-build
+# session after loading JuMPyNexOR.
+import JuMPyNexOR
+import MathOptInterface as MOI
+import NexOR
 
-# Avoid the predicate closure used by the upstream enum lookup.
-function NexOR._status(::Type{E}, name::String) where {E}
-    for status in instances(E)
-        if string(status) == name
-            return status
-        end
-    end
-    throw(ArgumentError("unknown status: $name"))
-end
-
-# Solver namespaces add one inferred dictionary layer inside Any-valued
-# options. Normalize it to JSON's statically supported dictionary shape.
-function NexOR.JSON.applyany(
-    style::NexOR.JSON.JSONWriteStyle,
-    f::F,
-    key::K,
-    @nospecialize(value),
-) where {F,K}
-    if value isa Dict{String,Dict{String,Any}}
-        object = Dict{String,Any}()
-        for (name, options) in value
-            object[name] = options
-        end
-        return NexOR.JSON._writenested(f, key, object)
-    end
-    return invoke(
-        NexOR.JSON.applyany,
-        Tuple{NexOR.JSON.JSONStyle,Any,Any,Any},
-        style,
-        f,
-        key,
-        value,
-    )
-end
+const Optimizer = JuMPyNexOR.Optimizer
 
 # MockOptimizer builds these dictionaries through a runtime coefficient
 # type. Retain the concrete Float64 constructors in the trimmed library.

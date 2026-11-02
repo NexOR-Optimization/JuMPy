@@ -14,6 +14,9 @@ import math
 import sys
 
 
+# The version of the C ABI that this package calls; see JuMPy.ABI_VERSION.
+ABI_VERSION = 1
+
 # The Julia runtime can only be initialized once per process.
 _LIB = None
 # The facade, e.g. "highs" for jumpy.highs, whose library libjumpy_<name> is loaded.
@@ -26,21 +29,22 @@ def _default_paths(name):
     import os
     import platform
 
+    import jumpy
+
     soext = {"Linux": ".so", "Darwin": ".dylib", "Windows": ".dll"}[platform.system()]
     lib_name = "libjumpy_" + name + soext
     # JuliaC bundles put the libraries in bin/ on Windows, next to the DLLs
     # they load.
     lib_dir = "bin" if platform.system() == "Windows" else "lib"
-    pkg_dir = os.path.dirname(__file__)
-    repo = os.path.dirname(os.path.dirname(pkg_dir))
-    return [
-        # Wheel layout: the bundle copied by julia/package_bundle.py.
-        os.path.join(pkg_dir, "_backend", lib_dir, lib_name),
-        # Development layout: JuliaC bundle in <repo>/julia/build/<name>.
-        os.path.join(repo, "julia", "build", name, lib_dir, lib_name),
-        # Legacy development layout.
-        os.path.join(repo, "julia", "build", lib_dir, lib_name),
-    ]
+    # Installed layout: the bundle in jumpy/_backends/<name>, copied by
+    # julia/build_backend.py, in this package or in another distribution
+    # such as jumpy-opt-<name>; jumpy extends its __path__ to both.
+    paths = [os.path.join(d, "_backends", name, lib_dir, lib_name) for d in jumpy.__path__]
+    # Development layout: the bundle built from julia/backends/<name>.
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    bundle = os.path.join(repo, "julia", "backends", name, "build", "bundle")
+    paths.append(os.path.join(bundle, lib_dir, lib_name))
+    return paths
 
 
 def _names_lib(path, name):
@@ -81,10 +85,11 @@ def _load_lib(name):
             f"but jumpy.{name} needs libjumpy_{name}"
         )
     if path is None:
+        distribution = "jumpy-opt" if name == "highs" else f"jumpy-opt-{name}"
         raise FileNotFoundError(
             "Could not find the compiled JuMPy backend library. Searched:\n  "
             + "\n  ".join(_default_paths(name)) + "\nEither:\n"
-            "  1. Install the pre-built wheel: pip install jumpy-opt\n"
+            f"  1. Install the pre-built wheel: pip install {distribution}\n"
             "  2. Build it locally: see julia/README.md\n"
             "  3. Use JuliaCall: import jumpy.juliacall as jp\n"
         )
@@ -144,14 +149,17 @@ def _init_lib(path):
             query = getattr(lib, name)
             query.argtypes = [ctypes.c_void_p]
             query.restype = ctypes.c_int
-        for name in ("jumpy_less_than", "jumpy_greater_than", "jumpy_equal_to"):
-            constructor = getattr(lib, name)
-            constructor.argtypes = [ctypes.c_double]
-            constructor.restype = ctypes.c_uint64
-        for name in ("jumpy_zero_one", "jumpy_integer"):
-            constructor = getattr(lib, name)
-            constructor.argtypes = []
-            constructor.restype = ctypes.c_uint64
+        lib.jumpy_abi_version.argtypes = []
+        lib.jumpy_abi_version.restype = ctypes.c_longlong
+        lib.jumpy_registry.argtypes = []
+        lib.jumpy_registry.restype = ctypes.c_char_p
+        lib.jumpy_new_set.argtypes = [
+            ctypes.c_longlong,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.POINTER(ctypes.c_longlong),
+            ctypes.c_longlong,
+        ]
+        lib.jumpy_new_set.restype = ctypes.c_uint64
         lib.jumpy_free_set.argtypes = [ctypes.c_uint64]
         lib.jumpy_free_set.restype = ctypes.c_int
         lib.jumpy_set_time_limit_sec.argtypes = [ctypes.c_void_p, ctypes.c_double]
@@ -180,6 +188,12 @@ def _init_lib(path):
     init.argtypes = [ctypes.c_void_p]
     init.restype = None
     init(lib._handle)
+    version = lib.jumpy_abi_version()
+    if version != ABI_VERSION:
+        raise RuntimeError(
+            f"{path} was built for version {version} of the JuMPy C ABI, but this "
+            f"jumpy package expects version {ABI_VERSION}. Install matching versions."
+        )
 
     c_longlong = ctypes.c_longlong
     c_int = ctypes.c_int
@@ -207,9 +221,47 @@ def _init_lib(path):
     lib.jumpy_set_objective_function.restype = c_int
     lib.jumpy_optimize.argtypes = [c_void_p]
     lib.jumpy_optimize.restype = c_int
+    # Arrays for vector-valued functions and sets, and nonlinear operators.
+    p_longlong = ctypes.POINTER(c_longlong)
+    p_void_p = ctypes.POINTER(c_void_p)
+    lib.jumpy_constrained_variables.argtypes = [c_void_p, p_longlong, c_longlong, ctypes.c_uint64]
+    lib.jumpy_constrained_variables.restype = c_void_p
+    lib.jumpy_getindex.argtypes = [c_void_p, c_void_p, p_longlong, p_longlong, c_longlong]
+    lib.jumpy_getindex.restype = c_void_p
+    lib.jumpy_vcat.argtypes = [c_void_p, p_void_p, c_longlong]
+    lib.jumpy_vcat.restype = c_void_p
+    lib.jumpy_array.argtypes = [c_void_p, c_int, c_void_p, c_longlong, c_longlong, c_longlong]
+    lib.jumpy_array.restype = c_void_p
+    lib.jumpy_nonlinear.argtypes = [c_void_p, ctypes.c_char_p, p_void_p, c_longlong]
+    lib.jumpy_nonlinear.restype = c_void_p
 
     _LIB = lib
     return lib
+
+
+# The index of jumpy_getindex marking a scalar index: its `last` entry.
+_SCALAR_INDEX = -(2**63)
+
+
+def _array_data(values):
+    """The column-major data of a vector, or of a matrix given by rows, its
+    numbers of rows and columns, its number of dimensions, and whether its
+    elements are all integers."""
+    if hasattr(values, "tolist"):  # NumPy arrays
+        values = values.tolist()
+    rows = list(values)
+    if rows and all(isinstance(row, (list, tuple)) for row in rows):
+        columns = len(rows[0])
+        if any(len(row) != columns for row in rows):
+            raise ValueError("The rows of a data matrix must have the same length")
+        data = [row[j] for j in range(columns) for row in rows]
+        shape = (len(rows), columns, 2)
+    else:
+        data = rows
+        shape = (len(rows), 1, 1)
+    if not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in data):
+        raise TypeError("Data arrays contain numbers")
+    return data, shape, all(isinstance(x, int) for x in data)
 
 
 class JuliacOps:
@@ -220,7 +272,7 @@ class JuliacOps:
     """
 
     def __init__(self, lib, MOI):
-        # MOI: the facade's ScalarSets, which construct sets in this `lib`.
+        # MOI: the facade's MathOptInterface sets, constructed in this `lib`.
         self.MOI = MOI
         self._lib = lib
         self._m = lib.jumpy_new_model()
@@ -265,16 +317,52 @@ class JuliacOps:
         data = (ctypes.c_double * len(values))(*values)
         return self._node(self._lib.jumpy_float_array(self._m, data, len(values)))
 
+    def array(self, values):
+        data, (rows, columns, ndims), integer = _array_data(values)
+        element = ctypes.c_longlong if integer else ctypes.c_double
+        buffer = (element * len(data))(*data)
+        return self._node(
+            self._lib.jumpy_array(self._m, int(integer), buffer, rows, columns, ndims)
+        )
+
+    def getindex(self, array, indices):
+        # 1-based (first, last) pairs; last is None for a scalar index.
+        first = (ctypes.c_longlong * len(indices))(*(f for f, _ in indices))
+        last = (ctypes.c_longlong * len(indices))(
+            *(_SCALAR_INDEX if l is None else l for _, l in indices)
+        )
+        return self._node(
+            self._lib.jumpy_getindex(self._m, array, first, last, len(indices))
+        )
+
+    def vcat(self, args):
+        argv = (ctypes.c_void_p * len(args))(*args)
+        return self._node(self._lib.jumpy_vcat(self._m, argv, len(args)))
+
+    def nonlinear(self, head, args):
+        argv = (ctypes.c_void_p * len(args))(*args)
+        return self._node(
+            self._lib.jumpy_nonlinear(self._m, head.encode(), argv, len(args))
+        )
+
     # -- Model building ----------------------------------------------------------
 
     def add_variables(self, count):
         return self._node(self._lib.jumpy_variables(self._m, count))
 
+    def constrained_variables(self, shape, set_):
+        dims = (ctypes.c_longlong * len(shape))(*shape)
+        return self._node(
+            self._lib.jumpy_constrained_variables(
+                self._m, dims, len(shape), self._set_handle(set_)
+            )
+        )
+
     def _set_handle(self, set_):
-        from jumpy._moi import NativeSet
+        from jumpy._registry import NativeSet
 
         if not isinstance(set_, NativeSet) or set_._lib is not self._lib:
-            raise TypeError(f"Expected an MOI set created by jumpy.{self.MOI._name}")
+            raise TypeError(f"Expected an MOI set created by jumpy.{self.MOI._backend}")
         return set_.handle
 
     def add_constraint(self, func, set_):

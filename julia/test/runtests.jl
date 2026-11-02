@@ -1,7 +1,12 @@
 # Tests the C entry points in-process (no compilation needed).
 
+import JuMPy
 import JuMPyHiGHS
 using Test
+
+# A set of the registry of JuMPyHiGHS, such as `new_set("LessThan", 1.0)`.
+new_set(name, args...) =
+    JuMPy.Client.new_set(JuMPyHiGHS, "MathOptInterface." * name, args...)
 
 include("model.jl")
 include("direct_model.jl")
@@ -12,6 +17,7 @@ include("sum.jl")
 include("trim_dispatch.jl")
 include("duals.jl")
 include("nexor.jl")
+include("arrays.jl")
 
 variable(m, block, i) = apply(m, "getindex", block, constant(m, i))
 value(m, func) = JuMPyHiGHS.jumpy_value(m, func)
@@ -186,7 +192,7 @@ end
     template = apply(m, "-", apply(m, "getindex", x, i1), apply(m, "getindex", d, i1))
     @test JuMPyHiGHS._unbox(template) isa
           JuMPyHiGHS.GenOpt.ExprTemplate{JuMPyHiGHS.NativeAffine}
-    set = JuMPyHiGHS.jumpy_greater_than(0.0)
+    set = new_set("GreaterThan", 0.0)
     status = JuMPyHiGHS.jumpy_add_constraint(m, template, set)
     @test JuMPyHiGHS.jumpy_free_set(set) == 0
     @test JuMPyHiGHS.jumpy_add_constraint(m, template, set) == C_NULL
@@ -209,7 +215,7 @@ end
     quadratic = apply(m, "*", direct, direct)
     @test JuMPyHiGHS._unbox(quadratic) isa
           JuMPyHiGHS.GenOpt.ExprTemplate{JuMPyHiGHS.NativeQuadratic}
-    set = JuMPyHiGHS.jumpy_greater_than(1.0)
+    set = new_set("GreaterThan", 1.0)
     @test JuMPyHiGHS.jumpy_add_constraint(m, direct, set) != C_NULL
     @test JuMPyHiGHS.jumpy_free_set(set) == 0
     obj = apply(

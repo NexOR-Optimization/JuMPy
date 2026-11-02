@@ -92,14 +92,35 @@ class JuliaCallOps:
     def float_array(self, values):
         return self._jl.seval("Vector{Float64}")(values)
 
+    def array(self, values):
+        data, (rows, columns, ndims), integer = backend._array_data(values)
+        return self._jump.data_array(data, rows, columns, ndims, integer)
+
+    def getindex(self, array, indices):
+        bounds = [
+            bound
+            for first, last in indices
+            for bound in (first, backend._SCALAR_INDEX if last is None else last)
+        ]
+        return self._jump.getindex_bounds(array, *bounds)
+
+    def vcat(self, args):
+        return self._jump.concatenate(self._any_vec(*args))
+
+    def nonlinear(self, head, args):
+        return self._jump.nonlinear(self._jl.Symbol(head), self._any_vec(*args))
+
     # -- Model building ----------------------------------------------------------
 
     def add_variables(self, count):
         return self._jump.add_variables(self._model, count)
 
+    def constrained_variables(self, shape, set_):
+        return self._jump.add_constrained_variables(self._model, set_, *shape)
+
     def add_constraint(self, func, set_):
-        if not self._jl.isa(set_, self._jl.MOI.AbstractScalarSet):
-            raise TypeError("Expected a native MOI scalar set from jumpy.juliacall")
+        if not self._jl.isa(set_, self._jl.MOI.AbstractSet):
+            raise TypeError("Expected a native MOI set from jumpy.juliacall")
         return self._jump.add_constraint(self._model, func, set_)
 
     def set_objective(self, sense, func):

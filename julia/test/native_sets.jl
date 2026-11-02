@@ -2,11 +2,11 @@
     J = JuMPyHiGHS
     MOI = J.MOI
     constructors = (
-        (() -> J.jumpy_less_than(2.5), MOI.LessThan(2.5)),
-        (() -> J.jumpy_greater_than(2.5), MOI.GreaterThan(2.5)),
-        (() -> J.jumpy_equal_to(2.5), MOI.EqualTo(2.5)),
-        (J.jumpy_zero_one, MOI.ZeroOne()),
-        (J.jumpy_integer, MOI.Integer()),
+        (() -> new_set("LessThan", 2.5), MOI.LessThan(2.5)),
+        (() -> new_set("GreaterThan", 2.5), MOI.GreaterThan(2.5)),
+        (() -> new_set("EqualTo", 2.5), MOI.EqualTo(2.5)),
+        (() -> new_set("ZeroOne"), MOI.ZeroOne()),
+        (() -> new_set("Integer"), MOI.Integer()),
     )
     previous = UInt64(0)
     for (constructor, native) in constructors
@@ -23,7 +23,7 @@
     @test J.jumpy_free_set(typemax(UInt64)) == -1
 
     @testset "same set survives models and normalization" begin
-        id = J.jumpy_less_than(13.0)
+        id = new_set("LessThan", 13.0)
         for shift in (3.0, 4.0)
             model = J.jumpy_new_model()
             @test model != C_NULL
@@ -45,23 +45,23 @@
 
     @testset "MOI owns added constraints after releasing sets" begin
         cases = (
-            (() -> J.jumpy_less_than(4.5), 1, 4.5),
-            (() -> J.jumpy_greater_than(4.5), 0, 4.5),
-            (() -> J.jumpy_equal_to(4.5), 1, 4.5),
-            (J.jumpy_zero_one, 1, 1.0),
-            (J.jumpy_integer, 1, 4.0),
+            (("LessThan", 4.5), 1, 4.5),
+            (("GreaterThan", 4.5), 0, 4.5),
+            (("EqualTo", 4.5), 1, 4.5),
+            (("ZeroOne",), 1, 1.0),
+            (("Integer",), 1, 4.0),
         )
-        for (constructor, objective_sense, optimum) in cases
+        for (arguments, objective_sense, optimum) in cases
             model = J.jumpy_new_model()
             block = J.jumpy_variables(model, Clonglong(1))
             @test block != C_NULL
             x = variable(model, block, 1)
-            id = constructor()
+            id = new_set(arguments...)
             @test J.jumpy_add_constraint(model, x, id) != C_NULL
             @test J.jumpy_free_set(id) == 0
             @test J.jumpy_add_constraint(model, x, id) == C_NULL
             @test J.jumpy_add_constraint(model, x, typemax(UInt64)) == C_NULL
-            if constructor === J.jumpy_integer
+            if first(arguments) == "Integer"
                 @test add_constraint(model, x, MOI.LessThan(4.5)) != C_NULL
             end
             @test set_objective(model, objective_sense, x)
@@ -78,7 +78,7 @@
         @test block != C_NULL
         x = variable(model, block, 1)
         @test add_constraint(model, x, MOI.GreaterThan(0.0)) != C_NULL
-        id = J.jumpy_greater_than(1.0)
+        id = new_set("GreaterThan", 1.0)
         @test J.jumpy_add_constraint(
             model,
             apply(model, "+", x, constant(model, 0.0)),
