@@ -1,0 +1,46 @@
+--- a/src/MOI_wrapper.jl
++++ b/src/MOI_wrapper.jl
+@@ -1841,4 +1841,43 @@
+     )
+     _check_ret(ret)
+     return MOI.ConstraintIndex{typeof(f),typeof(s)}(key.value)
++end
++
++function MOI.add_constraints(
++    model::Optimizer,
++    functions::Vector{MOI.ScalarAffineFunction{Float64}},
++    sets::Vector{S},
++) where {S<:_SCALAR_SETS}
++    n = length(functions)
++    n == length(sets) || throw(DimensionMismatch("Mismatched functions and sets"))
++    indices = Vector{MOI.ConstraintIndex{MOI.ScalarAffineFunction{Float64},S}}(undef, n)
++    isempty(functions) && return indices
++    canonical = MOI.Utilities.canonical.(functions)
++    nnz = sum(f -> length(f.terms), canonical)
++    starts = Vector{HighsInt}(undef, n + 1)
++    columns = Vector{HighsInt}(undef, nnz)
++    coefficients = Vector{Float64}(undef, nnz)
++    lower, upper = Vector{Float64}(undef, n), Vector{Float64}(undef, n)
++    position = 1
++    for row in eachindex(canonical)
++        function_ = canonical[row]
++        MOI.throw_if_scalar_and_constant_not_zero(function_, S)
++        starts[row] = position - 1
++        lower[row], upper[row] = _bounds(sets[row])
++        for term in function_.terms
++            columns[position] = column(model, term.variable)
++            coefficients[position] = term.coefficient
++            position += 1
++        end
++    end
++    starts[end] = position - 1
++    ret = Highs_addRows(model, n, lower, upper, nnz, starts, columns, coefficients)
++    _check_ret(ret)
++    first_row = length(model.affine_constraint_info)
++    for row in eachindex(sets)
++        key = CleverDicts.add_item(model.affine_constraint_info, _ConstraintInfo(sets[row]))
++        model.affine_constraint_info[key].row = HighsInt(first_row + row - 1)
++        indices[row] = MOI.ConstraintIndex{MOI.ScalarAffineFunction{Float64},S}(key.value)
++    end
++    return indices
+ end

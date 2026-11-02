@@ -125,6 +125,11 @@ loader targets a raw HiGHS handle; full optimizer attribute and result
 bookkeeping is outside this experiment. See the
 [timings and independent-process check](results/matrix-highs-2026-11-01/table.md).
 
+## GenOpt batch submission
+
+The [LQCP batch-submission comparison](results/genopt-bulk-constraints-2026-11-01/table.md)
+isolates GenOpt PR #50, with stock HiGHS.jl and a native row-batch method.
+
 ## GenOpt to native row batches
 
 `native_genopt.jl` continues from native `addRows`, using GenOpt's real

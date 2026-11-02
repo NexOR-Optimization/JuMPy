@@ -1,0 +1,36 @@
+{
+  "GenOpt": {
+    "src_sha256": "210bed4b2bd7d84faf3b2af16d364fabbc93d29b3d7930d9b32864f5d6c7c98c",
+    "commit": "65e7c4193406868f493c99314994f9785ea8630c"
+  },
+  "JuMP": {
+    "src_sha256": "858853f2d64728c8ee5fd582b0f046c2bae8439129212ebfe24ab47df605bea2"
+  },
+  "MathOptInterface": {
+    "src_sha256": "58ab501b37bbbeedff86dfbb36ee177989589936c1946d83d1552c464ba28f9e"
+  },
+  "HiGHS": {
+    "src_sha256": "8fbebe04e80781bb922c5a193614c166ef51020c174b0e61a8ab241294fb5c53"
+  },
+  "model": "LQCP",
+  "julia": "1.13.3",
+  "cpu": "Intel Core i7-12700K",
+  "samples_per_condition_and_size": 3,
+  "threads": 1,
+  "presolve": "off",
+  "time_limit_seconds": 0.0,
+  "warmup_size": 5,
+  "genopt_pr": 50,
+  "genopt_patch_commit": "377144f4512f79986e40c3d846027bf53349c16c",
+  "jump_sources": "bl/juliac snapshot (version field 1.32.1)",
+  "moi_sources": "bl/juliac snapshot (version field 1.54.0)",
+  "highs_version": "1.26.1",
+  "native_highs_version": "1.15.1",
+  "scope": "Complete JuMP direct + GenOpt model construction, HiGHS ingestion and zero-time-limit MOI.optimize!; no useful optimization; imports and n=5 warmup excluded; no explicit model disposal or inter-sample garbage collection; ordinary Julia garbage collection and finalizers may run inside the timer",
+  "conditions": {
+    "before": "Frozen compiler-compatible GenOpt sources; scalar row insertion; stock HiGHS.jl",
+    "batch-stock": "Same sources with only _batch_add_constraints replaced by PR #50 implementation; stock HiGHS.jl",
+    "highs-bulk": "Same GenOpt method replacement plus HiGHS row-batch prototype in HiGHS-bulk.patch; no variable/bound bulk changes"
+  },
+  "coefficient_validation": "Archived scalar/batch MOF exports at n=3 agree: 19 variables and 54 constraints including variable bounds"
+}

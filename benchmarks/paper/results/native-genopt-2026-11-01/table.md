@@ -1,5 +1,7 @@
 Million-variable LQCP (n = 1000, 1,003,001 variables, 1,002,001 equality rows). Medians of five samples after warming each path at n = 1000; one thread, presolve off, zero solve time limit.
 
+For a comparison isolating GenOpt PR #50, see the [batch-submission table](../genopt-bulk-constraints-2026-11-01/table.md).
+
 | Path | Total | Range |
 | --- | ---: | ---: |
 | Hardcoded arrays → native addRows | 335.9 ms | 326.2–341.7 ms |
