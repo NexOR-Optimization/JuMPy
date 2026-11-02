@@ -1,0 +1,30 @@
+[deps]
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+GenOpt = "f2c049d8-7489-4223-990c-4f1c121a4cde"
+HiGHS = "87dc4568-4c63-4d18-b0c0-bb2238e4078b"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
+JuMPyHiGHS = "502c632e-507f-494b-8876-b49ee56148ca"
+MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
+NexOR = "8018e1f0-eec4-4af0-933d-cc21e2f6b695"
+PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+
+[sources]
+JuMPyHiGHS = {path = "../../julia"}
+GenOpt = {url = "https://github.com/blegat/GenOpt.jl.git", rev = "bl/juliac-safe"}
+JuMP = {url = "https://github.com/jump-dev/JuMP.jl.git", rev = "bl/juliac"}
+MathOptInterface = {url = "https://github.com/jump-dev/MathOptInterface.jl", rev = "bl/juliac"}
+NexOR = {url = "https://github.com/NexOR-Optimization/NexOR.jl", rev = "bl/incremental-api"}
+
+[compat]
+DataFrames = "1"
+GenOpt = "0.2.5"
+HiGHS = "1.26.1"
+JSON = "1"
+NexOR = "0.1"
+PrettyTables = "3"
+Statistics = "1"
+julia = "1.13"

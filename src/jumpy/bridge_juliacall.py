@@ -97,6 +97,9 @@ class JuliaCallOps:
     def add_variables(self, count):
         return self._jump.add_variables(self._model, count)
 
+    def add_variable_constraints(self, variables, set_):
+        self._jump.add_variable_constraints(self._model, variables, set_)
+
     def add_constraint(self, func, set_):
         if not self._jl.isa(set_, self._jl.MOI.AbstractScalarSet):
             raise TypeError("Expected a native MOI scalar set from jumpy.juliacall")
@@ -111,6 +114,12 @@ class JuliaCallOps:
     def optimize(self):
         self._jump.optimize(self._model)
         return self.termination_status()
+
+    def num_variables(self):
+        return int(self._jump.num_variables(self._model))
+
+    def write_mof(self, filename):
+        self._jump.write_mof(self._model, filename)
 
     def termination_status(self):
         return int(self._jl.Int(self._jump.termination_status(self._model)))

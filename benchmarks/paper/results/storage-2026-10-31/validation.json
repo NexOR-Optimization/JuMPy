@@ -1,0 +1,12 @@
+{
+  "facility-3": {
+    "variables": 199,
+    "constraints": 316,
+    "equivalent": true
+  },
+  "lqcp-3": {
+    "variables": 19,
+    "constraints": 54,
+    "equivalent": true
+  }
+}

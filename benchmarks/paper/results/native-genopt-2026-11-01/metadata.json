@@ -1,0 +1,45 @@
+{
+  "timestamp_utc": "2026-11-01T17:31:28.103928+00:00",
+  "cpu": "12th Gen Intel(R) Core(TM) i7-12700K",
+  "os": "Linux-7.2.8-9-omarchy-x86_64-with-glibc2.44",
+  "julia": "1.13.1",
+  "versions": {
+    "GenOpt": "0.2.5",
+    "JuMP": "1.32.1",
+    "MathOptInterface": "1.54.0",
+    "HiGHS": "1.26.1",
+    "HiGHS_jll": "1.15.1+3"
+  },
+  "source_revision": "993a316dbca9bacd565f8137b43ec2237c7e3f6c",
+  "worktree_dirty": true,
+  "source_hashes": {
+    "benchmarks/paper/native_genopt.jl": "d85ad4e61673ddc22740304fa575f876af3d6f99840b9d863a75d810e8b7ad15",
+    "benchmarks/paper/direct_highs.jl": "1c2a03e60ee7dba84c50dd51178273d32e666f870868bc280f0716cf7c663837",
+    "benchmarks/paper/grouped_models.jl": "d61029e9116759b947ff632a8621c9fd1a1888d797728686e6efb48def82ebc2",
+    "julia/src/JuMPyDirect.jl": "440ad16102a8ffba80d145fd6db38121d6c8c41f869e8a4dda3f9411070d770f",
+    "julia/src/JuMPyModel.jl": "628cd7c77198e65c6947187ebc579414eb07df9ea95f53e5a4508c086ed63374"
+  },
+  "genopt_source_tree_sha256": "3d6c341d9bf64921ce6d34c1bca6afe5f6c5431f4735d4e1bd0663d2fc9ef286",
+  "dependency_sources": {
+    "GenOpt": "/home/blegat/git/BLopt/JuMPy/benchmarks/paper/build/deps/GenOpt",
+    "JuMP": "/tmp/jumpy-ci-deps-up9o987c/JuMP",
+    "MathOptInterface": "/tmp/jumpy-ci-deps-up9o987c/MathOptInterface",
+    "HiGHS": "/home/blegat/.julia/packages/HiGHS/6xGbz",
+    "HiGHS_jll": "registry"
+  },
+  "compiler_branches": "JuMP and MOI compiler snapshots; GenOpt 0.2.5 compiler snapshot from the existing benchmark environment. Version numbers alone do not identify unmodified releases.",
+  "threads": 1,
+  "repeats": 5,
+  "size": 1000,
+  "batch_size": 65536,
+  "presolve": "off",
+  "time_limit_seconds": 0,
+  "warmup": "Each mode runs once at size 1000 before timing; GC.gc(true) runs before each Julia sample. Warmup, explicit pre-sample collection and disposal are excluded.",
+  "raw_scope": "Reference arrays and native Highs_run. GenOpt modes retain hardcoded variable bounds and objective; reference row assembly is also included in setup.",
+  "grouped_scope": "Complete existing grouped JuMP/GenOpt formulation and MOI.optimize! including result storage. The experimental adapters change row insertion, bound updates and variable block creation while preserving HiGHS.jl metadata.",
+  "native_version": "1.15.1",
+  "validation": "1412 assertions, including every small-model native row coefficient, bounds, costs, optimum and result status across all ten paths; duplicate cancellation, constants, empty rows, batch boundaries, and HiGHS.jl variable/constraint metadata. All 15 temporary line markers executed and were removed.",
+  "phase_counters": "Instrumented wall times; allocation-triggered GC is charged to its phase. Stock grouped mode has only total/setup/build/run measurements; missing CSV phase fields mean unmeasured, not zero.",
+  "integration": "Experimental local adapter only; no installed package source or released JuMPy native library was changed.",
+  "command": "JULIA_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 julia --startup-file=no --project=julia/test benchmarks/paper/native_genopt.jl 1000"
+}

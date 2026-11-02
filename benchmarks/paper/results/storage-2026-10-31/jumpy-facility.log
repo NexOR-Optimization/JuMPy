@@ -1,0 +1,13 @@
+{"event": "warmup", "frontend": "jumpy", "backend": "storage", "model": "facility", "initialization_seconds": 0.17526867100968957, "warmup_seconds": 1.9319901959970593}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "facility", "size": 25, "sample": 0, "seconds": 0.11456389399245381, "variables": 67651, "peak_rss_bytes": 534306816, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "facility", "size": 25, "sample": 1, "seconds": 0.10044778499286622, "variables": 67651, "peak_rss_bytes": 548544512, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "facility", "size": 25, "sample": 2, "seconds": 0.12137894297484308, "variables": 67651, "peak_rss_bytes": 548724736, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "facility", "size": 50, "sample": 0, "seconds": 0.8579112220322713, "variables": 520301, "peak_rss_bytes": 737525760, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "facility", "size": 50, "sample": 1, "seconds": 0.826135478913784, "variables": 520301, "peak_rss_bytes": 779440128, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "facility", "size": 50, "sample": 2, "seconds": 0.83329098590184, "variables": 520301, "peak_rss_bytes": 826761216, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "facility", "size": 75, "sample": 0, "seconds": 2.9355975119397044, "variables": 1732951, "peak_rss_bytes": 1324900352, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "facility", "size": 75, "sample": 1, "seconds": 2.839673188049346, "variables": 1732951, "peak_rss_bytes": 1468174336, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "facility", "size": 75, "sample": 2, "seconds": 2.7795859969919547, "variables": 1732951, "peak_rss_bytes": 1542197248, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "facility", "size": 100, "sample": 0, "seconds": 7.004060004022904, "variables": 4080601, "peak_rss_bytes": 2350497792, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "facility", "size": 100, "sample": 1, "seconds": 7.118673615041189, "variables": 4080601, "peak_rss_bytes": 2521542656, "python": "3.15.0"}
+{"event": "sample", "frontend": "jumpy", "backend": "storage", "model": "facility", "size": 100, "sample": 2, "seconds": 6.624820573953912, "variables": 4080601, "peak_rss_bytes": 2740715520, "python": "3.15.0"}

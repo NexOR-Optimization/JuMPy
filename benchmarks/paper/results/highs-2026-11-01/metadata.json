@@ -1,0 +1,43 @@
+{
+  "timestamp_utc": "2026-11-01T10:28:23.461448+00:00",
+  "os": "Linux-7.2.8-9-omarchy-x86_64-with-glibc2.44",
+  "cpu": "12th Gen Intel(R) Core(TM) i7-12700K",
+  "backend": "highs",
+  "repeats": 3,
+  "threads": 1,
+  "source_revision": "b4a3479",
+  "frontends": [
+    "jump-cached",
+    "jump-direct",
+    "jump-genopt",
+    "jumpy"
+  ],
+  "solver_names_disabled": true,
+  "command": [
+    "benchmarks/paper/run.py",
+    "--backend",
+    "highs",
+    "--project",
+    "benchmarks/paper/build/env",
+    "--library",
+    "julia/build/benchmark-check/highs-complete/lib/libjumpy_highs.so",
+    "--lqcp-sizes",
+    "100",
+    "250",
+    "500",
+    "1000",
+    "--repeats",
+    "3",
+    "--plot",
+    "--output",
+    "benchmarks/paper/build/seven-frontends"
+  ],
+  "timing_scope": "construction and HiGHS ingestion (zero solve time limit, presolve off)",
+  "export_mof": false,
+  "jumpy_revision": "0845c3131d39a530f394eddea4d859229c46c6ab",
+  "library": "/home/blegat/git/BLopt/JuMPy/julia/build/benchmark-check/highs-complete/lib/libjumpy_highs.so",
+  "library_sha256": "3283fc66133a04964683317ee543770101a3496a8289fa024adf89a8726dcc63",
+  "worktree_dirty": true,
+  "native_image": "Normal JuMPyHiGHS entry point, JuliaC --trim=unsafe-warn",
+  "record_subset": "Julia/JuMPy records selected from the original comparison run; timings were not rerun."
+}

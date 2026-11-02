@@ -1,0 +1,30 @@
+{
+  "JuMP": {
+    "version": "1.32.1",
+    "source_sha256": "858853f2d64728c8ee5fd582b0f046c2bae8439129212ebfe24ab47df605bea2"
+  },
+  "GenOpt": {
+    "version": "0.2.3",
+    "source_sha256": "fef92fcc41284325df816973b4f8ae8b30bb5a9f34e74b448909a84cdd43f5d1"
+  },
+  "MathOptInterface": {
+    "version": "1.54.0",
+    "source_sha256": "58ab501b37bbbeedff86dfbb36ee177989589936c1946d83d1552c464ba28f9e"
+  },
+  "JuliaC": {
+    "version": "0.3.12",
+    "trim": "no"
+  },
+  "Julia": {
+    "version": "1.13.3"
+  },
+  "HiGHS": {
+    "version": "1.25.4"
+  },
+  "HiGHS_jll": {
+    "version": "1.15.1+3"
+  },
+  "Python": {
+    "version": "3.15.0"
+  }
+}

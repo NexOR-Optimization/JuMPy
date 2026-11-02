@@ -35,11 +35,19 @@ flowchart LR
 
 The Python workload is proportional to the **number of groups**, not the number of constraints.
 
+## Benchmarks
+
+The [JuMP paper benchmarks](benchmarks/paper/README.md) compare JuMP cached,
+JuMP direct, JuMP direct + GenOpt, and JuMPy using the normal HiGHS or NexOR
+backend. NexOR measures local construction and optional MOF export without
+contacting a server. The runner generates CSV results, Markdown tables, and
+plots.
+
 ## Installation
 
-This branch's native JuMP/GenOpt integration is a prototype. Building it or
-using its JuliaCall interface currently requires a patched development checkout
-of GenOpt; released GenOpt 0.2.3 lacks the required lazy-sum bridge. See the
+This branch's native JuMP/GenOpt integration is a prototype. Building the
+compiled interface uses GenOpt's `bl/juliac-safe` branch and the JuMP/MOI
+compiler branches. See the
 [local development setup](julia/README.md#building).
 
 ```
@@ -101,6 +109,10 @@ model.set_attribute("presolve", "off")
 The solver runs on the server; the Python process loads a compiled client
 library. `set_attribute` accepts `str`, `bool`, `int` and `float` values in every
 backend, as `JuMP.set_attribute`.
+
+Models can be exported locally before solving with
+`model.write_mof("problem.mof.json")`. Export requires no API key and sends no
+request to the server.
 
 Build instructions are in [julia/README.md](julia/README.md#nexor-client).
 Use a separate Python process for each compiled backend or JuliaCall runtime.
@@ -202,6 +214,8 @@ expression such as `z + 0` when you want an affine row instead of a bound.
 | Method | Description |
 |---|---|
 | `m = jp.Model()` | Create a HiGHS model (compiled) or a solver-free model (JuliaCall) |
+| `m.num_variables()` | Number of model variables |
+| `m.write_mof(path)` | Export a local MathOptFormat JSON file without solving |
 | `m = jp.Model(optimizer_constructor)` | Create a cached JuliaCall model with an optimizer factory |
 | `m = jp.direct_model(optimizer)` | Create a direct JuliaCall model from an optimizer instance |
 | `m.variables(n, lower=, upper=, name=, binary=, integer=)` | Add `n` variables, returns a `VariableVector` |
@@ -352,6 +366,11 @@ C entry points, compiled with
 - [MathOptInterface](https://github.com/jump-dev/MathOptInterface.jl) — JuMP's solver abstraction layer
 - [GenOpt](https://github.com/blegat/GenOpt.jl) — constraint group expansion
 - [HiGHS](https://highs.dev/) — open-source LP/MIP solver
+
+## JuMP paper benchmarks
+
+Iterator-based ports of the JuMP paper models, reproducible comparisons, and
+recorded timings are in [benchmarks/paper](benchmarks/paper/README.md).
 
 ## License
 

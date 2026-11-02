@@ -18,6 +18,20 @@ function model(optimizer = nothing; add_bridges::Bool = true, kwargs...)
 end
 
 add_variables(model, count) = JuMP.@variable(model, [1:count])
+
+function add_variable_constraints(model, variables, set)
+    for variable in variables
+        JuMP.check_belongs_to_model(variable, model)
+    end
+    MOI.add_constraints(
+        JuMP.backend(model),
+        JuMP.index.(variables),
+        fill(set, length(variables)),
+    )
+    model.is_model_dirty = true
+    return
+end
+
 lazy_sum(template::GenOpt.ExprTemplate) = GenOpt.LazySum(template)
 # Keep references to the native functions: a trimmed image need not retain
 # Base bindings looked up only by a runtime Symbol.
@@ -50,9 +64,19 @@ set_objective_function(model, func) = JuMP.set_objective_function(model, func)
 optimize(model) = JuMP.optimize!(model)
 value(func) = JuMP.value(func)
 objective_value(model) = JuMP.objective_value(model)
+num_variables(model) = JuMP.num_variables(model)
 has_values(model) = JuMP.has_values(model)
 has_duals(model) = JuMP.has_duals(model)
 termination_status(model) = JuMP.termination_status(model)
+
+function write_mof(model, filename::String)
+    snapshot = MOI.FileFormats.MOF.Model()
+    MOI.copy_to(snapshot, JuMP.backend(model))
+    open(filename, "w") do io
+        write(io, snapshot)
+    end
+    return
+end
 
 set_attribute(model, name::String, value) = JuMP.set_attribute(model, name, value)
 

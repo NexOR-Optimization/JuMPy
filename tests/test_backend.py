@@ -64,8 +64,8 @@ def test_jumpy_lib_directory_errors(tmp_path):
 
 @pytest.mark.parametrize(
     "missing", ["jumpy_apply", "jumpy_integer_constant", "jumpy_integer_iterator",
-                "jumpy_variables", "jumpy_value", "jumpy_add_constraint", "jumpy_dual",
-                "jumpy_objective_value",
+                "jumpy_variables", "jumpy_add_variable_constraints", "jumpy_value", "jumpy_add_constraint", "jumpy_dual",
+                "jumpy_objective_value", "jumpy_num_variables", "jumpy_write_mof",
                 "jumpy_has_values", "jumpy_has_duals", "jumpy_termination_status",
                 "jumpy_set_time_limit_sec", "jumpy_set_string_attribute",
                 "jumpy_set_bool_attribute", "jumpy_set_int_attribute",
@@ -79,8 +79,8 @@ def test_old_abi_is_rejected_before_julia_initialization(monkeypatch, missing):
         name: lambda *args: None
         for name in (
             "jumpy_apply", "jumpy_integer_constant", "jumpy_integer_iterator",
-            "jumpy_variables", "jumpy_value", "jumpy_add_constraint", "jumpy_dual",
-            "jumpy_objective_value",
+            "jumpy_variables", "jumpy_add_variable_constraints", "jumpy_value", "jumpy_add_constraint", "jumpy_dual",
+            "jumpy_objective_value", "jumpy_num_variables", "jumpy_write_mof",
             "jumpy_has_values", "jumpy_has_duals", "jumpy_termination_status",
             "jumpy_less_than", "jumpy_greater_than", "jumpy_equal_to",
             "jumpy_zero_one", "jumpy_integer", "jumpy_free_set",

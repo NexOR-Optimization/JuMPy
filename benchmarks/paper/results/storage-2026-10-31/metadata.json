@@ -1,0 +1,24 @@
+{
+  "timestamp_utc": "2026-10-31T09:21:09.752143+00:00",
+  "cpu": "12th Gen Intel(R) Core(TM) i7-12700K",
+  "os": "Linux-7.2.8-9-omarchy-x86_64-with-glibc2.44",
+  "backend": "storage",
+  "repeats": 3,
+  "threads": 1,
+  "source_revision": "b4a3479",
+  "solver_names_disabled": true,
+  "native_image": "JuliaC --trim=no; warmed before timing",
+  "timing_scope": "construction and cache materialization",
+  "command": [
+    "benchmarks/paper/run.py",
+    "--backend",
+    "storage",
+    "--library",
+    "/tmp/paper-bench-build/storage/lib/libjumpy_storage.so",
+    "--repeats",
+    "3",
+    "--output",
+    "benchmarks/paper/results/storage-2026-10-31"
+  ],
+  "library": "/tmp/paper-bench-build/storage/lib/libjumpy_storage.so"
+}
