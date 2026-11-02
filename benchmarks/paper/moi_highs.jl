@@ -2,8 +2,10 @@
 module MOIHiGHSBenchmark
 
 import HiGHS
-import JSON
 import MathOptInterface as MOI
+using DataFrames: DataFrame, combine, groupby, nrow, select
+using PrettyTables: pretty_table
+using Statistics: median
 
 const F = MOI.ScalarAffineFunction{Float64}
 const Term = MOI.ScalarAffineTerm{Float64}
@@ -150,17 +152,72 @@ function bulk_methods()
     )
 end
 
-function main(sizes = [1000]; repeats = 5, modes = (true, false), batch_size = 65_536)
-    println(
-        JSON.json((;
-            event = "environment",
-            julia = string(VERSION),
-            highs_jl = string(pkgversion(HiGHS)),
-            moi = string(pkgversion(MOI)),
-            highs_source = pathof(HiGHS),
-            native_bulk_methods = bulk_methods(),
-        )),
+function summarize(samples::DataFrame)
+    timings = names(samples, r"^seconds$|_seconds$")
+    return combine(
+        groupby(
+            samples,
+            [:size, :bulk, :batch_size, :variables, :constraints];
+            sort = false,
+        ),
+        nrow => :runs,
+        timings .=> median .=> timings,
+        :seconds => minimum => :min_seconds,
+        :seconds => maximum => :max_seconds,
     )
+end
+
+milliseconds(values) = round.(1000 .* values; digits = 1)
+
+function print_summary(io, summary::DataFrame)
+    timings = [
+        :seconds,
+        :min_seconds,
+        :max_seconds,
+        :variables_seconds,
+        :bounds_seconds,
+        :objective_seconds,
+        :rows_seconds,
+        :run_seconds,
+    ]
+    labels = [
+        "Total (ms)",
+        "Min (ms)",
+        "Max (ms)",
+        "Variables (ms)",
+        "Bounds (ms)",
+        "Objective (ms)",
+        "Rows (ms)",
+        "Run (ms)",
+    ]
+    table = select(
+        summary,
+        :size => :Size,
+        :bulk => :Bulk,
+        :runs => :Runs,
+        timings .=> milliseconds .=> labels,
+    )
+    pretty_table(io, table; backend = :markdown, show_first_column_label_only = true)
+    return
+end
+
+function main(
+    sizes = [1000];
+    repeats = 5,
+    modes = (true, false),
+    batch_size = 65_536,
+    io = stdout,
+)
+    println(
+        stderr,
+        "HiGHS.jl ",
+        pkgversion(HiGHS),
+        " at ",
+        pathof(HiGHS),
+        "; bulk methods: ",
+        bulk_methods(),
+    )
+    samples = DataFrame()
     for bulk in modes
         warm, _ = construct(first(sizes); bulk, batch_size)
         finalize(warm)
@@ -169,11 +226,10 @@ function main(sizes = [1000]; repeats = 5, modes = (true, false), batch_size = 6
             GC.gc(true)
             model, timings = construct(n; bulk, batch_size)
             try
-                println(
-                    JSON.json((;
-                        event = "sample",
-                        mode = bulk ? "bulk" : "scalar",
-                        model = "lqcp",
+                push!(
+                    samples,
+                    (;
+                        bulk,
                         size = n,
                         sample,
                         batch_size,
@@ -183,16 +239,17 @@ function main(sizes = [1000]; repeats = 5, modes = (true, false), batch_size = 6
                             MOI.NumberOfConstraints{F,MOI.EqualTo{Float64}}(),
                         ),
                         timings...,
-                    )),
+                    ),
                 )
-                flush(stdout)
             finally
                 finalize(model)
             end
             model = nothing
         end
     end
-    return
+    summary = summarize(samples)
+    print_summary(io, summary)
+    return (; samples, summary)
 end
 
 end # module MOIHiGHSBenchmark
