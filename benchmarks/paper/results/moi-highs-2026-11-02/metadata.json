@@ -1,0 +1,44 @@
+{
+  "timestamp_utc": "2026-11-02T14:46:46.208379+00:00",
+  "cpu": "12th Gen Intel(R) Core(TM) i7-12700K",
+  "os": "Linux-7.2.8-9-omarchy-x86_64-with-glibc2.44",
+  "environment": {
+    "event": "environment",
+    "julia": "1.13.3",
+    "highs_jl": "1.26.1",
+    "moi": "1.54.0",
+    "highs_source": "/home/blegat/git/BLopt/HiGHS/src/HiGHS.jl",
+    "native_bulk_methods": {
+      "variables": true,
+      "bounds": true,
+      "rows": true
+    }
+  },
+  "highs_revision": "620f3fc99595805995a78aa73c47444195b7081e",
+  "highs_worktree_dirty": false,
+  "jumpy_revision": "afc7e0b8d13dfe123f1e62ca41378bbf336ea886",
+  "worktree_dirty": true,
+  "source_hashes": {
+    "benchmarks/paper/moi_highs.jl": "d168f0ee95b94813af616dcb96676e64d2c1799a7ba009e5b2bb8718908d1c40",
+    "benchmarks/paper/direct_highs.jl": "1c2a03e60ee7dba84c50dd51178273d32e666f870868bc280f0716cf7c663837"
+  },
+  "highs_wrapper_sha256": "c8dc925b882ca57db3695e5616e7dad40f7d2b19a482ae4f5fba0054252d584e",
+  "dependency_versions": {
+    "HiGHS": "1.26.1",
+    "HiGHS_jll": "1.15.1+3",
+    "MathOptInterface": "1.54.0",
+    "JSON": "1.13.0"
+  },
+  "moi_source": "/tmp/jumpy-ci-deps-up9o987c/MathOptInterface",
+  "settings": {
+    "threads": 1,
+    "repeats": 5,
+    "size": 1000,
+    "batch_size": 65536,
+    "presolve": "off",
+    "time_limit_seconds": 0
+  },
+  "validation": "2614 checks: every bound and row coefficient, quadratic/affine objective coefficients and constant, small-model solve equivalence across scalar/bulk modes and three batch sizes; zero time limit and JSON output. All 16 temporary line markers executed and were removed.",
+  "timing_scope": "Complete MOI model construction and MOI.optimize!, including HiGHS.jl result storage. Warmup at n=1000; explicit pre-sample GC and disposal excluded.",
+  "command": "JULIA_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 julia --startup-file=no --project=julia/test benchmarks/paper/moi_highs.jl 1000"
+}

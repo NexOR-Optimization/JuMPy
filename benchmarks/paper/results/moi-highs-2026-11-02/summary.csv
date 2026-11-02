@@ -1,0 +1,3 @@
+mode,size,variables,constraints,samples,median_seconds,median_setup_seconds,median_construction_seconds,median_variables_seconds,median_bounds_seconds,median_objective_seconds,median_rows_seconds,median_run_seconds,min_seconds,max_seconds
+bulk,1000,1003001,1002001,5,0.98625057,0.000142537,0.700598135,0.032099185,0.252095696,0.014228806,0.393491489,0.307336758,0.982526624,1.113895662
+scalar,1000,1003001,1002001,5,2.62635776,0.000134392,2.297915969,0.472653932,0.715373721,0.017884596,1.086439458,0.318277835,2.601042847,2.636899344

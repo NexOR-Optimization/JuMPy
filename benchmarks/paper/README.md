@@ -71,6 +71,33 @@ model loading, and the zero-limit HiGHS run. Model disposal is excluded.
 The [recorded timings](results/direct-highs-2026-11-01/table.md) show the
 hardcoded Julia baseline.
 
+## Direct MOI model on HiGHS.jl
+
+[`moi_highs.jl`](moi_highs.jl) builds the complete LQCP model using only
+`HiGHS.Optimizer` and public MOI calls. It creates variables, both variable
+bounds, the quadratic objective, and canonical six-term PDE rows, then calls
+`MOI.optimize!`. It uses neither JuMP/GenOpt nor an experimental adapter.
+
+The script compares bulk and scalar submission, with five samples per mode
+after warming at the first requested size. It reports variables, bounds,
+objective, rows, and solver/result-storage times. Row batches contain at most
+65,536 functions; the scalar path creates the same functions. Compilation,
+explicit garbage collection before each sample, and disposal are excluded.
+HiGHS uses one thread, no presolve, and a zero solve time limit.
+
+To exercise the new bulk methods, develop the HiGHS checkout on
+`bl/bulk-methods` in the benchmark environment first:
+
+```sh
+julia --project=benchmarks/paper -e 'using Pkg; Pkg.develop(path="../HiGHS")'
+julia --project=benchmarks/paper benchmarks/paper/moi_highs.jl 1000
+```
+
+The initial JSON record identifies the loaded HiGHS source and whether its
+variable, bound, and row insertion methods are native bulk implementations.
+With an older HiGHS.jl, the same script works through MOI's scalar fallback.
+See the [recorded timings](results/moi-highs-2026-11-02/table.md).
+
 ## Transposed constraint matrix experiment
 
 `matrix_highs.jl` adds a `MatrixOfConstraints` storing the linear rows in
