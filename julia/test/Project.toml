@@ -18,4 +18,4 @@ JuMPy = {path = ".."}
 JuMPyHiGHS = {path = "../backends/highs"}
 JuMPyNexOR = {path = "../backends/nexor"}
 
-NexOR = {url = "https://github.com/NexOR-Optimization/NexOR.jl", rev = "bl/trim-typed"}
+NexOR = {url = "https://github.com/NexOR-Optimization/NexOR.jl", rev = "main"}

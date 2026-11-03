@@ -10,7 +10,7 @@ NexOR = "8018e1f0-eec4-4af0-933d-cc21e2f6b695"
 [sources]
 JuMPy = {path = "../.."}
 MathOptInterface = {url = "https://github.com/jump-dev/MathOptInterface.jl", rev = "bl/juliac"}
-NexOR = {url = "https://github.com/NexOR-Optimization/NexOR.jl", rev = "bl/trim-typed"}
+NexOR = {url = "https://github.com/NexOR-Optimization/NexOR.jl", rev = "main"}
 
 [compat]
 MathOptInterface = "1"
