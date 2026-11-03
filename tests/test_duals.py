@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from jumpy import ConstraintRef, backend, bridge_juliacall
-from jumpy._moi import NativeSet
+from jumpy._registry import NativeSet
 from jumpy.highs import MOI
 from jumpy.model import Model
 from mock_ops import MockOps
@@ -97,7 +97,7 @@ def test_juliacall_returns_and_queries_actual_constraint():
     calls = []
     ops = bridge_juliacall.JuliaCallOps.__new__(bridge_juliacall.JuliaCallOps)
     ops._model = object()
-    ops._jl = SimpleNamespace(MOI=SimpleNamespace(AbstractScalarSet=object), isa=lambda *_: True)
+    ops._jl = SimpleNamespace(MOI=SimpleNamespace(AbstractSet=object), isa=lambda *_: True)
     native_ref = object()
     ops._jump = SimpleNamespace(
         add_constraint=lambda model, func, set_: native_ref,

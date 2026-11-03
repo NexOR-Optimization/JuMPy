@@ -1,12 +1,12 @@
 # Run on its own with `julia --project=test test/nexor.jl` from julia/.
-include("../nexor_entry.jl")
+import JuMPyNexOR
 module NexORTests
 
 using Test
 import JSON
 import MathOptInterface as MOI
 import NexOR
-import ..JuMPyNexOR
+import JuMPyNexOR
 const Backend = JuMPyNexOR
 
 optimizer(m) = Backend.JuMP.backend(Backend._get(m).model)

@@ -30,6 +30,11 @@ use the JuliaCall interface, or
 [build the backend](https://github.com/NexOR-Optimization/JuMPy/blob/main/julia/README.md#building)
 and point `JUMPY_LIB` to it.
 
+The compiled backends of other solvers are separate wheels: installing
+`jumpy-opt-<name>` provides `import jumpy.<name> as jp`, with the sets that this
+solver supports. They are built from a short Julia recipe; see
+[writing a backend](https://github.com/NexOR-Optimization/JuMPy/blob/main/julia/README.md#backends).
+
 ## JuliaCall interface
 
 ```console

@@ -2,8 +2,9 @@
 #
 # JuMP models and expressions stay in Julia. Opaque expression handles
 # let Python call JuMP's arithmetic and constraint-building methods, with
-# GenOpt expanding generated constraints directly. Each backend defines
-# `Optimizer` before including this file.
+# GenOpt expanding generated constraints directly. `JuMPy.@entrypoints`
+# defines `Optimizer` and `SET_TYPES` before including this file in the module
+# of the backend.
 #
 # Conventions across the C ABI:
 #   - a model is an opaque pointer returned by jumpy_new_model; it stays
@@ -13,17 +14,14 @@
 #     that built them and are freed with it
 #   - variable arrays and individual variables use the same expression handles
 #   - sets are checked UInt64 handles, independent of models, valid until
-#     jumpy_free_set; zero is reserved for constructor errors
+#     jumpy_free_set; zero is reserved for constructor errors. The sets that
+#     jumpy_new_set constructs are described by jumpy_registry
 #   - objective sense: 0 = min, 1 = max
 #   - entry points return -1 (NULL, NaN) on error, after printing to stderr
 #     (a Julia exception must never propagate across the C boundary)
 
-import GenOpt
-import JuMP
-import MathOptInterface as MOI
-
-include("JuMPyModel.jl")
-include("JuMPyDirect.jl")
+const JuMPyModel = JuMPy.JuMPyModel
+const JuMPyDirect = JuMPy.JuMPyDirect
 
 const NativeModel = JuMP.ConcreteModel{Float64,Optimizer,Nothing}
 const NativeVariable = JuMP.variable_ref_type(NativeModel)
@@ -74,6 +72,17 @@ const NativeTemplate = Union{
 const NativeIterator = Union{GenOpt.IteratorValues{Int64},GenOpt.IteratorValues{Float64}}
 const NativeOperand = Union{NativeScalar,NativeTemplate,NativeIterator}
 const NativeNode = Union{NativeOperand,Vector{NativeVariable},Vector{Float64}}
+# Arrays for vector-valued functions and sets, and the arguments of nonlinear
+# operators. They are not operands of jumpy_apply, which they would multiply
+# the compiled operator combinations of.
+const NativeVectorFunction = Union{Vector{NativeVariable},Vector{NativeAffine}}
+const NativeArray = Union{
+    Vector{NativeAffine},
+    Matrix{NativeVariable},
+    Vector{Int64},
+    Matrix{Int64},
+    Matrix{Float64},
+}
 
 mutable struct ModelHandle
     model::NativeModel
@@ -104,6 +113,14 @@ function _unbox(node::Ptr{Cvoid})
     value = (unsafe_pointer_to_objref(node)::Base.RefValue{Any})[]
     value isa NativeNode || error("Unsupported native expression type")
     return value::NativeNode
+end
+
+# Any native expression, including arrays.
+function _unbox_value(node::Ptr{Cvoid})
+    node == C_NULL && error("Expression pointer is NULL")
+    value = (unsafe_pointer_to_objref(node)::Base.RefValue{Any})[]
+    value isa Union{NativeNode,NativeArray} || error("Unsupported native expression type")
+    return value::Union{NativeNode,NativeArray}
 end
 
 function _unbox_constraint(handle::ModelHandle, node::Ptr{Cvoid})
@@ -142,17 +159,17 @@ macro _catch(default, expr)
     end
 end
 
-# -- Native scalar sets -------------------------------------------------------
+# -- Native sets --------------------------------------------------------------
+
+Base.@ccallable function jumpy_abi_version()::Clonglong
+    return JuMPy.ABI_VERSION
+end
 
 # No Julia object pointers leave this registry. A set can be reused across
 # models in this image, but never in another backend's Julia runtime.
-const NativeSet = Union{
-    MOI.LessThan{Float64},
-    MOI.GreaterThan{Float64},
-    MOI.EqualTo{Float64},
-    MOI.ZeroOne,
-    MOI.Integer,
-}
+const NativeSet = Union{SET_TYPES...}
+const NativeScalarSet = Union{filter(S -> S<:MOI.AbstractScalarSet, SET_TYPES)...}
+const NativeVectorSet = Union{filter(S -> S<:MOI.AbstractVectorSet, SET_TYPES)...}
 const SETS = Dict{UInt64,NativeSet}()
 const SET_LOCK = ReentrantLock()
 const NEXT_SET = Ref{UInt64}(1)
@@ -164,7 +181,7 @@ function _get_set(id::UInt64)
     end
 end
 
-function _store_set(set::MOI.AbstractScalarSet)
+function _store_set(set::NativeSet)
     Base.@lock SET_LOCK begin
         id = NEXT_SET[]
         id != 0 || error("Native MOI set handle space exhausted")
@@ -174,24 +191,29 @@ function _store_set(set::MOI.AbstractScalarSet)
     end
 end
 
-Base.@ccallable function jumpy_less_than(rhs::Cdouble)::UInt64
-    @_catch UInt64(0) _store_set(MOI.LessThan(rhs))
+# The sets of `SET_TYPES` as tab-separated lines: `set`, the 1-based index for
+# jumpy_new_set, the name, the field names and the field types.
+const REGISTRY = JuMPy.registry(SET_TYPES)
+# The `JuMP.NonlinearOperator`s of the registry are applied by their heads,
+# without dispatching on their functions, by jumpy_nonlinear.
+
+# A NUL-terminated string, valid as long as the library is loaded.
+Base.@ccallable function jumpy_registry()::Ptr{UInt8}
+    return pointer(REGISTRY)
 end
 
-Base.@ccallable function jumpy_greater_than(rhs::Cdouble)::UInt64
-    @_catch UInt64(0) _store_set(MOI.GreaterThan(rhs))
-end
-
-Base.@ccallable function jumpy_equal_to(rhs::Cdouble)::UInt64
-    @_catch UInt64(0) _store_set(MOI.EqualTo(rhs))
-end
-
-Base.@ccallable function jumpy_zero_one()::UInt64
-    @_catch UInt64(0) _store_set(MOI.ZeroOne())
-end
-
-Base.@ccallable function jumpy_integer()::UInt64
-    @_catch UInt64(0) _store_set(MOI.Integer())
+# Construct the set of the given registry index from the pointers to the data of
+# its fields and their numbers of rows and columns, two per field.
+Base.@ccallable function jumpy_new_set(
+    index::Clonglong,
+    args::Ptr{Ptr{Cvoid}},
+    sizes::Ptr{Clonglong},
+    nargs::Clonglong,
+)::UInt64
+    @_catch UInt64(0) begin
+        set = JuMPy.new_set(Tuple{SET_TYPES...}, index, args, sizes, nargs)
+        _store_set(set)
+    end
 end
 
 Base.@ccallable function jumpy_free_set(id::UInt64)::Cint
@@ -230,6 +252,35 @@ Base.@ccallable function jumpy_variables(model::Ptr{Cvoid}, count::Clonglong)::P
     @_catch C_NULL begin
         handle = _get(model)
         _box(handle, JuMPyModel.add_variables(handle.model, count))
+    end
+end
+
+# An array of variables of `ndims` dimensions `dims` constrained to belong to a
+# vector set on creation, as `@variable(model, [1:dims[1], 1:dims[2]] in set)`.
+Base.@ccallable function jumpy_constrained_variables(
+    model::Ptr{Cvoid},
+    dims::Ptr{Clonglong},
+    ndims::Clonglong,
+    set_id::UInt64,
+)::Ptr{Cvoid}
+    @_catch C_NULL begin
+        handle = _get(model)
+        set = _get_set(set_id)
+        set isa NativeVectorSet || error("Expected a vector set")
+        variables = if ndims == 1
+            size = (Int(unsafe_load(dims, 1)),)
+            _dispatch_native(set, NativeVectorSet) do s
+                JuMPyDirect.add_constrained_variables(handle.model, size, s)
+            end
+        elseif ndims == 2
+            size = (Int(unsafe_load(dims, 1)), Int(unsafe_load(dims, 2)))
+            _dispatch_native(set, NativeVectorSet) do s
+                JuMPyDirect.add_constrained_variables(handle.model, size, s)
+            end
+        else
+            error("Constrained variables have one or two dimensions")
+        end
+        _box(handle, variables)
     end
 end
 
@@ -313,6 +364,137 @@ Base.@ccallable function jumpy_float_array(
     end
 end
 
+function _data_array(::Type{T}, data::Ptr{Cvoid}, rows, columns, ndims) where {T}
+    ptr = Ptr{T}(data)
+    ndims == 1 && return T[unsafe_load(ptr, k) for k = 1:rows]
+    ndims == 2 &&
+        return T[unsafe_load(ptr, r + (c - 1) * rows) for r = 1:rows, c = 1:columns]
+    return error("Data arrays have one or two dimensions")
+end
+
+# A data array of `ndims` dimensions `rows` and `columns`, of Int64 elements if
+# `integer` is nonzero and Float64 elements otherwise. Matrices are
+# column-major.
+Base.@ccallable function jumpy_array(
+    model::Ptr{Cvoid},
+    integer::Cint,
+    data::Ptr{Cvoid},
+    rows::Clonglong,
+    columns::Clonglong,
+    ndims::Clonglong,
+)::Ptr{Cvoid}
+    @_catch C_NULL begin
+        handle = _get(model)
+        array = if integer != 0
+            _data_array(Int64, data, rows, columns, ndims)
+        else
+            _data_array(Float64, data, rows, columns, ndims)
+        end
+        _box(handle, array)
+    end
+end
+
+# A 1-based index of jumpy_getindex, as a range and whether it is the integer
+# `first`, when `last` is typemin(Int64), rather than the range `first:last`.
+# Indexing with ranges only is compiled once per array type.
+function _range(first::Clonglong, last::Clonglong)
+    scalar = last == typemin(Clonglong)
+    return Int64(first):Int64(scalar ? first : last), scalar
+end
+
+const NativeIndexable = Union{
+    Vector{NativeVariable},
+    Matrix{NativeVariable},
+    Vector{NativeAffine},
+    Vector{Float64},
+    Vector{Int64},
+    Matrix{Float64},
+    Matrix{Int64},
+}
+
+# Index an array with 1-based integers or ranges, one per dimension, given by
+# `first` and `last` (see `_range`): `x[i, j]` is a variable while `x[1:m, j]`
+# is a vector, as in Julia.
+Base.@ccallable function jumpy_getindex(
+    model::Ptr{Cvoid},
+    array::Ptr{Cvoid},
+    first::Ptr{Clonglong},
+    last::Ptr{Clonglong},
+    nindices::Clonglong,
+)::Ptr{Cvoid}
+    @_catch C_NULL begin
+        handle = _get(model)
+        value = _unbox_value(array)
+        value isa NativeIndexable || error("Expected a native array")
+        rows, row = _range(unsafe_load(first, 1), unsafe_load(last, 1))
+        result = if nindices == 1
+            _dispatch_native(value, NativeIndexable) do a
+                ndims(a) == 1 || error("Expected $(ndims(a)) indices")
+                entries = a[rows]
+                row ? entries[1] : entries
+            end
+        elseif nindices == 2
+            columns, column = _range(unsafe_load(first, 2), unsafe_load(last, 2))
+            _dispatch_native(value, NativeIndexable) do a
+                ndims(a) == 2 || error("Expected $(ndims(a)) indices")
+                entries = a[rows, columns]
+                row && column ? entries[1, 1] : row || column ? vec(entries) : entries
+            end
+        else
+            error("Arrays have one or two dimensions")
+        end
+        _box(handle, result)
+    end
+end
+
+# A single method for the untyped values of jumpy_vcat, so that its call is
+# resolved statically.
+function _append_affine!(result::Vector{NativeAffine}, @nospecialize(value))
+    if value isa Union{Int64,Float64,NativeVariable,NativeAffine}
+        push!(result, convert(NativeAffine, value))
+    elseif value isa NativeVectorFunction
+        for x in value
+            push!(result, convert(NativeAffine, x))
+        end
+    else
+        error("Expected numbers, variables, affine expressions or vectors of them")
+    end
+    return result
+end
+
+# The vector of the affine expressions `args`, where vectors are concatenated,
+# as `vcat` and `[a; b]` in Julia.
+Base.@ccallable function jumpy_vcat(
+    model::Ptr{Cvoid},
+    args::Ptr{Ptr{Cvoid}},
+    nargs::Clonglong,
+)::Ptr{Cvoid}
+    @_catch C_NULL begin
+        handle = _get(model)
+        result = NativeAffine[]
+        for k = 1:nargs
+            _append_affine!(result, _unbox_value(unsafe_load(args, k)))
+        end
+        _box(handle, result)
+    end
+end
+
+# The nonlinear expression `head(args...)`, such as a call of a
+# `JuMP.NonlinearOperator` of the registry with this head.
+Base.@ccallable function jumpy_nonlinear(
+    model::Ptr{Cvoid},
+    head::Cstring,
+    args::Ptr{Ptr{Cvoid}},
+    nargs::Clonglong,
+)::Ptr{Cvoid}
+    @_catch C_NULL begin
+        handle = _get(model)
+        head == C_NULL && error("Operator name is NULL")
+        values = Any[_unbox_value(unsafe_load(args, k)) for k = 1:nargs]
+        _box(handle, NativeNonlinear(Symbol(unsafe_string(head)), values))
+    end
+end
+
 # -- Constraints --------------------------------------------------------------
 
 # JuMP builds the constraints; the compiled adapter sends them to raw MOI.
@@ -325,14 +507,27 @@ Base.@ccallable function jumpy_add_constraint(
     @_catch C_NULL begin
         set = _get_set(set_id)
         handle = _get(model)
-        expression = _unbox(func)
+        expression = _unbox_value(func)
+        if expression isa NativeVectorFunction
+            set isa NativeVectorSet || error("Expected a vector set")
+            constraint = _dispatch_native(
+                expression,
+                set,
+                NativeVectorFunction,
+                NativeVectorSet,
+            ) do f, s
+                JuMPyDirect.add_constraint(handle.model, f, s)
+            end
+            return _box(handle, constraint)
+        end
         expression isa Union{NativeScalar,NativeTemplate} ||
             error("Expected a scalar or generated constraint expression")
+        set isa NativeScalarSet || error("Expected a scalar set")
         constraint = _dispatch_native(
             expression,
             set,
             Union{NativeScalar,NativeTemplate},
-            NativeSet,
+            NativeScalarSet,
         ) do f, s
             JuMPyDirect.add_constraint(handle.model, f, s)
         end

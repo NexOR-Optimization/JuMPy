@@ -1,30 +1,17 @@
-# Generate supplementary compilation roots from ordinary Julia runs, using
-# the exact Julia version and dependency environment of the image build:
-#
-#   julia --project=test --trace-dispatch=tests.trace test/runtests.jl
-#   julia --project=test --trace-dispatch=workload.trace workload.jl
-#   julia --project=test generate_trim_dispatch.jl trim_dispatch.jl \
-#       tests.trace workload.trace
-#
-# Do not execute solver workloads while generating a nonincremental image:
-# the JLL initializers have not run in that process.
-if get(ENV, "JUMPY_BACKEND", "") == "nexor"
-    include("src/JuMPyNexOR.jl")
-end
+"""
+    TrimDispatch
 
-module JuMPyTrimDispatch
+Generate supplementary compilation roots of a backend image from
+`--trace-dispatch` traces of ordinary Julia runs of its workloads and tests,
+using the exact Julia version and dependency environment of the image build.
+See [`generate`](@ref).
 
-import GenOpt
-import JuMP
-if get(ENV, "JUMPY_BACKEND", "") == "nexor"
-    import NexOR
-    import Main.JuMPyNexOR
-    const JuMPyHiGHS = JuMPyNexOR
-else
-    import HiGHS
-    import JuMPyHiGHS
-end
-import MathOptInterface
+Do not execute solver workloads while generating a nonincremental image:
+the JLL initializers have not run in that process.
+"""
+module TrimDispatch
+
+import ..JuMPy: GenOpt
 
 const ITERATOR_TUPLES = (
     Tuple{Int64},
@@ -141,26 +128,26 @@ function _supplement_collect_roots!(roots::Vector{String}, signature)
     return nothing
 end
 
-function _native_dispatch_domain(T)
+function _native_dispatch_domain(J::Module, T)
     T isa DataType && T <: Type && length(T.parameters) == 1 || return nothing
     domain = only(T.parameters)
-    domain isa Type && domain <: Union{JuMPyHiGHS.NativeNode,JuMPyHiGHS.NativeSet} ||
-        return nothing
+    domain isa Type && domain <: Union{J.NativeNode,J.NativeSet} || return nothing
     return domain
 end
 
 function _supplement_native_dispatch_roots!(
     roots::Vector{String},
+    J::Module,
     signature,
     seen::Set{Any} = Set{Any}(),
 )
     signature isa DataType || return nothing
     parameters = signature.parameters
     length(parameters) in (4, 6) || return nothing
-    first(parameters) === typeof(JuMPyHiGHS._dispatch_native) || return nothing
+    first(parameters) === typeof(J._dispatch_native) || return nothing
     arity = (length(parameters) - 2) ÷ 2
     domain_types = Tuple(parameters[(arity+3):end])
-    domains = map(_native_dispatch_domain, domain_types)
+    domains = map(T -> _native_dispatch_domain(J, T), domain_types)
     any(isnothing, domains) && return nothing
     family = (parameters[2], domain_types...)
     family in seen && return nothing
@@ -174,53 +161,56 @@ function _supplement_native_dispatch_roots!(
     return nothing
 end
 
+# Whether the traced `line` is retained: calls of the test harness and the
+# compiler, and of JuMP's cached models, which the backend does not use, are
+# not.
 function _is_backend_signature(line::String)
-    occursin(
-        r"Main\.|Tests?\.|Base\.Compiler|\.Bridges\.|FunctionGeneratorBridge|JuMPyModel\.model\)|JuMP\.Containers\.|JuMP\._finalize_macro|Base\.Experimental\.entrypoint",
+    return !occursin(
+        r"Main\.|Tests?\.|Base\.Compiler|\.Bridges\.|FunctionGeneratorBridge|JuMPyModel\.model\)|JuMP\.Containers\.|JuMP\._finalize_macro|Base\.Experimental\.entrypoint|CachingOptimizer",
         line,
-    ) && return false
-    # Shared test traces can contain calls from both backends.
-    if get(ENV, "JUMPY_BACKEND", "") == "nexor"
-        occursin(r"(?:JuMPyHiGHS|HiGHS)\.", line) && return false
-    else
-        occursin(r"(?:JuMPyNexOR|NexOR)\.", line) && return false
-    end
-    occursin("CachingOptimizer", line) && return false
-    occursin(
-        r"(?:JuMPyHiGHS|JuMPyNexOR|NexOR|GenOpt|HiGHS|JuMP|MathOptInterface|MutableArithmetics)\.",
-        line,
-    ) && return true
-    # Heterogeneous generator and nonlinear leaves also dispatch through Base
-    # collection methods whose signatures do not mention an owning package.
-    return occursin(
-        r"typeof\(Base\.(?:_array_for(?:_inner)?|iterate|length|eachindex|axes|first|all|_all|setindex!|getindex)\)|Type\{Base\.(?:IteratorSize|LinearIndices)",
-        line,
-    ) && occursin(r"Array\{(?:Any|Real|Float64|Int64)|(?:UnitRange|OneTo)\{Int64\}", line)
+    )
 end
 
-function dispatch_roots(paths::Vector{String})
+# A module in which every loaded package is bound to its name, to evaluate
+# the fully qualified signatures of traces.
+function _resolver()
+    resolver = Module()
+    for (_, M) in Base.loaded_modules
+        Core.eval(resolver, :(const $(nameof(M)) = $M))
+    end
+    return resolver
+end
+
+# The packages mentioned in a traced `line` that are not loaded, such as
+# another backend whose calls appear in shared test traces.
+function _unloaded_packages(line::String, resolver::Module)
+    names = Set(m.captures[1] for m in eachmatch(r"(?<![\w.])([A-Za-z_]\w*)\.", line))
+    return filter(name -> !isdefined(resolver, Symbol(name)), names)
+end
+
+function dispatch_roots(paths::Vector{String}, J::Module)
+    resolver = _resolver()
     roots = String[]
     native_dispatches = Set{Any}()
     storage_types = Set{Any}()
     for path in paths
-        for (line_number, original) in enumerate(eachline(path))
-            startswith(original, "precompile(Tuple{") || continue
-            original = replace(original, "Main.JuMPyNexOR" => "JuMPyNexOR")
-            _is_backend_signature(original) || continue
-            line = replace(original, "MutableArithmetics." => "JuMP._MA.")
+        for (line_number, line) in enumerate(eachline(path))
+            startswith(line, "precompile(Tuple{") || continue
+            _is_backend_signature(line) || continue
+            isempty(_unloaded_packages(line, resolver)) || continue
             try
                 expression = Meta.parse(line)
                 expression isa Expr &&
                 expression.head == :call &&
                 expression.args[1] == :precompile &&
                 length(expression.args) == 2 || error("Expected a precompile signature")
-                signature = Core.eval(@__MODULE__, expression.args[2])
+                signature = Core.eval(resolver, expression.args[2])
                 signature isa Type && signature <: Tuple || error("Expected a tuple type")
                 _supplement_iterator_roots!(roots, signature)
                 _supplement_generator_roots!(roots, signature)
                 _supplement_collect_roots!(roots, signature)
                 _supplement_storage_roots!(roots, signature, storage_types)
-                _supplement_native_dispatch_roots!(roots, signature, native_dispatches)
+                _supplement_native_dispatch_roots!(roots, J, signature, native_dispatches)
             catch err
                 error(
                     "Cannot resolve dispatch signature at $path:$line_number. " *
@@ -234,12 +224,20 @@ function dispatch_roots(paths::Vector{String})
     return sort!(unique!(roots))
 end
 
-function generate(output::String, paths::Vector{String})
-    roots = dispatch_roots(paths)
+"""
+    generate(output, traces, J::Module)
+
+Write to `output` the roots of the calls traced in the files `traces` of the
+workloads of the backend module `J`. Calls of packages that are not loaded,
+such as another backend in shared test traces, are skipped. Register them with
+[`add_roots`](@ref) in the entry script of the image build.
+"""
+function generate(output::String, traces::Vector{String}, J::Module)
+    roots = dispatch_roots(traces, J)
     isempty(roots) && error("The traces contain no backend dispatch signatures")
     open(output, "w") do io
         println(io, "#! format: off")
-        println(io, "# Generated by generate_trim_dispatch.jl; do not edit.")
+        println(io, "# Generated by JuMPy.TrimDispatch; do not edit.")
         println(io, "# Regenerate with the image's Julia and dependency versions.")
         println(io, "# Roots retain observed methods, not an ABI safety guarantee.")
         foreach(line -> println(io, line), roots)
@@ -247,15 +245,19 @@ function generate(output::String, paths::Vector{String})
     return length(roots)
 end
 
-function main(args::Vector{String})
-    length(args) >= 2 || error("Usage: generate_trim_dispatch.jl OUTPUT TRACE [TRACE ...]")
-    count = generate(first(args), args[2:end])
-    println("Wrote ", count, " supplementary roots to ", first(args))
-    return nothing
+"""
+    add_roots(path)
+
+Register the roots written by [`generate`](@ref) to `path`. The signatures are
+evaluated in a module where each loaded package is bound to its name.
+"""
+function add_roots(path::String)
+    resolver = _resolver()
+    for line in eachline(path)
+        startswith(line, "Base.Experimental.entrypoint(") || continue
+        Core.eval(resolver, Meta.parse(line))
+    end
+    return
 end
 
-end
-
-if abspath(PROGRAM_FILE) == @__FILE__
-    JuMPyTrimDispatch.main(ARGS)
 end

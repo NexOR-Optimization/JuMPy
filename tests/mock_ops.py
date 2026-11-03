@@ -45,6 +45,23 @@ class MockOps:
         self.arrays.append(ref)
         return ref
 
+    def constrained_variables(self, shape, set_):
+        ref = ("constrained", len(self.arrays), tuple(shape), set_)
+        self.arrays.append(ref)
+        return ref
+
+    def getindex(self, array, indices):
+        return ("getindex", array, tuple(indices))
+
+    def vcat(self, args):
+        return ("vcat", *args)
+
+    def array(self, values):
+        return ("data", values)
+
+    def nonlinear(self, head, args):
+        return (head, *args)
+
     def add_constraint(self, func, set_):
         self.constraints.append((func, set_))
         return ("constraint", len(self.constraints))

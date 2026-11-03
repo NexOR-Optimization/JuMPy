@@ -5,10 +5,8 @@ dist/
 build/
 .venv/
 build-trim/
-julia/trim_dispatch.jl
 docs/build/
 docs/source/generated/
 julia/test/Manifest.toml
-julia/nexor/Manifest.toml
-julia/nexor_dispatch.jl
-src/jumpy/_backend/
+julia/backends/*/Manifest.toml
+src/jumpy/_backends/

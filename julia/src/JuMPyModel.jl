@@ -18,6 +18,41 @@ function model(optimizer = nothing; add_bridges::Bool = true, kwargs...)
 end
 
 add_variables(model, count) = JuMP.@variable(model, [1:count])
+
+# The array of variables of dimensions `dims` constrained to belong to `set`
+# on creation, as `@variable(model, [1:m, 1:n] in set)`.
+function add_constrained_variables(model, set, dims::Int...)
+    info = JuMP.VariableInfo(false, NaN, false, NaN, false, NaN, false, NaN, false, false)
+    scalars = [JuMP.ScalarVariable(info) for _ in CartesianIndices(dims)]
+    # Anonymous variables, as `@variable(model, [1:m, 1:n] in set)`.
+    names = fill("", dims)
+    return JuMP.add_variable(model, JuMP.build_variable(error, scalars, set), names)
+end
+
+# `array[indices...]` for 1-based `(first, last)` pairs, where a scalar index
+# has `last == typemin(Int)`, as the compiled jumpy_getindex.
+function getindex_bounds(array, bounds::Int...)
+    indices = ntuple(length(bounds) ÷ 2) do k
+        first, last = bounds[2k-1], bounds[2k]
+        return last == typemin(Int) ? first : first:last
+    end
+    return array[indices...]
+end
+
+# A data vector, or a column-major matrix of `rows` and `columns`.
+function data_array(
+    values::AbstractVector,
+    rows::Int,
+    columns::Int,
+    ndims::Int,
+    integer::Bool,
+)
+    data = integer ? Vector{Int}(values) : Vector{Float64}(values)
+    return ndims == 1 ? data : reshape(data, rows, columns)
+end
+
+concatenate(args::Vector{Any}) = vcat(args...)
+nonlinear(head::Symbol, args::Vector{Any}) = JuMP.NonlinearExpr(head, args)
 lazy_sum(template::GenOpt.ExprTemplate) = GenOpt.LazySum(template)
 # Keep references to the native functions: a trimmed image need not retain
 # Base bindings looked up only by a runtime Symbol.

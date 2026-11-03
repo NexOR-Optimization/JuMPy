@@ -6,12 +6,13 @@ compiled library is needed.
 """
 
 import os
+import subprocess
 import sys
 from types import SimpleNamespace
 
 import pytest
 
-from jumpy import backend, bridge_juliacall
+from jumpy import _registry, backend, bridge_juliacall
 
 
 @pytest.fixture(autouse=True)
@@ -189,12 +190,17 @@ def test_nexor_sets_load_the_nexor_library(monkeypatch):
     import jumpy.nexor as nexor
 
     calls = []
-    lib = SimpleNamespace(jumpy_less_than=lambda rhs: 42, jumpy_free_set=lambda handle: 0)
+    lib = SimpleNamespace(
+        jumpy_registry=lambda: b"set\t1\tMathOptInterface.LessThan\tupper\tFloat64",
+        jumpy_new_set=lambda index, args, sizes, nargs: 42,
+        jumpy_free_set=lambda handle: 0,
+    )
     monkeypatch.setattr(backend, "_load_lib", lambda name: calls.append(name) or lib)
+    monkeypatch.setattr(_registry, "_REGISTRIES", {})
     with nexor.MOI.LessThan(1.0) as set_:
         assert set_._lib is lib
         assert set_.handle == 42
-    assert calls == ["nexor"]
+    assert set(calls) == {"nexor"}
 
 
 def test_compiled_backends_cannot_mix_runtimes(monkeypatch):
@@ -204,3 +210,30 @@ def test_compiled_backends_cannot_mix_runtimes(monkeypatch):
     assert backend._load_lib("nexor") is lib
     with pytest.raises(RuntimeError, match="jumpy.nexor is already loaded"):
         backend._load_lib("highs")
+
+
+def test_backend_installed_by_another_distribution(tmp_path):
+    # A wheel such as jumpy-opt-foo installs its module and bundle without
+    # jumpy/__init__.py, possibly in another directory of sys.path.
+    package = tmp_path / "jumpy"
+    lib_dir = "bin" if sys.platform == "win32" else "lib"
+    extension = {"win32": ".dll", "darwin": ".dylib"}.get(sys.platform, ".so")
+    library = package / "_backends" / "foo" / lib_dir / f"libjumpy_foo{extension}"
+    library.parent.mkdir(parents=True)
+    library.touch()
+    (package / "foo.py").write_text(
+        "from jumpy import *\nfrom jumpy import _facade\n_facade.install(globals(), 'foo')\n"
+    )
+    script = (
+        "import jumpy, jumpy.foo as jp, jumpy.backend as b\n"
+        "assert jp.Model.__module__ == 'jumpy.foo' and 'MOI' in jp.__all__\n"
+        "print(b.find_lib('foo'))\n"
+    )
+    source = os.path.dirname(os.path.dirname(os.path.abspath(backend.__file__)))
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([source, str(tmp_path)])}
+    env.pop("JUMPY_LIB", None)
+    result = subprocess.run(
+        [sys.executable, "-c", script], env=env, capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == str(library)

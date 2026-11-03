@@ -104,41 +104,73 @@ class Variable(Node):
         return self.name or "Variable()"
 
 
-class VariableVector(Node):
+class VariableArray(Node):
     """
     A native Julia array of variables returned by Model.variables().
 
-    Concrete indexing (x[0]) returns a Variable; symbolic indexing (x[i]
-    with an expression) builds a GenOpt template over the same array.
+    Concrete indexing (x[0], or x[0, 1] for a matrix) returns a Variable, and
+    slices (x[:, 1]) return a VariableArray of the same variables. Symbolic
+    indexing of a vector (x[i] with an expression) builds a GenOpt template
+    over the same array.
     """
 
-    def __init__(self, ops, ref, count: int, name: str | None = None):
+    def __init__(self, ops, ref, shape, name: str | None = None):
         super().__init__(ops, ref)
-        self.count = count
+        self.shape = (shape,) if isinstance(shape, int) else tuple(shape)
         self.name = name
 
+    @property
+    def count(self) -> int:
+        return self.shape[0]
+
     def __getitem__(self, index):
-        if isinstance(index, int):
-            if index < 0:
-                index += self.count
-            if not 0 <= index < self.count:
-                raise IndexError("Variable array index out of range")
-        elif not isinstance(index, Node):
-            raise TypeError(f"Index must be int or Node, got {type(index).__name__}")
-        # 0-based Python array index -> 1-based Julia array index.
-        result = self._apply("getindex", [self, index + 1])
-        if isinstance(index, int):
-            return Variable(self._ops, result.ref, f"{self.name or 'x'}[{index}]")
-        return result
+        indices = index if isinstance(index, tuple) else (index,)
+        if len(indices) != len(self.shape):
+            raise IndexError(f"Expected {len(self.shape)} indices, got {len(indices)}")
+        if len(indices) == 1 and isinstance(index, Node):
+            # 0-based Python array index -> 1-based Julia array index.
+            return self._apply("getindex", [self, index + 1])
+        bounds = []
+        for i, n in zip(indices, self.shape):
+            if isinstance(i, slice):
+                start, stop, step = i.indices(n)
+                if step != 1:
+                    raise IndexError("Slices of variable arrays have a step of 1")
+                bounds.append((start + 1, max(start, stop)))
+            elif isinstance(i, int):
+                if i < 0:
+                    i += n
+                if not 0 <= i < n:
+                    raise IndexError("Variable array index out of range")
+                bounds.append((i + 1, None))
+            else:
+                raise TypeError(
+                    f"Index must be int, slice or Node, got {type(i).__name__}"
+                )
+        label = f"{self.name or 'x'}[{', '.join(map(str, indices))}]"
+        if all(last is None for _, last in bounds):
+            if len(bounds) == 1:
+                ref = self._apply("getindex", [self, bounds[0][0]]).ref
+            else:
+                ref = self._ops.getindex(self.ref, bounds)
+            return Variable(self._ops, ref, label)
+        shape = [last - first + 1 for first, last in bounds if last is not None]
+        return VariableArray(self._ops, self._ops.getindex(self.ref, bounds), shape, label)
 
     def __len__(self) -> int:
-        return self.count
+        return self.shape[0]
 
     def __iter__(self):
+        if len(self.shape) != 1:
+            raise TypeError("Only vectors of variables are iterable; index matrices")
         return (self[k] for k in range(self.count))
 
     def __repr__(self) -> str:
-        return f"{self.name or 'x'}[0:{self.count}]"
+        return f"{self.name or 'x'}[{', '.join(f'0:{n}' for n in self.shape)}]"
+
+
+# Variable vectors are one-dimensional variable arrays.
+VariableVector = VariableArray
 
 
 class Parameter:
@@ -203,6 +235,31 @@ class Objective:
     def __init__(self, sense: str, func: Node):
         self.sense = sense
         self.func = func
+
+
+def vcat(*args) -> Node:
+    """
+    The vector of affine expressions concatenating ``args``, as ``[a; b; c]``
+    in Julia: numbers, scalar expressions, vectors of variables or affine
+    expressions, and Python sequences of these.
+
+    Example::
+
+        model.constraint(jp.vcat(t, depot, nodes[:, 0], depot), windows)
+    """
+    items = list(_flatten(args))
+    ops = next((item._ops for item in items if isinstance(item, Node)), None)
+    if ops is None:
+        raise TypeError("vcat needs at least one JuMPy expression")
+    return Node(ops, ops.vcat([_native(ops, item) for item in items]))
+
+
+def _flatten(args):
+    for arg in args:
+        if isinstance(arg, (list, tuple)):
+            yield from _flatten(arg)
+        else:
+            yield arg
 
 
 # -- nonlinear functions --------------------------------------------------------

@@ -18,7 +18,7 @@ from jumpy.expressions import (
     Objective,
     Parameter,
     Variable,
-    VariableVector,
+    VariableArray,
 )
 
 
@@ -69,20 +69,36 @@ class Model:
 
     def variables(
         self,
-        count: int,
+        count,
+        set_=None,
         *,
         lower: float | None = None,
         upper: float | None = None,
         name: str | None = None,
         binary: bool = False,
         integer: bool = False,
-    ) -> VariableVector:
-        """Add a native Julia array of JuMP variables and their bounds."""
-        if not isinstance(count, int):
+    ) -> VariableArray:
+        """Add a native Julia array of JuMP variables and their bounds.
+
+        With a vector set, such as ``jp.MathOptVRP.Partition(n, k)``, the
+        variables are constrained to belong to it when they are created, as
+        ``@variable(model, [1:n, 1:k] in set)``; ``count`` is then the tuple
+        of the dimensions of the array, such as ``(n, k)``, or an integer.
+        """
+        shape = count if isinstance(count, tuple) else (count,)
+        if not all(isinstance(n, int) for n in shape):
             raise TypeError("Variable count must be an integer")
-        if count < 0:
+        if any(n < 0 for n in shape):
             raise ValueError("Variable count must be nonnegative")
-        variables = VariableVector(self._ops, self._ops.add_variables(count), count, name)
+        if set_ is not None:
+            if lower is not None or upper is not None or binary or integer:
+                raise ValueError("Bounds and integrality cannot be combined with a set")
+            self._require_open()
+            ref = self._ops.constrained_variables(shape, set_)
+            return VariableArray(self._ops, ref, shape, name)
+        if len(shape) != 1:
+            raise ValueError("Variable arrays of several dimensions need a set")
+        variables = VariableArray(self._ops, self._ops.add_variables(count), count, name)
         # Bounds and integrality are VariableIndex-in-set constraints, as in MOI.
         # Reuse each set across the array instead of constructing it per variable.
         moi = self._ops.MOI

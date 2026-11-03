@@ -1,6 +1,7 @@
-# JuMPyHiGHS
+# JuMPy (Julia)
 
-The compiled Julia backend for JuMPy exposes native
+The Julia package `JuMPy` turns a MathOptInterface solver into a compiled
+backend of the `jumpy` Python package. A backend exposes native
 [JuMP](https://github.com/jump-dev/JuMP.jl) and
 [GenOpt](https://github.com/blegat/GenOpt.jl) modeling operations through a small
 C ABI. Python holds opaque references and forwards operations; Julia constructs
@@ -25,12 +26,12 @@ Solver-output defaults also follow JuMP. Both frontends use the same native
 JuMP/GenOpt expressions; their solver plumbing is intentionally different.
 JuliaCall users install and import their selected solver explicitly.
 
-In Python, select this backend with `import jumpy.highs as jp`, then construct
+In Python, select a backend with `import jumpy.highs as jp`, then construct
 `jp.Model()` without a backend argument. `import jumpy.juliacall as jp` selects
 the alternative JuliaCall interface. The two interfaces share modeling
 source, not live Julia objects; use one runtime per process.
 
-Both support explicit scalar sets alongside comparison syntax:
+Both support explicit sets alongside comparison syntax:
 
 ```python
 import jumpy.highs as jp
@@ -40,18 +41,80 @@ x, y = model.variables(2, lower=0)
 model.constraint(x + y, jp.MOI.LessThan(1.0))
 ```
 
-The compiled facade exposes the five native scalar sets `LessThan`,
-`GreaterThan`, `EqualTo`, `ZeroOne`, and `Integer`. Python stores only ownership
+A compiled backend exposes the sets that its optimizer supports, listed in
+its registry (`jumpy_registry`): `jp.MOI` holds those of MathOptInterface,
+such as `LessThan`, `Interval` or `ZeroOne` for HiGHS, and the sets of other
+modules are in namespaces of the same name, such as `jp.MathOptVRP.Partition`
+for Vroom. These namespaces also hold the `JuMP.NonlinearOperator`s of these
+modules, such as `jp.MathOptVRP.op_sum_distances`. Python stores only ownership
 handles, not duplicate set definitions. JuliaCall exposes the actual MOI module.
+
+## Backends
+
+A backend is a recipe: a Julia package `JuMPy<Name>` whose module calls
+[`JuMPy.@entrypoints`](src/JuMPy.jl) with the optimizer of its solver, for
+example [`backends/highs`](backends/highs):
+
+```julia
+module JuMPyHiGHS
+import HiGHS
+import JuMPy
+JuMPy.@entrypoints HiGHS.Optimizer
+end
+```
+
+The recipe directory also contains
+
+- `workload.jl`, which exercises the C ABI through `JuMPy.Client`, as Python
+  does. It is traced in ordinary Julia to find the methods reached through
+  dynamic dispatch, which the image must retain. `JuMPy.Client.workload`
+  exercises the expressions and scalar sets of any backend; a solver of other
+  sets, such as a routing solver, builds models of its own;
+- optionally, `roots.jl`, which registers other compilation roots with
+  `Base.Experimental.entrypoint` in the image-build session.
+
+The sets of the C ABI are those that the optimizer declares in its
+`MOI.supports_constraint`, `MOI.supports_add_constrained_variable` and
+`MOI.supports_add_constrained_variables` methods, whose fields are integers,
+floats, booleans, or vectors and matrices of these. A set type `S` is
+constructed from its fields as `S(fields...)`. A recipe can also list them:
+`JuMPy.@entrypoints(NexOR.Optimizer, (MOI.LessThan{Float64}, ...))`. The
+operators of the C ABI are the `JuMP.NonlinearOperator`s of the modules of
+these sets.
+
+[`build_backend.py`](build_backend.py) compiles a recipe and packages it for
+Python. The `jumpy-opt` wheel ships the HiGHS backend, built from
+[`backends/highs`](backends/highs). Another backend is distributed as its own
+wheel `jumpy-opt-<name>`, which installs the module `jumpy/<name>.py` and the
+bundle `jumpy/_backends/<name>/`, without Python code to write:
+
+```bash
+python julia/build_backend.py path/to/recipe --wheel dist  # dist/jumpy_opt_<name>-*.whl
+```
+
+For example, the recipe of the [Vroom](https://github.com/NexOR-Optimization/Vroom.jl)
+routing solver is in its `jumpy/` directory, and is used from Python as
+
+```python
+import jumpy.vroom as jp
+
+model = jp.Model()
+nodes = model.variables((4, 2), jp.MathOptVRP.Partition(4, 2))
+model.objective = jp.minimize(sum(
+    jp.MathOptVRP.op_sum_distances(distances, jp.vcat(5, nodes[:, j], 5))
+    for j in range(2)
+))
+model.optimize()
+```
 
 ## C ABI
 
 See `src/entrypoints.jl` for the full conventions.
 
-Rebuild existing compiled libraries for this ABI. The old column-index and
-bulk-solution entry points are removed; the Python loader rejects binaries
-without the native array and value-query entry points before
-starting Julia.
+The version of the ABI is `JuMPy.ABI_VERSION`, returned by
+`jumpy_abi_version`. The Python package only loads libraries of the version it
+expects, `jumpy.backend.ABI_VERSION`: rebuild existing compiled libraries when
+it changes.
 
 A model is an opaque `void*` pointing at the Julia-side model object; native
 expressions are opaque `void*` nodes built with the operation entry points.
@@ -61,22 +124,25 @@ nodes belong to the model that built them, and everything is freed by
 
 | Function | Julia operation |
 |---|---|
-| `jumpy_new_model() -> void*` | Create a concrete JuMP direct model over raw HiGHS (NULL on error) |
+| `jumpy_abi_version() -> int64` | The version of this ABI, `JuMPy.ABI_VERSION` |
+| `jumpy_registry() -> char*` | The sets and operators of the backend, as tab-separated lines (see below) |
+| `jumpy_new_model() -> void*` | Create a concrete JuMP direct model over the raw optimizer (NULL on error) |
 | `jumpy_free_model(m) -> int32` | release the model and its nodes |
 | `jumpy_variables(m, count) -> void*` | Add JuMP variables and return their native array reference |
+| `jumpy_constrained_variables(m, dims*, ndims, set) -> void*` | Add the array of variables of dimensions `dims` constrained to belong to a vector set, as `@variable(model, [1:m, 1:n] in set)` |
 | `jumpy_constant(m, value) -> void*` | a `Float64` node |
 | `jumpy_integer_constant(m, value) -> void*` | an `Int64` node, preserving integer exponents and indices |
 | `jumpy_apply(m, op, args**, nargs) -> void*` | Apply the native Julia operator to JuMP/GenOpt arguments |
 | `jumpy_iterator(m, values*, len) -> void*` | `GenOpt.iterator` over `Float64` values |
 | `jumpy_integer_iterator(m, values*, len) -> void*` | `GenOpt.iterator` over `Int64` values, including integer index ranges |
 | `jumpy_float_array(m, values*, len) -> void*` | a data vector, 1-based-indexable in templates |
-| `jumpy_less_than(rhs) -> uint64` | Construct and retain `MOI.LessThan(rhs)` |
-| `jumpy_greater_than(rhs) -> uint64` | Construct and retain `MOI.GreaterThan(rhs)` |
-| `jumpy_equal_to(rhs) -> uint64` | Construct and retain `MOI.EqualTo(rhs)` |
-| `jumpy_zero_one() -> uint64` | Construct and retain `MOI.ZeroOne()` |
-| `jumpy_integer() -> uint64` | Construct and retain `MOI.Integer()` |
+| `jumpy_array(m, integer, data*, rows, columns, ndims) -> void*` | a data vector or column-major matrix of `Int64` or `Float64` elements |
+| `jumpy_getindex(m, array, first*, last*, n) -> void*` | `array[i, j]`, with a 1-based integer (`last` is `typemin(Int64)`) or range `first:last` per dimension |
+| `jumpy_vcat(m, args**, nargs) -> void*` | The vector of affine expressions concatenating scalars and vectors, as `[a; b]` |
+| `jumpy_nonlinear(m, head, args**, nargs) -> void*` | The nonlinear expression `head(args...)`, as a call of a `JuMP.NonlinearOperator` |
+| `jumpy_new_set(index, args**, sizes*, nargs) -> uint64` | Construct and retain the set of the registry `index` from pointers to the data of its fields and their numbers of rows and columns |
 | `jumpy_free_set(id) -> int32` | Release a native set handle |
-| `jumpy_add_constraint(m, f, id) -> void*` | Add a scalar constraint or generated group and return its rooted reference; NULL on error |
+| `jumpy_add_constraint(m, f, id) -> void*` | Add a scalar or vector constraint or generated group and return its rooted reference; NULL on error |
 | `jumpy_set_objective_sense(m, sense) -> int32` | Set the JuMP objective sense; 0 = min, 1 = max |
 | `jumpy_set_objective_function(m, f) -> int32` | Set the native JuMP objective expression |
 | `jumpy_optimize(m) -> int32` | Optimize the raw MOI backend; returns the termination status (`OPTIMAL == 1`) |
@@ -107,6 +173,13 @@ structure-aware solvers such as ExaModels through JuliaCall. The compiled HiGHS
 adapter calls GenOpt's polynomial lowering directly for affine lazy sums and
 quadratic lazy-sum objectives. Python's built-in `sum()` remains available for
 explicit sums.
+
+The registry has one line per set, `set`, its 1-based index for
+`jumpy_new_set`, its name, such as `MathOptInterface.LessThan` or
+`MathOptVRP.TimeWindows{WITHOUT_START_TIME}` (type parameters are omitted, value
+parameters are kept), its field names and its field types, such as
+`Matrix{Float64}`; and one line per operator, `operator`, its index, its name,
+such as `MathOptVRP.op_sum_distances`, and its head for `jumpy_nonlinear`.
 
 Native sets use checked `uint64` identity handles, not set-kind codes; constructors
 return `0` on error. Comparisons, variable bounds, and constraint groups all use
@@ -144,132 +217,101 @@ maintained backend or its CI.
 
 ## Building
 
-The build uses Julia 1.13.2, a C compiler, and the
+The build uses Julia 1.13.2, a C compiler, Python 3.11 or later, and the
 [JuliaC.jl](https://github.com/JuliaLang/JuliaC.jl) frontend:
 
 ```bash
 julia --project=@juliac -e 'using Pkg; Pkg.add(PackageSpec(name="JuliaC", version="0.3.12"))'
 ```
 
-This integration requires the patched development checkouts of JuMP and GenOpt.
+This integration requires the patched development branches of JuMP and GenOpt.
 JuMP provides concrete model/reference types through `concrete_direct_model`;
 GenOpt provides direct generator expansion and concrete-reference-compatible
-symbolic indexing. The compiled projects and manifests select JuMP's
-`bl/juliac` and GenOpt's `bl/juliac-safe` branches, with registered HiGHS
-1.26.1 or newer. The local setup below can instead use development checkouts.
-JuliaCall needs the GenOpt changes, but can use released JuMP because it does
-not construct a concrete direct model.
+symbolic indexing. The `[sources]` of [`Project.toml`](Project.toml) select
+JuMP's `bl/juliac` and GenOpt's `bl/juliac-safe` branches, and recipes inherit
+them through their dependency on JuMPy. JuliaCall needs the GenOpt changes, but
+can use released JuMP because it does not construct a concrete direct model.
 
-From this directory, prepare a separate Julia environment so local development
-paths do not change the repository manifest:
+From the repository root, build a recipe with
 
 ```bash
-export JUMPY_GENOPT_SOURCE=/path/to/patched/GenOpt
-export JUMPY_JUMP_SOURCE=/path/to/patched/JuMP
-export JUMPY_BACKEND_SOURCE="$PWD"
-export JUMPY_JULIA_PROJECT="$(mktemp -d)"
-cp Manifest.toml "$JUMPY_JULIA_PROJECT/Manifest.toml"
-JULIA_PKG_OFFLINE=true julia --project="$JUMPY_JULIA_PROJECT" -e '
-    using Pkg
-    Pkg.develop([
-        PackageSpec(path=ENV["JUMPY_GENOPT_SOURCE"]),
-        PackageSpec(path=ENV["JUMPY_JUMP_SOURCE"]),
-        PackageSpec(path=ENV["JUMPY_BACKEND_SOURCE"]),
-    ])
-    Pkg.instantiate()
-'
+python julia/build_backend.py julia/backends/highs
 ```
 
-Offline mode requires the other dependencies and solver artifacts to be cached;
-omit `JULIA_PKG_OFFLINE=true` if they need downloading. Then build with that
-environment. Regenerate retention roots with these exact dependencies before
-building, as CI does:
+It instantiates the recipe environment, traces its `workload.jl` with
+`--trace-dispatch` in ordinary Julia, generates the corresponding roots with
+`JuMPy.TrimDispatch`, and compiles the module with JuliaC into
+`julia/backends/highs/build/bundle`, where `import jumpy.highs` finds it in a
+development checkout. The image is compiled for `JULIA_CPU_TARGET=generic`,
+or for the target given with `--cpu-target`. Add `--trace script.jl` to trace
+more scripts in the recipe environment, `--package src` to copy the bundle
+into `src/jumpy/_backends/highs` for the `jumpy-opt` wheel, as CI does:
 
 ```bash
-mkdir -p build
-JULIA_CPU_TARGET=generic julia --project="$JUMPY_JULIA_PROJECT" \
-    --trace-dispatch=build/workload.trace workload.jl
-JULIA_CPU_TARGET=generic julia --project="$JUMPY_JULIA_PROJECT" \
-    --trace-dispatch=build/tests.trace test/runtests.jl
-JULIA_CPU_TARGET=generic julia --project="$JUMPY_JULIA_PROJECT" \
-    generate_trim_dispatch.jl trim_dispatch.jl build/workload.trace build/tests.trace
+python julia/build_backend.py julia/backends/highs --package src
+uv build --wheel
 ```
 
-CI and local backend validation use `--trim=unsafe-warn`:
-
-```bash
-JULIA_CPU_TARGET=generic julia --project=@juliac -m JuliaC \
-    --output-lib build/libjumpy_highs --project "$JUMPY_JULIA_PROJECT" \
-    --compile-ccallable \
-    --trim=unsafe-warn \
-    --jl-option handle-signals=no \
-    --bundle build \
-    juliac_entry.jl
-```
+or `--wheel dist` to build the separate wheel `jumpy-opt-<name>` of another
+backend.
 
 Notes:
 
 - `--jl-option handle-signals=no` is required because the library is loaded
   into a Python process; Julia's signal handlers would conflict with Python's.
-- `--bundle` makes the output relocatable: `build/lib/` contains
+- `--bundle` makes the output relocatable: `bundle/lib/` contains
   `libjumpy_highs.so` next to the Julia runtime libraries
-  (`build/lib/julia/`), and `build/share/julia/artifacts/` contains the
+  (`bundle/lib/julia/`), and `bundle/share/julia/artifacts/` contains the
   HiGHS_jll artifact with `libhighs.so`. This is the two-shared-library
   layout: `libjumpy_highs.so` (our entry points + Julia runtime image) loads
   `libhighs.so` (the solver distributed by HiGHS_jll) dynamically.
-- Trimming uses the earlier `--trim=unsafe-warn` approach with explicit roots in
-  `trim_roots.jl` and supplementary dynamic-dispatch roots in `trim_dispatch.jl`.
-  Compiler warnings remain: this is not a `--trim=safe` guarantee. Validate the
-  compiled artifact with the full Python tests and executable tutorials.
-- The dispatch roots depend on the Julia/dependency versions. Regenerate them
-  from the ordinary-Julia workload when those versions or the ABI change;
-  instructions are in [`generate_trim_dispatch.jl`](generate_trim_dispatch.jl).
-  Generated roots are excluded from Git because private method names depend on
-  the build environment. The image-build entry
-  script does not execute a solver workload because JLL initialization has not
-  run at that point.
+- Trimming uses `--trim=unsafe-warn` with the explicit roots of
+  [`JuMPy.add_trim_roots`](src/trim_roots.jl), the traced dispatch roots, and
+  the roots of the recipe. Compiler warnings remain: this is not a
+  `--trim=safe` guarantee. Validate the compiled artifact with the full
+  Python tests and executable tutorials.
+- The traced roots depend on the Julia/dependency versions; they are
+  regenerated by each build. The image-build entry script does not execute a
+  solver workload because JLL initialization has not run at that point.
+- Functions of JLL packages are compiled with `infer = false`, so the image
+  cannot call them; read their paths instead, as Vroom.jl does for the
+  executable of vroom_jll.
+
+Wheels cannot store symlinks, so [`package_bundle.py`](package_bundle.py) keeps
+each library under its install name and the aliases that the bundled binaries
+refer to, such as the `lib/libhighs.so` path of HiGHS. Every push builds and
+tests the wheels for Linux x86_64, macOS arm64 and Windows and uploads them as
+workflow artifacts. Publishing a GitHub release also uploads them to PyPI as
+`jumpy-opt`.
 
 ## Testing
 
 In-process tests of the entry points (fast, no compilation):
 
 ```bash
-julia --project="$JUMPY_JULIA_PROJECT" test/runtests.jl
+julia --project=julia/test julia/test/runtests.jl
 ```
 
 End-to-end through the compiled library and Python ctypes:
 
 ```bash
-cd ..
-JUMPY_BACKEND=juliac uv run --group tests pytest tests/test_solve.py
+JUMPY_BACKEND=juliac uv run --group tests pytest
 ```
 
-The Python loader searches `$JUMPY_LIB` if it names `libjumpy_highs`, the
-installed package's `_backend/lib/` directory, `julia/build/highs/lib/`, then
-`julia/build/lib/` (this development layout).
+The Python loader uses `$JUMPY_LIB` if it names `libjumpy_<name>`, else the
+`_backends/<name>/lib/` directory of each `jumpy` package directory, else the
+development bundle `julia/backends/<name>/build/bundle/lib/`.
 
-To build a platform wheel containing the bundle, as CI does:
-
-```bash
-cd ..
-python3 julia/package_bundle.py julia/build src/jumpy/_backend
-uv build --wheel
-```
-
-Wheels cannot store symlinks, so `package_bundle.py` keeps each library under
-its install name and the aliases that the bundled binaries refer to, such as
-the `lib/libhighs.so` path of HiGHS. Every push builds and tests the wheels for
-Linux x86_64 and macOS arm64 and uploads them as workflow artifacts. Publishing
-a GitHub release also uploads them to PyPI as `jumpy-opt`.
+## JuliaCall
 
 For JuliaCall, use a PythonCall environment with the same patched GenOpt
-checkout developed into it. For an existing environment:
+branch added to it. For an existing environment:
 
 ```bash
 export JUMPY_PYTHONCALL_PROJECT=/path/to/pythoncall/environment
-JULIA_PKG_OFFLINE=true julia --project="$JUMPY_PYTHONCALL_PROJECT" -e '
+julia --project="$JUMPY_PYTHONCALL_PROJECT" -e '
     using Pkg
-    Pkg.develop(path=ENV["JUMPY_GENOPT_SOURCE"])
+    Pkg.add(url="https://github.com/blegat/GenOpt.jl.git", rev="bl/juliac-safe")
 '
 export PYTHON_JULIACALL_PROJECT="$JUMPY_PYTHONCALL_PROJECT"
 export PYTHON_JULIACALL_EXE="$(julia -e 'print(joinpath(Sys.BINDIR, Base.julia_exename()))')"
@@ -281,42 +323,24 @@ its constructor to `jp.Model`, or an instance to `jp.direct_model`.
 
 ## NexOR client
 
-`src/JuMPyNexOR.jl` uses the same native ABI in `src/entrypoints.jl` as HiGHS.
+[`backends/nexor`](backends/nexor) uses the same native ABI as HiGHS.
 Its direct JuMP model uses NexOR.jl's incremental optimizer, which serializes
-the model for remote execution. Solver packages stay on the server. `jumpy.nexor` exports
-the common modeling API and native scalar MOI sets, including the time-limit,
-termination-status and result queries available in `jumpy.highs`.
-
-The test environment combines the development GenOpt and JuMP branches used
-above with MathOptInterface's `bl/juliac` MOF writer and NexOR.jl. From this
-`julia/` directory, instantiate it and build the NexOR client:
+the model for remote execution. Solver packages stay on the server. The server
+accepts any set, so the recipe lists the sets of the C ABI: `jumpy.nexor`
+exports the common modeling API and the scalar MOI sets of `jumpy.highs`,
+including the time-limit, termination-status and result queries. Its workload
+answers the solve with a mock transport. Build it with
 
 ```sh
-julia --project=test -e 'using Pkg; Pkg.instantiate()'
-mkdir -p build
-julia --project=test --trace-dispatch=build/nexor.trace test/nexor.jl
-JUMPY_BACKEND=nexor julia --project=test --trace-dispatch=build/nexor-workload.trace workload.jl
-JUMPY_BACKEND=nexor julia --project=test generate_trim_dispatch.jl nexor_dispatch.jl \
-    build/nexor.trace build/nexor-workload.trace
-julia --project=@juliac -m JuliaC \
-    --output-lib build/nexor/libjumpy_nexor --project test \
-    --compile-ccallable --trim=unsafe-warn \
-    --jl-option handle-signals=no --bundle build/nexor \
-    --verbose nexor_entry.jl
+python julia/build_backend.py julia/backends/nexor
 ```
-
-`test/Manifest.toml` is generated locally and ignored. After changing the test
-project, refresh an existing manifest with `Pkg.resolve()` before instantiating.
 
 Select it with `import jumpy.nexor as jp`, then `jp.Model()`. Models read
 `NEXOR_API_KEY` and `NEXOR_SERVER_URL` (default `https://api.nexoropt.com`) when
 created. There is no default remote solver: select it with
 `model.set_attribute("solver", "HiGHS")`. Use one runtime per Python process.
-The loader searches `JUMPY_LIB` if it names `libjumpy_nexor`, the package's
-`_backend/lib/` directory, `julia/build/nexor/lib/`, then the legacy `julia/build/lib/`
-location.
 
-`julia --project=test test/nexor.jl` exercises the native ABI and MOF round trip
-with a mock transport, without contacting production. After building, run
-`JUMPY_BACKEND=nexor uv run --group tests pytest tests/test_nexor.py` from the
-repository root to test the compiled client against a local HTTP fixture.
+`julia --project=julia/test julia/test/nexor.jl` exercises the native ABI and
+MOF round trip with a mock transport, without contacting production. After
+building, run `JUMPY_BACKEND=nexor uv run --group tests pytest
+tests/test_nexor.py` to test the compiled client against a local HTTP fixture.

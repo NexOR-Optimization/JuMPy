@@ -1,0 +1,14 @@
+name = "JuMPyHiGHS"
+uuid = "502c632e-507f-494b-8876-b49ee56148ca"
+version = "0.1.0"
+
+[deps]
+HiGHS = "87dc4568-4c63-4d18-b0c0-bb2238e4078b"
+JuMPy = "5f5979d3-f37b-4267-8fb7-cdcec306c5bd"
+
+[sources]
+JuMPy = {path = "../.."}
+
+[compat]
+HiGHS = "1.26.1"
+julia = "1.13"

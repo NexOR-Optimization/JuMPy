@@ -28,8 +28,8 @@ testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jumpy"]
-# Ignored by git, copied by julia/package_bundle.py.
-artifacts = ["src/jumpy/_backend"]
+# Ignored by git, copied by julia/build_backend.py.
+artifacts = ["src/jumpy/_backends"]
 
 [tool.hatch.build.targets.wheel.hooks.custom]
 

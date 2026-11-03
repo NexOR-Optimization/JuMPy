@@ -1,0 +1,18 @@
+name = "JuMPyNexOR"
+uuid = "a105f48b-5cf7-42ec-93fd-194deca22b2e"
+version = "0.1.0"
+
+[deps]
+JuMPy = "5f5979d3-f37b-4267-8fb7-cdcec306c5bd"
+MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
+NexOR = "8018e1f0-eec4-4af0-933d-cc21e2f6b695"
+
+[sources]
+JuMPy = {path = "../.."}
+MathOptInterface = {url = "https://github.com/jump-dev/MathOptInterface.jl", rev = "bl/juliac"}
+NexOR = {url = "https://github.com/NexOR-Optimization/NexOR.jl", rev = "main"}
+
+[compat]
+MathOptInterface = "1"
+NexOR = "0.1"
+julia = "1.13"

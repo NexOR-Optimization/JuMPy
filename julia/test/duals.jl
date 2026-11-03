@@ -58,7 +58,7 @@ end
     block = J.jumpy_variables(model, Clonglong(2))
     one = J.jumpy_integer_constant(model, Clonglong(1))
     x = native_apply("getindex", block, one)
-    set = J.jumpy_greater_than(2.0)
+    set = new_set("GreaterThan", 2.0)
     row = J.jumpy_add_constraint(model, x, set)
     @test row != C_NULL
     @test J._unbox_constraint(J._get(model), row) isa MOI.ConstraintIndex
@@ -73,7 +73,7 @@ end
     iterator =
         GC.@preserve indices J.jumpy_integer_iterator(model, pointer(indices), Clonglong(2))
     template = native_apply("getindex", block, iterator)
-    set = J.jumpy_less_than(5.0)
+    set = new_set("LessThan", 5.0)
     group = J.jumpy_add_constraint(model, template, set)
     @test group != C_NULL
     @test J.jumpy_free_set(set) == 0
