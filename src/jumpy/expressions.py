@@ -243,8 +243,9 @@ def vcat(*args) -> Node:
     in Julia: numbers, scalar expressions, vectors of variables or affine
     expressions, and Python sequences of these.
 
-    Example:
-        model.constraint(jp.vcat(t, depot, nodes[:, 0], depot), set_)
+    Example::
+
+        model.constraint(jp.vcat(t, depot, nodes[:, 0], depot), windows)
     """
     items = list(_flatten(args))
     ops = next((item._ops for item in items if isinstance(item, Node)), None)

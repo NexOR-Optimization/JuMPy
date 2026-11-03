@@ -200,8 +200,10 @@ A generated constraint group has no single scalar dual and is rejected.
 .. autoclass:: jumpy.Variable
    :members:
 
-.. autoclass:: jumpy.VariableVector
+.. autoclass:: jumpy.VariableArray
    :members:
+
+.. autofunction:: jumpy.vcat
 
 .. autoclass:: jumpy.Parameter
    :members:
