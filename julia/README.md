@@ -83,10 +83,11 @@ operators of the C ABI are the `JuMP.NonlinearOperator`s of the modules of
 these sets.
 
 [`build_backend.py`](build_backend.py) compiles a recipe and packages it for
-Python. The `jumpy-opt` wheel ships the HiGHS backend, built from
-[`backends/highs`](backends/highs). Another backend is distributed as its own
-wheel `jumpy-opt-<name>`, which installs the module `jumpy/<name>.py` and the
-bundle `jumpy/_backends/<name>/`, without Python code to write:
+Python. Each backend, such as HiGHS from [`backends/highs`](backends/highs), is
+distributed as its own wheel `jumpy-opt-<name>`, which installs the bundle
+`jumpy/_backends/<name>/` and the module `jumpy/<name>.py`, without Python
+code to write. The `jumpy-opt` wheel is pure Python and already has the modules
+of the backends of this repository, so their wheels only add the bundles.
 
 ```bash
 python julia/build_backend.py path/to/recipe --wheel dist  # dist/jumpy_opt_<name>-*.whl
@@ -244,16 +245,15 @@ It instantiates the recipe environment, traces its `workload.jl` with
 `julia/backends/highs/build/bundle`, where `import jumpy.highs` finds it in a
 development checkout. The image is compiled for `JULIA_CPU_TARGET=generic`,
 or for the target given with `--cpu-target`. Add `--trace script.jl` to trace
-more scripts in the recipe environment, `--package src` to copy the bundle
-into `src/jumpy/_backends/highs` for the `jumpy-opt` wheel, as CI does:
+more scripts in the recipe environment, and `--wheel dist` to build the wheel
+`jumpy-opt-highs`, as CI does:
 
 ```bash
-python julia/build_backend.py julia/backends/highs --package src
-uv build --wheel
+python julia/build_backend.py julia/backends/highs --wheel dist
 ```
 
-or `--wheel dist` to build the separate wheel `jumpy-opt-<name>` of another
-backend.
+The wheel drops what the library never loads, such as the static libraries,
+the unused aliases of the shared libraries and, on Linux, their debug symbols.
 
 Notes:
 

@@ -85,11 +85,10 @@ def _load_lib(name):
             f"but jumpy.{name} needs libjumpy_{name}"
         )
     if path is None:
-        distribution = "jumpy-opt" if name == "highs" else f"jumpy-opt-{name}"
         raise FileNotFoundError(
             "Could not find the compiled JuMPy backend library. Searched:\n  "
             + "\n  ".join(_default_paths(name)) + "\nEither:\n"
-            f"  1. Install the pre-built wheel: pip install {distribution}\n"
+            f"  1. Install the pre-built wheel: pip install jumpy-opt-{name}\n"
             "  2. Build it locally: see julia/README.md\n"
             "  3. Use JuliaCall: import jumpy.juliacall as jp\n"
         )

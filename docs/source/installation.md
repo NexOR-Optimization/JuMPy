@@ -8,12 +8,17 @@ patch. Follow the
 [development environment setup](https://github.com/NexOR-Optimization/JuMPy/blob/main/julia/README.md#building)
 to select that checkout without changing the repository manifest.
 
-Install JuMPy from PyPI. The distribution is named `jumpy-opt` since `jumpy`
-is taken on PyPI; the package is still imported as `jumpy`:
+Install JuMPy from PyPI with the backend to use. The distribution is named
+`jumpy-opt` since `jumpy` is taken on PyPI; the package is still imported as
+`jumpy`:
 
 ```console
-pip install jumpy-opt
+pip install jumpy-opt-highs
 ```
+
+`jumpy-opt` itself is pure Python, and `jumpy-opt-highs` installs it with the
+compiled HiGHS backend. Likewise, `jumpy-opt-nexor` installs the compiled NexOR
+client, and `pip install 'jumpy-opt[juliacall]'` the JuliaCall interface.
 
 Select the compiled HiGHS interface explicitly:
 
@@ -23,14 +28,13 @@ import jumpy.highs as jp
 model = jp.Model()
 ```
 
-It uses the compiled backend shipped in the wheels for Linux x86_64 (glibc 2.17
-or newer) and macOS arm64, and requires neither a Julia installation nor
-`juliacall`. On other platforms, pip installs JuMPy without the compiled backend:
-use the JuliaCall interface, or
+It uses the compiled backend shipped in the `jumpy-opt-highs` wheels for Linux
+x86_64 (glibc 2.17 or newer) and macOS arm64, and requires neither a Julia
+installation nor `juliacall`. On other platforms, use the JuliaCall interface, or
 [build the backend](https://github.com/NexOR-Optimization/JuMPy/blob/main/julia/README.md#building)
 and point `JUMPY_LIB` to it.
 
-The compiled backends of other solvers are separate wheels: installing
+Each compiled backend is a separate wheel: installing
 `jumpy-opt-<name>` provides `import jumpy.<name> as jp`, with the sets that this
 solver supports. They are built from a short Julia recipe; see
 [writing a backend](https://github.com/NexOR-Optimization/JuMPy/blob/main/julia/README.md#backends).

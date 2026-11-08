@@ -43,16 +43,25 @@ of GenOpt; released GenOpt 0.2.3 lacks the required lazy-sum bridge. See the
 [local development setup](julia/README.md#building).
 
 ```
-pip install jumpy-opt
+pip install jumpy-opt-highs
 ```
 
 The distribution is named `jumpy-opt` since `jumpy` is taken on PyPI; the
-package is still imported as `jumpy`.
+package is still imported as `jumpy`. It is pure Python, and each compiled
+backend is a separate distribution that requires it:
 
-The compiled HiGHS interface needs neither a Julia installation nor `juliacall`:
-the wheels for Linux x86_64 and macOS arm64 ship a precompiled solver backend
-built with [juliac](https://docs.julialang.org/en/v1/devdocs/juliac/). On other
-platforms, use JuliaCall or [build the backend](julia/README.md#building).
+| Install | Interface |
+|---|---|
+| `pip install jumpy-opt` | none: the modeling API only |
+| `pip install jumpy-opt-highs` | `import jumpy.highs`: compiled HiGHS |
+| `pip install jumpy-opt-nexor` | `import jumpy.nexor`: compiled NexOR client |
+| `pip install 'jumpy-opt[juliacall]'` | `import jumpy.juliacall`: any solver of a Julia installation |
+
+Each compiled backend embeds its own Julia runtime, so a process imports only
+one of them. They need neither a Julia installation nor `juliacall`: their wheels for
+Linux x86_64 and macOS arm64 ship a precompiled solver backend built with
+[juliac](https://docs.julialang.org/en/v1/devdocs/juliac/). On other platforms,
+use JuliaCall or [build the backend](julia/README.md#building).
 
 Choose the interface when importing:
 
@@ -335,7 +344,7 @@ src/jumpy/
 ├── bridge_juliacall.py   # Native modeling operations via juliacall
 ├── backend.py            # Compiled modeling operations via ctypes
 ├── julia/JuMPyModel.jl    # In wheels: shared source from julia/src/JuMPyModel.jl
-├── _backends/<name>/     # In platform wheels: the JuliaC bundle (julia/build_backend.py)
+├── _backends/<name>/     # In jumpy-opt-<name>: the JuliaC bundle (julia/build_backend.py)
 └── model.py              # Model class: variables, groups, objective, solve
 ```
 
