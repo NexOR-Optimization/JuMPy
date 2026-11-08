@@ -279,10 +279,10 @@ Notes:
 
 Wheels cannot store symlinks, so [`package_bundle.py`](package_bundle.py) keeps
 each library under its install name and the aliases that the bundled binaries
-refer to, such as the `lib/libhighs.so` path of HiGHS. Every push builds and
-tests the wheels for Linux x86_64, macOS arm64 and Windows and uploads them as
-workflow artifacts. Publishing a GitHub release also uploads them to PyPI as
-`jumpy-opt`.
+refer to, such as the `lib/libhighs.so` path of HiGHS, or `libpcre2-8`, which
+Julia opens as `libpcre2-8.so`. Every push builds and tests the wheels for Linux
+x86_64, macOS arm64 and Windows and uploads them as workflow artifacts.
+Publishing a GitHub release also uploads them to PyPI as `jumpy-opt`.
 
 ## Testing
 

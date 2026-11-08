@@ -104,6 +104,14 @@ jobs:
         env:
           JUMPY_BACKEND: juliac
 
+      # The runner has development packages, such as the `libpcre2-8.so` that
+      # Julia opens, which hide the libraries missing from the wheel.
+      - name: Test the wheel on a system without development packages
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" python:3.12-slim-trixie sh -c \
+            'pip install --root-user-action=ignore -q /dist/*.whl && python -c "import jumpy.highs as jp; m = jp.Model(); x = m.variable(lower=1); m.objective = jp.minimize(x); m.optimize(); print(m.value(x))"'
+
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
