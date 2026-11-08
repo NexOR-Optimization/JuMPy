@@ -70,7 +70,7 @@ def referenced_names(paths):
     """The library names, such as `libopenlibm.so` in `julia/libopenlibm.so:`,
     appearing in the binaries at `paths`, with the extension of the platform
     added to the names without one."""
-    return set().union(*(_names_in(path) for path in paths))
+    return set().union(*(_names_in(path) | _bare_names_in(path) for path in paths))
 
 
 def _names_in(path):
@@ -82,8 +82,13 @@ def _names_in(path):
         stem = NAME_CHARS.search(data[start : match.start()])
         if stem is not None:
             names.add((stem.group() + match.group()).decode())
-    names.update(name.decode() + SHARED_EXT for name in BARE_NAME.findall(data))
     return names
+
+
+def _bare_names_in(path):
+    with open(path, "rb") as io:
+        data = io.read()
+    return {name.decode() + SHARED_EXT for name in BARE_NAME.findall(data)}
 
 
 def _linked(path):
@@ -106,7 +111,10 @@ def _macos_renames(groups, binaries):
     so these are all kept and the others are renamed to one of them.
     """
     linked = {os.path.basename(name) for path in binaries for name in _linked(path)}
-    # The names in each binary that are not load commands.
+    # The names in each binary that are not load commands. Names without
+    # extension, such as `libblastrampoline` in libjulia-internal, are not
+    # counted: the install name `libblastrampoline.5.dylib` would be renamed
+    # although libblastrampoline_jll opens it.
     strings = {path: _names_in(path) - linked for path in binaries}
     renames = {}
     for paths in groups.values():
