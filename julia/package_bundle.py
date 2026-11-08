@@ -7,9 +7,10 @@ platform wheel:
 Wheels cannot store symlinks, so the aliases of a library are copies. To keep
 the wheel small, only the aliases that can be loaded are kept: the install name
 (SONAME on Linux) and the names that a bundled binary refers to, such as the
-`lib/libhighs.so` path that JuliaC stores for a JLL library. On macOS, which
-would load each of these copies, the install name and the load commands are
-changed to a name that is kept anyway.
+`lib/libhighs.so` path that JuliaC stores for a JLL library, or `libpcre2-8`,
+which Julia opens as `libpcre2-8.so`. On macOS, which would load each of these
+copies, the install name and the load commands are changed to a name that is
+kept anyway.
 Static libraries, headers, executables and man pages of the artifacts are
 dropped. The platform tag of the wheel is written to `<dest>/wheel-tag`, which
 `hatch_build.py` reads.
@@ -59,12 +60,17 @@ def install_name(path):
 # backtracks over every run of name characters in the binary.
 EXTENSION = re.compile(rb"\.(?:so|dylib|dll)(?:\.\d+)*")
 NAME_CHARS = re.compile(rb"[\w+.-]+$")
+# A library name without extension, such as `libpcre2-8` in Julia's Base, to
+# which `dlopen` in Julia adds the extension of the platform.
+BARE_NAME = re.compile(rb"(?<![\w+.-])lib[\w+-]+(?=\0)")
+SHARED_EXT = {"darwin": ".dylib", "win32": ".dll"}.get(sys.platform, ".so")
 
 
 def referenced_names(paths):
     """The library names, such as `libopenlibm.so` in `julia/libopenlibm.so:`,
-    appearing in the binaries at `paths`."""
-    return set().union(*(_names_in(path) for path in paths))
+    appearing in the binaries at `paths`, with the extension of the platform
+    added to the names without one."""
+    return set().union(*(_names_in(path) | _bare_names_in(path) for path in paths))
 
 
 def _names_in(path):
@@ -77,6 +83,12 @@ def _names_in(path):
         if stem is not None:
             names.add((stem.group() + match.group()).decode())
     return names
+
+
+def _bare_names_in(path):
+    with open(path, "rb") as io:
+        data = io.read()
+    return {name.decode() + SHARED_EXT for name in BARE_NAME.findall(data)}
 
 
 def _linked(path):
@@ -99,7 +111,10 @@ def _macos_renames(groups, binaries):
     so these are all kept and the others are renamed to one of them.
     """
     linked = {os.path.basename(name) for path in binaries for name in _linked(path)}
-    # The names in each binary that are not load commands.
+    # The names in each binary that are not load commands. Names without
+    # extension, such as `libblastrampoline` in libjulia-internal, are not
+    # counted: the install name `libblastrampoline.5.dylib` would be renamed
+    # although libblastrampoline_jll opens it.
     strings = {path: _names_in(path) - linked for path in binaries}
     renames = {}
     for paths in groups.values():
