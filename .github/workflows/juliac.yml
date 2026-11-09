@@ -63,13 +63,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Trace the workload, compile the recipe and copy the bundle into
-      # src/jumpy/_backends/highs for the wheel.
-      - name: Build shared library
+      # Trace the workload, compile the recipe and package the bundle into the
+      # wheel jumpy-opt-highs.
+      - name: Build shared library and wheel
         # Link for the macOS of the bundled Julia libraries, not the runner's.
         env:
           MACOSX_DEPLOYMENT_TARGET: "11.0"
-        run: uv run --no-project python julia/build_backend.py julia/backends/highs --package src
+        run: uv run --no-project python julia/build_backend.py julia/backends/highs --wheel dist
 
       - name: Run tests against the compiled library
         run: uv run --group tests pytest
@@ -83,17 +83,19 @@ jobs:
           name: jumpy-backend-${{ matrix.os }}
           path: julia/backends/highs/build/bundle
 
-      - name: Build wheel with the bundle
-        run: uv build --wheel
+      - name: Build the jumpy-opt wheel
+        run: uv build --wheel --out-dir base
 
-      # Outside the checkout, so that the tests import the installed package.
-      - name: Test the installed wheel
+      # Outside the checkout, so that the tests import the installed packages.
+      - name: Test the installed wheels
         working-directory: ${{ runner.temp }}
         run: |
           # A POSIX path, which Git Bash also globs on Windows.
           workspace=$(cd "$GITHUB_WORKSPACE" && pwd)
           uv venv wheel-env
-          uv pip install --python wheel-env "$workspace"/dist/*.whl pytest
+          # jumpy-opt-highs requires the jumpy-opt wheel of this commit.
+          uv pip install --python wheel-env --no-index --find-links "$workspace/base" "$workspace"/dist/*.whl
+          uv pip install --python wheel-env pytest
           python=wheel-env/bin/python
           [ -e "$python" ] || python=wheel-env/Scripts/python
           "$python" -c "import sys, jumpy.backend as b; lib = b.find_lib('highs'); print(lib); sys.exit(lib is None or 'site-packages' not in lib)"
@@ -109,36 +111,36 @@ jobs:
       - name: Test the wheel on a system without development packages
         if: runner.os == 'Linux'
         run: |
-          docker run --rm -v "$PWD/dist:/dist:ro" python:3.12-slim-trixie sh -c \
-            'pip install --root-user-action=ignore -q /dist/*.whl && python -c "import jumpy.highs as jp; m = jp.Model(); x = m.variable(lower=1); m.objective = jp.minimize(x); m.optimize(); print(m.value(x))"'
+          docker run --rm -v "$PWD/base:/base:ro" -v "$PWD/dist:/dist:ro" python:3.12-slim-trixie sh -c \
+            'pip install --root-user-action=ignore -q /base/*.whl /dist/*.whl && python -c "import jumpy.highs as jp; m = jp.Model(); x = m.variable(lower=1); m.objective = jp.minimize(x); m.optimize(); print(m.value(x))"'
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
-          name: jumpy-wheel-${{ matrix.os }}
+          name: jumpy-wheel-highs-${{ matrix.os }}
           path: dist/*.whl
 
-  sdist:
-    name: Source distribution
+  python:
+    name: Pure-Python wheel and source distribution
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: astral-sh/setup-uv@v7
 
-      - name: Build source distribution
-        run: uv build --sdist
+      - name: Build wheel and source distribution
+        run: uv build
 
-      - name: Upload source distribution
+      - name: Upload wheel and source distribution
         uses: actions/upload-artifact@v4
         with:
-          name: jumpy-sdist
-          path: dist/*.tar.gz
+          name: jumpy-python
+          path: dist/*
 
   publish:
     name: Publish to PyPI
     if: github.event_name == 'release'
-    needs: [build-lib, sdist]
+    needs: [build-lib, build-nexor, python]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -153,10 +155,10 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Download source distribution
+      - name: Download wheel and source distribution
         uses: actions/download-artifact@v4
         with:
-          name: jumpy-sdist
+          name: jumpy-python
           path: dist
 
       - name: Publish
@@ -186,8 +188,10 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
-      - name: Build shared library
-        run: uv run --no-project python julia/build_backend.py julia/backends/nexor
+      - name: Build shared library and wheel
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: uv run --no-project python julia/build_backend.py julia/backends/nexor --wheel dist
       - name: Run tests against the compiled library
         run: uv run --group tests pytest tests/test_nexor.py tests/test_backend.py tests/test_facades.py
         env:
@@ -198,6 +202,25 @@ jobs:
         with:
           name: jumpy-backend-nexor-${{ matrix.os }}
           path: julia/backends/nexor/build/bundle
+      - name: Build the jumpy-opt wheel
+        run: uv build --wheel --out-dir base
+      # Outside the checkout, so that the tests import the installed packages.
+      - name: Test the installed wheels
+        working-directory: ${{ runner.temp }}
+        run: |
+          uv venv wheel-env
+          uv pip install --python wheel-env --no-index --find-links "$GITHUB_WORKSPACE/base" "$GITHUB_WORKSPACE"/dist/*.whl
+          uv pip install --python wheel-env pytest
+          wheel-env/bin/python -c "import sys, jumpy.backend as b; lib = b.find_lib('nexor'); print(lib); sys.exit(lib is None or 'site-packages' not in lib)"
+          tests="$GITHUB_WORKSPACE/tests"
+          wheel-env/bin/python -m pytest -p no:cacheprovider "$tests/test_nexor.py" "$tests/test_backend.py" "$tests/test_facades.py"
+        env:
+          JUMPY_BACKEND: nexor
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: jumpy-wheel-nexor-${{ matrix.os }}
+          path: dist/*.whl
 
   docs:
     name: Executable documentation

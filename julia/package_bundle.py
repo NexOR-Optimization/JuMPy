@@ -1,19 +1,20 @@
 """
-Copy a JuliaC bundle into the Python package so that hatchling ships it in a
-platform wheel:
+Copy a JuliaC bundle into the directory of a backend wheel, such as
+`jumpy/_backends/highs`, which `julia/build_backend.py --wheel` packages:
 
-    python julia/package_bundle.py julia/build src/jumpy/_backend
+    python julia/package_bundle.py julia/backends/highs/build/bundle dest
 
 Wheels cannot store symlinks, so the aliases of a library are copies. To keep
-the wheel small, only the aliases that can be loaded are kept: the install name
-(SONAME on Linux) and the names that a bundled binary refers to, such as the
-`lib/libhighs.so` path that JuliaC stores for a JLL library, or `libpcre2-8`,
-which Julia opens as `libpcre2-8.so`. On macOS, which would load each of these
-copies, the install name and the load commands are changed to a name that is
-kept anyway.
+the wheel small, only the aliases that can be loaded are kept: the names that
+another bundled binary refers to, such as the `lib/libhighs.so` path that
+JuliaC stores for a JLL library, or `libpcre2-8`, which Julia opens as
+`libpcre2-8.so`, or else the install name (SONAME on Linux). On macOS, which
+would load each of these copies, the install name and the load commands are
+changed to a name that is kept anyway.
 Static libraries, headers, executables and man pages of the artifacts are
-dropped. The platform tag of the wheel is written to `<dest>/wheel-tag`, which
-`hatch_build.py` reads.
+dropped, as are the debug symbols of the libraries on Linux. The platform tag
+of the wheel is written to `<dest>/wheel-tag`, which the wheel's build hook
+reads.
 """
 
 import hashlib
@@ -26,6 +27,7 @@ import sys
 import sysconfig
 
 WINDOWS = sys.platform == "win32"
+LINUX = sys.platform.startswith("linux")
 # The directory of the libraries in the bundle. On Windows, the DLLs of the
 # artifacts are also in their `bin`, next to their executables.
 LIB_DIR = "bin" if WINDOWS else "lib"
@@ -66,14 +68,9 @@ BARE_NAME = re.compile(rb"(?<![\w+.-])lib[\w+-]+(?=\0)")
 SHARED_EXT = {"darwin": ".dylib", "win32": ".dll"}.get(sys.platform, ".so")
 
 
-def referenced_names(paths):
-    """The library names, such as `libopenlibm.so` in `julia/libopenlibm.so:`,
-    appearing in the binaries at `paths`, with the extension of the platform
-    added to the names without one."""
-    return set().union(*(_names_in(path) | _bare_names_in(path) for path in paths))
-
-
 def _names_in(path):
+    """The library names, such as `libopenlibm.so` in `julia/libopenlibm.so:`,
+    appearing in the binary at `path`."""
     names = set()
     with open(path, "rb") as io:
         data = io.read()
@@ -177,17 +174,25 @@ def collect(bundle):
             path = os.path.join(root, name)
             groups.setdefault((root, _digest(path)), []).append(path)
     binaries = [paths[0] for paths in groups.values() if _is_library(paths[0])]
-    referenced = referenced_names(binaries)
+    names_in = {path: _names_in(path) | _bare_names_in(path) for path in binaries}
     renames = {}
     if sys.platform == "darwin":
         renames = _macos_renames(groups, binaries)
     kept = {}
     for paths in groups.values():
         if len(paths) > 1:
-            names = referenced | {install_name(paths[0])}
+            # A library can mention its own names, which does not load it.
+            others = [names_in[b] for b in binaries if b != paths[0]]
+            names = set().union(*others)
             if renames:
                 names = {renames.get(name, name) for name in names}
             loaded = [p for p in paths if os.path.basename(p) in names]
+            # A library that no other binary refers to, such as one opened by
+            # a path in the Julia image, keeps its install name.
+            name = install_name(paths[0])
+            if not loaded and name is not None:
+                name = renames.get(name, name)
+                loaded = [p for p in paths if os.path.basename(p) == name]
             # Copies of a file that is not a library are all kept.
             paths = loaded or paths
         for path in paths:
@@ -233,7 +238,7 @@ def platform_tag(paths):
     libraries = [p for p in paths if _is_library(p)]
     if sys.platform == "darwin":
         return _macos_tag(libraries)
-    if sys.platform.startswith("linux"):
+    if LINUX:
         return _linux_tag(libraries)
     if WINDOWS:
         # Such as `win_amd64`.
@@ -247,13 +252,17 @@ def main(bundle, dest):
     for relpath, source in kept.items():
         target = os.path.join(dest, relpath)
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        shutil.copy2(source, target)
+        if LINUX and _is_library(source):
+            # The debug information is about half of the compiled image.
+            _check("strip", "--strip-unneeded", "-o", target, source)
+        else:
+            shutil.copy2(source, target)
         if renames and _is_library(target):
             _relink(target, renames)
     tag = platform_tag(list(kept.values()))
     with open(os.path.join(dest, "wheel-tag"), "w") as io:
         io.write(tag + "\n")
-    size = sum(os.path.getsize(p) for p in kept.values())
+    size = sum(os.path.getsize(os.path.join(dest, p)) for p in kept)
     print(f"Copied {len(kept)} files ({size / 1e6:.0f} MB) to {dest} for {tag}")
 
 

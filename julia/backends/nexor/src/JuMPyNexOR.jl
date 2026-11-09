@@ -43,7 +43,7 @@ function NexOR.JSON.applyany(
     style::NexOR.JSON.JSONWriteStyle,
     f::F,
     key::K,
-    @nospecialize(value)
+    @nospecialize(value),
 ) where {F,K}
     if value isa Dict{String,Dict{String,Any}}
         object = Dict{String,Any}()

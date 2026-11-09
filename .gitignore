@@ -9,4 +9,3 @@ docs/build/
 docs/source/generated/
 julia/test/Manifest.toml
 julia/backends/*/Manifest.toml
-src/jumpy/_backends/

@@ -1,7 +1,7 @@
 """
 Build a compiled JuMPy backend from its recipe, and package it for Python:
 
-    python julia/build_backend.py RECIPE [--name NAME] [--package SRC | --wheel DIST]
+    python julia/build_backend.py RECIPE [--name NAME] [--wheel DIST]
 
 RECIPE is the directory of a Julia package `JuMPy<Name>` whose module calls
 `JuMPy.@entrypoints`, with a `workload.jl` script exercising its C ABI and,
@@ -13,10 +13,9 @@ optionally, a `roots.jl` script registering more compilation roots. See
 3. turn them into compilation roots with `JuMPy.TrimDispatch`;
 4. compile the recipe module with JuliaC into `RECIPE/build/bundle`, with
    `--trim=unsafe-warn`;
-5. with `--package SRC`, copy the bundle into `SRC/jumpy/_backends/NAME`, where
-   `import jumpy.NAME` finds it; with `--wheel DIST`, build the platform wheel
-   `jumpy-opt-NAME` into `DIST`, which contains this bundle and the module
-   `jumpy/NAME.py`, and requires the `jumpy-opt` package.
+5. with `--wheel DIST`, build the platform wheel `jumpy-opt-NAME` into `DIST`,
+   which contains this bundle in `jumpy/_backends/NAME` and, unless the
+   `jumpy-opt` package that it requires has it, the module `jumpy/NAME.py`.
 
 Julia, a C compiler and JuliaC (`julia --project=@juliac -m JuliaC`) must be
 installed. The image is compiled for the CPU target `--cpu-target`, `generic`
@@ -33,6 +32,9 @@ import tomllib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import package_bundle  # noqa: E402
+
+# The root of the JuMPy repository.
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # The Python module of a backend, written into its wheel.
 STUB = '''"""Compiled {package} backend: ``import jumpy.{name} as jp``.
@@ -64,7 +66,7 @@ packages = ["jumpy"]
 [tool.hatch.build.targets.wheel.hooks.custom]
 '''
 
-# Tag the wheel with the platform of the bundle, as JuMPy's own hatch_build.py.
+# Tag the wheel with the platform of the bundle that package_bundle.py wrote.
 HATCH_BUILD = '''from pathlib import Path
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
@@ -162,18 +164,16 @@ def build(recipe, name=None, traces=(), cpu_target="generic"):
     return bundle, name
 
 
-def package(bundle, name, source):
-    """Copy `bundle` into the Python source tree `source`."""
-    package_bundle.main(bundle, os.path.join(source, "jumpy", "_backends", name))
-
-
 def wheel(bundle, name, dist, package_name, version):
     """Build the wheel `jumpy-opt-<name>` of `bundle` into `dist`."""
     project = os.path.join(os.path.dirname(bundle), "wheel")
     shutil.rmtree(project, ignore_errors=True)
-    package(bundle, name, project)
-    with open(os.path.join(project, "jumpy", f"{name}.py"), "w") as io:
-        io.write(STUB.format(name=name, package=package_name))
+    package_bundle.main(bundle, os.path.join(project, "jumpy", "_backends", name))
+    # The modules of the backends of this repository, such as jumpy/highs.py,
+    # are in jumpy-opt, which tells to install the wheel when it is missing.
+    if not os.path.exists(os.path.join(_ROOT, "src", "jumpy", f"{name}.py")):
+        with open(os.path.join(project, "jumpy", f"{name}.py"), "w") as io:
+            io.write(STUB.format(name=name, package=package_name))
     with open(os.path.join(project, "pyproject.toml"), "w") as io:
         io.write(PYPROJECT.format(
             name=name,
@@ -189,8 +189,7 @@ def wheel(bundle, name, dist, package_name, version):
 
 
 def _jumpy_version():
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    with open(os.path.join(root, "pyproject.toml"), "rb") as io:
+    with open(os.path.join(_ROOT, "pyproject.toml"), "rb") as io:
         return tomllib.load(io)["project"]["version"]
 
 
@@ -202,10 +201,11 @@ def main(argv=None):
         "--trace", action="append", default=[],
         help="additional script to trace in the recipe environment",
     )
-    output = parser.add_mutually_exclusive_group()
-    output.add_argument("--package", metavar="SRC", help="copy into SRC/jumpy/_backends")
-    output.add_argument("--wheel", metavar="DIST", help="build the jumpy-opt-<name> wheel")
-    parser.add_argument("--version", default="0.1.0", help="version of the wheel")
+    parser.add_argument("--wheel", metavar="DIST", help="build the jumpy-opt-<name> wheel")
+    parser.add_argument(
+        "--version", default=_jumpy_version(),
+        help="version of the wheel (default: the version of jumpy-opt)",
+    )
     parser.add_argument(
         "--cpu-target",
         default=os.environ.get("JULIA_CPU_TARGET", "generic"),
@@ -214,9 +214,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     bundle, name = build(args.recipe, args.name, args.trace, args.cpu_target)
     module, _ = _recipe(os.path.abspath(args.recipe))
-    if args.package:
-        package(bundle, name, args.package)
-    elif args.wheel:
+    if args.wheel:
         wheel(bundle, name, args.wheel, module[len("JuMPy"):], args.version)
 
 
